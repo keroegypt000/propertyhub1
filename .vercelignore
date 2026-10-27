@@ -1,0 +1,5 @@
+db/custom.db
+node_modules/
+.next/
+dev.log
+server.log

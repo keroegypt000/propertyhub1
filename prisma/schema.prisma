@@ -1,0 +1,264 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "sqlite"
+  url       = env("DATABASE_URL")
+}
+
+// === USER HIERARCHY ===
+model User {
+  id           String    @id @default(cuid())
+  username     String    @unique
+  name         String
+  passwordHash String
+  salt         String
+  role         String    @default("viewer") // admin, manager, accountant, collector, viewer
+  permissions  String?   // JSON: granular permissions per entity
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  sessions      Session[]
+  auditLogs     AuditLog[]
+  uploads       FileUpload[]
+  restorePoints RestorePoint[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// === PROPERTY MANAGEMENT ===
+model Building {
+  id          String   @id @default(cuid())
+  code        String   @unique  // كود العمارة
+  name        String
+  address     String?
+  city        String?
+  floors      Int?
+  unitsCount  Int?
+  value       Float?   @default(0) // القيمة الدفترية
+  license     String?  // رقم الترخيص / السجل العقاري
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  units       Unit[]
+  transactions Transaction[]
+}
+
+model Unit {
+  id          String   @id @default(cuid())
+  buildingId  String
+  number      String
+  floor       Int?
+  area        Float?
+  type        String?  // apartment, office, shop, warehouse
+  status      String   @default("available") // available, rented, maintenance, reserved
+  rentAmount  Float?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  building    Building  @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  contracts   Contract[]
+}
+
+model Tenant {
+  id              String   @id @default(cuid())
+  name            String
+  phone           String?
+  email           String?
+  idNumber        String?  // الرقم القومي (14 رقم)
+  idType          String?  // national, passport, commercial
+  address         String?
+  emergencyContact String?
+  guarantor       String?  // اسم الضامن
+  guarantorPhone  String?  // هاتف الضامن
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  contracts     Contract[]
+  uploads       FileUpload[]
+}
+
+model Contract {
+  id           String   @id @default(cuid())
+  unitId       String
+  tenantId     String
+  startDate    DateTime
+  endDate      DateTime
+  rentAmount   Float
+  deposit      Float?   @default(0) // مبلغ التأمين
+  paymentDay   Int?     // day of month for payment
+  status       String   @default("active") // active, expired, terminated, renewed, vacated
+  vacatedDate  String?  // تاريخ الإخلاء
+  refund       Float?   // المبلغ المردود من التأمين
+  terms        String?
+  notes        String?
+  rentHistory  String?  // JSON: [{from, rent}] تاريخ تغيير الإيجار
+  renewHistory String?  // JSON: [{on, oldEnd, newEnd, rent}] تاريخ التجديد
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  unit         Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payments     Payment[]
+  attachments  FileUpload[]
+}
+
+model Payment {
+  id          String   @id @default(cuid())
+  contractId  String
+  amount      Float
+  dueDate     DateTime
+  paidDate    DateTime?
+  month       String?  // الشهر الذي يخصه الدفع (YYYY-MM)
+  status      String   @default("pending") // pending, paid, partial, overdue, cancelled
+  method      String?  // cash, transfer, check, card
+  reference   String?  // receipt/check number
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  contract    Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}
+
+// === TRANSACTIONS (Income/Expense) ===
+model Transaction {
+  id          String   @id @default(cuid())
+  date        String   // YYYY-MM-DD
+  buildingId  String?
+  type        String   // income, expense
+  category    String   // البيان
+  amount      Float
+  account     String?  // رقم الحساب من شجرة الحسابات
+  cashAccount String?  // الدفع من / الاستلام في
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  building    Building? @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+}
+
+// === LOANS ===
+model Loan {
+  id          String   @id @default(cuid())
+  name        String   // اسم القرض / الجهة
+  buildingId  String?  // العمارة (اختياري)
+  principal   Float    // مبلغ القرض
+  date        String   // تاريخ الحصول
+  rate        Float    @default(0) // الفائدة السنوية %
+  months      Int      @default(0) // المدة بالأشهر
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  payments    LoanPayment[]
+}
+
+model LoanPayment {
+  id          String   @id @default(cuid())
+  loanId      String
+  date        String   // تاريخ السداد
+  principal   Float    // الأصل المسدد
+  interest    Float    @default(0) // الفائدة المسددة
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  loan        Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+}
+
+// === CHART OF ACCOUNTS ===
+model Account {
+  id       String  @id @default(cuid())
+  code     String  @unique // رقم الحساب
+  name     String  // اسم الحساب
+  type     String  // asset, liability, equity, revenue, expense
+  kind     String  // post (فرعي), group (رئيسي/تجميعي)
+  parent   String? // الحساب الأب
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// === JOURNAL ENTRIES ===
+model JournalEntry {
+  id          String   @id @default(cuid())
+  date        String   // YYYY-MM-DD
+  description String   // البيان
+  buildingId  String?
+  lines       String   // JSON: [{account, debit, credit}]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// === MAINTENANCE ===
+model MaintenanceRequest {
+  id          String   @id @default(cuid())
+  unitId      String?
+  title       String
+  description String?
+  priority    String   @default("medium") // low, medium, high, urgent
+  status      String   @default("open") // open, in_progress, completed, cancelled
+  cost        Float?
+  assignedTo  String?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  attachments FileUpload[]
+}
+
+// === FILE STORAGE ===
+model FileUpload {
+  id             String   @id @default(cuid())
+  filename       String
+  originalName   String
+  mimeType       String
+  size           Int
+  category       String   @default("general") // contract, maintenance, identity, general
+  contractId     String?
+  maintenanceId  String?
+  tenantId       String?
+  uploadedBy     String?
+  createdAt      DateTime @default(now())
+
+  contract       Contract?           @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  maintenance    MaintenanceRequest? @relation(fields: [maintenanceId], references: [id], onDelete: SetNull)
+  tenant         Tenant?             @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  uploader      User?                @relation(fields: [uploadedBy], references: [id], onDelete: SetNull)
+}
+
+// === AUDIT TRAIL ===
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String
+  action     String   // create, update, delete, login, logout, restore, upload
+  entity     String   // building, unit, tenant, contract, payment, maintenance, user, file, restore_point
+  entityId   String?
+  changes    String?  // JSON string of before/after values
+  details    String?  // human-readable description
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// === RESTORE POINTS ===
+model RestorePoint {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  snapshot    String   // JSON string of full database state
+  createdBy   String
+  createdAt   DateTime @default(now())
+
+  creator     User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+}

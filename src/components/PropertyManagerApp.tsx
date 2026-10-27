@@ -1,0 +1,1438 @@
+'use client';
+
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { toast } from 'sonner';
+import {
+  Building2, Home, Users, FileText, DollarSign, Wrench, Shield, Clock,
+  Upload, Download, Trash2, Edit3, Plus, Search, Eye, Lock, LogOut,
+  ChevronDown, ChevronLeft, RefreshCw, AlertTriangle, CheckCircle2,
+  XCircle, Calendar, Phone, Mail, MapPin, Hash, Briefcase, Settings,
+  Archive, Activity, UserPlus, Key, ToggleLeft, ToggleRight, Info,
+  LayoutDashboard, FolderOpen, Camera, FileImage
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
+import { ScrollArea } from '@/components/ui/scroll-area';
+
+// Types
+interface User { id: string; username: string; name: string; role: string; roleName: string; permissions?: string; }
+interface Building { id: string; code?: string; name: string; address?: string; city?: string; floors?: number; unitsCount?: number; value?: number; license?: string; notes?: string; units?: Unit[]; transactions?: any[]; createdAt: string; }
+interface Unit { id: string; buildingId: string; number: string; floor?: number; area?: number; type?: string; status: string; rentAmount?: number; notes?: string; building?: Building; createdAt: string; }
+interface Tenant { id: string; name: string; phone?: string; email?: string; idNumber?: string; idType?: string; address?: string; notes?: string; uploads?: FileUpload[]; createdAt: string; }
+interface Contract { id: string; unitId: string; tenantId: string; startDate: string; endDate: string; rentAmount: number; deposit?: number; paymentDay?: number; status: string; terms?: string; notes?: string; unit?: Unit; tenant?: Tenant; payments?: Payment[]; attachments?: FileUpload[]; createdAt: string; }
+interface Payment { id: string; contractId: string; amount: number; dueDate: string; paidDate?: string; month?: string; status: string; method?: string; reference?: string; notes?: string; contract?: Contract; createdAt: string; }
+interface MaintenanceItem { id: string; title: string; description?: string; priority: string; status: string; cost?: number; assignedTo?: string; unitId?: string; attachments?: FileUpload[]; createdAt: string; }
+interface FileUpload { id: string; filename: string; originalName: string; mimeType: string; size: number; category: string; contractId?: string; tenantId?: string; maintenanceId?: string; createdAt: string; }
+interface AuditEntry { id: string; userId: string; action: string; entity: string; entityId?: string; changes?: string; details?: string; createdAt: string; user?: { id: string; name: string; username: string }; }
+interface RestorePoint { id: string; name: string; description?: string; createdBy: string; createdAt: string; creator?: { id: string; name: string; username: string }; }
+
+const CURRENCY = 'د.ك'; // Kuwaiti Dinar
+
+type Section = 'dashboard' | 'buildings' | 'units' | 'tenants' | 'contracts' | 'payments' | 'maintenance' | 'files' | 'transactions' | 'loans' | 'loanPayments' | 'accounts' | 'journal' | 'audit' | 'restore' | 'health' | 'users' | 'settings';
+
+const ROLES_MAP: Record<string, string> = { admin: 'مدير', manager: 'مدير فرعي', accountant: 'محاسب', collector: 'محصّل', viewer: 'مشاهد' };
+const UNIT_STATUS_MAP: Record<string, { label: string; color: string }> = {
+  available: { label: 'متاحة', color: 'bg-emerald-100 text-emerald-800' },
+  rented: { label: 'مؤجرة', color: 'bg-blue-100 text-blue-800' },
+  maintenance: { label: 'صيانة', color: 'bg-amber-100 text-amber-800' },
+  reserved: { label: 'محجوزة', color: 'bg-purple-100 text-purple-800' },
+};
+const CONTRACT_STATUS_MAP: Record<string, { label: string; color: string }> = {
+  active: { label: 'نشط', color: 'bg-emerald-100 text-emerald-800' },
+  expired: { label: 'منتهي', color: 'bg-red-100 text-red-800' },
+  terminated: { label: 'ملغي', color: 'bg-gray-100 text-gray-800' },
+  renewed: { label: 'مجدد', color: 'bg-blue-100 text-blue-800' },
+};
+const PAYMENT_STATUS_MAP: Record<string, { label: string; color: string }> = {
+  pending: { label: 'معلق', color: 'bg-amber-100 text-amber-800' },
+  paid: { label: 'مدفوع', color: 'bg-emerald-100 text-emerald-800' },
+  partial: { label: 'جزئي', color: 'bg-blue-100 text-blue-800' },
+  overdue: { label: 'متأخر', color: 'bg-red-100 text-red-800' },
+  cancelled: { label: 'ملغي', color: 'bg-gray-100 text-gray-800' },
+};
+const MAINT_STATUS_MAP: Record<string, { label: string; color: string }> = {
+  open: { label: 'مفتوح', color: 'bg-amber-100 text-amber-800' },
+  in_progress: { label: 'قيد التنفيذ', color: 'bg-blue-100 text-blue-800' },
+  completed: { label: 'مكتمل', color: 'bg-emerald-100 text-emerald-800' },
+  cancelled: { label: 'ملغي', color: 'bg-gray-100 text-gray-800' },
+};
+const PRIORITY_MAP: Record<string, { label: string; color: string }> = {
+  low: { label: 'منخفض', color: 'bg-gray-100 text-gray-800' },
+  medium: { label: 'متوسط', color: 'bg-amber-100 text-amber-800' },
+  high: { label: 'عالي', color: 'bg-orange-100 text-orange-800' },
+  urgent: { label: 'عاجل', color: 'bg-red-100 text-red-800' },
+};
+
+// Token management
+function getStoredToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('sid');
+}
+function setStoredToken(token: string) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem('sid', token);
+}
+function clearStoredToken() {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem('sid');
+}
+
+async function api<T = any>(url: string, method = 'GET', body?: any): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (body && !(body instanceof FormData)) headers['Content-Type'] = 'application/json';
+  const token = getStoredToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(url, {
+    method,
+    headers,
+    credentials: 'include',
+    body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 401) throw new Error('unauthorized');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'خطأ في الخادم');
+  return data as T;
+}
+
+export default function PropertyManagerApp() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const loginTimeRef = useRef(0); // Guard against race condition in checkAuth
+  const [section, setSection] = useState<Section>('dashboard');
+  const [setupNeeded, setSetupNeeded] = useState(false);
+  const [buildings, setBuildings] = useState<Building[]>([]);
+  const [units, setUnits] = useState<Unit[]>([]);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [maintenance, setMaintenance] = useState<MaintenanceItem[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([]);
+  const [restorePoints, setRestorePoints] = useState<RestorePoint[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [loans, setLoans] = useState<any[]>([]);
+  const [loanPayments, setLoanPayments] = useState<any[]>([]);
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [journalEntries, setJournalEntries] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [allFiles, setAllFiles] = useState<FileUpload[]>([]);
+
+  const checkAuth = useCallback(async () => {
+    try {
+      const token = getStoredToken();
+      if (!token) { setUser(null); setLoading(false); return; }
+      const u = await api<User>('/api/auth/me');
+      setUser(u);
+    } catch {
+      // Only clear session if no recent login (prevents race condition)
+      if (Date.now() - loginTimeRef.current > 3000) {
+        setUser(null); clearStoredToken();
+      }
+    } finally { setLoading(false); }
+  }, []);
+
+  const checkSetup = useCallback(async () => {
+    try { const data = await api<{ needed: boolean }>('/api/setup-needed'); setSetupNeeded(data.needed); } catch {}
+  }, []);
+
+  useEffect(() => { checkSetup(); checkAuth(); }, [checkAuth, checkSetup]);
+
+  const loadData = useCallback(async (s: Section) => {
+    try {
+      if (s === 'buildings') setBuildings(await api<Building[]>('/api/buildings'));
+      if (s === 'units') setUnits(await api<Unit[]>('/api/units'));
+      if (s === 'tenants') { const data = await api<Tenant[]>('/api/tenants'); setTenants(data); }
+      if (s === 'contracts') setContracts(await api<Contract[]>('/api/contracts'));
+      if (s === 'payments') setPayments(await api<Payment[]>('/api/payments'));
+      if (s === 'maintenance') setMaintenance(await api<MaintenanceItem[]>('/api/maintenance'));
+      if (s === 'files') { setAllFiles(await api<FileUpload[]>('/api/files/all')); setContracts(await api<Contract[]>('/api/contracts')); setTenants(await api<Tenant[]>('/api/tenants')); }
+      if (s === 'audit') { const data = await api<{ logs: AuditEntry[] }>('/api/audit?limit=100'); setAuditLogs(data.logs || []); }
+      if (s === 'restore') setRestorePoints(await api<RestorePoint[]>('/api/restore'));
+      if (s === 'users') setAllUsers(await api('/api/users'));
+      if (s === 'transactions') setTransactions(await api('/api/transactions'));
+      if (s === 'loans') { setLoans(await api('/api/loans')); setLoanPayments(await api('/api/loan-payments')); }
+      if (s === 'accounts') setAccounts(await api('/api/accounts'));
+      if (s === 'journal') setJournalEntries(await api('/api/journal'));
+      if (s === 'dashboard') {
+        // Use allSettled so one failing API doesn't break everything
+        const results = await Promise.allSettled([
+          api<Building[]>('/api/buildings'), api<Unit[]>('/api/units'), api<Tenant[]>('/api/tenants'),
+          api<Contract[]>('/api/contracts'), api<Payment[]>('/api/payments'), api<MaintenanceItem[]>('/api/maintenance'),
+          api('/api/transactions'), api('/api/accounts'), api('/api/loans'), api('/api/loan-payments'),
+        ]);
+        const [b, u, t, c, p, m, tr, ac, lo, lp] = results.map((r, i) => {
+          if (r.status === 'fulfilled') return r.value;
+          console.warn(`Dashboard API ${i} failed:`, r.reason);
+          return [];
+        });
+        setBuildings(b); setUnits(u); setTenants(t); setContracts(c); setPayments(p); setMaintenance(m); setTransactions(tr); setAccounts(ac); setLoans(lo); setLoanPayments(lp);
+      }
+    } catch (e: any) {
+      // Re-check auth before logging out - don't immediately logout on data errors
+      if (e.message === 'unauthorized') {
+        try { await api<User>('/api/auth/me'); } catch { clearStoredToken(); setUser(null); return; }
+        toast.error('خطأ في تحميل البيانات');
+        return;
+      }
+      toast.error(e.message);
+    }
+  }, []);
+
+  useEffect(() => { if (user) loadData(section); }, [user, section, loadData]);
+  useEffect(() => { setSearchQuery(''); }, [section]);
+
+  const handleLogout = async () => { await api('/api/auth/logout', 'POST'); clearStoredToken(); setUser(null); };
+
+  // Auto create restore point after every data mutation
+  const autoRestore = useCallback(async (actionDesc: string) => {
+    try { await api('/api/restore', 'POST', { name: `تلقائي - ${actionDesc}`, description: actionDesc }); } catch (e) { /* silently ignore if not admin */ }
+  }, []);
+
+  // Upload file helper
+  const uploadFile = useCallback(async (file: File, category: string, meta?: { contractId?: string; tenantId?: string; maintenanceId?: string }) => {
+    const buf = await file.arrayBuffer();
+    const headers: Record<string, string> = { 'X-Filename': encodeURIComponent(file.name), 'X-Category': category };
+    if (meta?.contractId) headers['X-Contract-Id'] = meta.contractId;
+    if (meta?.tenantId) headers['X-Tenant-Id'] = meta.tenantId;
+    if (meta?.maintenanceId) headers['X-Maintenance-Id'] = meta.maintenanceId;
+    const st = getStoredToken(); if (st) headers['Authorization'] = `Bearer ${st}`;
+    const res = await fetch('/api/files/upload', { method: 'POST', headers, body: buf, credentials: 'include' });
+    if (!res.ok) { const errData = await res.json().catch(() => ({})); throw new Error(errData.error || 'فشل رفع الملف'); }
+    return await res.json();
+  }, []);
+
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-amber-50">
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-12 h-12 border-4 border-orange-400 border-t-transparent rounded-full animate-spin" />
+        <p className="text-lg text-orange-800 font-semibold">جاري التحميل...</p>
+      </div>
+    </div>
+  );
+
+  if (!user && !setupNeeded) return <LoginScreen onLogin={() => { loginTimeRef.current = Date.now(); checkAuth(); }} />;
+  if (!user && setupNeeded) return <SetupScreen onSetup={() => { loginTimeRef.current = Date.now(); setSetupNeeded(false); checkAuth(); }} />;
+  if (!user) return <LoginScreen onLogin={() => { loginTimeRef.current = Date.now(); checkAuth(); }} />;
+
+  const activeContracts = contracts.filter(c => c.status === 'active').length;
+  const totalRent = contracts.filter(c => c.status === 'active').reduce((sum, c) => sum + (c.rentAmount || 0), 0);
+  const pendingPayments = payments.filter(p => p.status === 'pending' || p.status === 'overdue').length;
+  const openMaintenance = maintenance.filter(m => m.status === 'open' || m.status === 'in_progress').length;
+  const canWriteCheck = (entity: string) => {
+    if (user.role === 'admin' || user.role === 'manager') return true;
+    // Check granular permissions first
+    if (user.permissions) {
+      try {
+        const perms = JSON.parse(user.permissions);
+        if (perms[entity] === false) return false;
+        if (perms[entity] === true) return true;
+      } catch {}
+    }
+    if (user.role === 'accountant') return !['users', 'restore'].includes(entity);
+    if (user.role === 'collector') return ['payments', 'maintenance', 'files'].includes(entity);
+    return false;
+  };
+  const isAdmin = user.role === 'admin' || user.role === 'manager';
+
+  const navItems: { key: Section; icon: React.ReactNode; label: string; admin?: boolean }[] = [
+    { key: 'dashboard', icon: <LayoutDashboard size={20} />, label: 'لوحة التحكم' },
+    { key: 'buildings', icon: <Building2 size={20} />, label: 'المباني' },
+    { key: 'units', icon: <Home size={20} />, label: 'الوحدات' },
+    { key: 'tenants', icon: <Users size={20} />, label: 'المستأجرين' },
+    { key: 'contracts', icon: <FileText size={20} />, label: 'العقود' },
+    { key: 'payments', icon: <DollarSign size={20} />, label: 'المدفوعات' },
+    { key: 'maintenance', icon: <Wrench size={20} />, label: 'الصيانة' },
+    { key: 'files', icon: <FolderOpen size={20} />, label: 'الملفات' },
+    { key: 'transactions', icon: <DollarSign size={20} />, label: 'الإيرادات والمصروفات' },
+    { key: 'loans', icon: <Briefcase size={20} />, label: 'القروض' },
+    { key: 'accounts', icon: <Hash size={20} />, label: 'شجرة الحسابات', admin: true },
+    { key: 'journal', icon: <FileText size={20} />, label: 'القيود اليومية', admin: true },
+    { key: 'audit', icon: <Activity size={20} />, label: 'سجل التدقيق', admin: true },
+    { key: 'restore', icon: <Archive size={20} />, label: 'نقاط الاستعادة', admin: true },
+    { key: 'health', icon: <Activity size={20} />, label: 'صحة النظام', admin: true },
+    { key: 'users', icon: <Shield size={20} />, label: 'المستخدمون', admin: true },
+    { key: 'settings', icon: <Settings size={20} />, label: 'الإعدادات' },
+  ];
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 flex">
+      {/* Sidebar */}
+      <aside className="w-64 bg-white/80 backdrop-blur-xl border-l border-orange-200 shadow-xl flex flex-col shrink-0">
+        <div className="p-5 border-b border-orange-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center shadow-lg">
+              <Building2 size={22} className="text-white" />
+            </div>
+            <div><h1 className="font-bold text-lg text-orange-900">PropertyHub</h1><p className="text-xs text-orange-600">نظام إدارة العقارات</p></div>
+          </div>
+        </div>
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+          {navItems.filter(n => !n.admin || isAdmin).map(item => (
+            <button key={item.key} onClick={() => setSection(item.key)}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${section === item.key ? 'bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md' : 'text-gray-700 hover:bg-orange-50 hover:text-orange-700'}`}>
+              {item.icon}<span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="p-4 border-t border-orange-100">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-9 h-9 rounded-full bg-orange-100 flex items-center justify-center text-orange-700 font-bold text-sm">{user.name.charAt(0)}</div>
+            <div className="flex-1 min-w-0"><p className="text-sm font-semibold text-gray-800 truncate">{user.name}</p><p className="text-xs text-orange-600">{user.roleName}</p></div>
+          </div>
+          <Button variant="outline" size="sm" className="w-full border-orange-200 text-orange-700 hover:bg-orange-50" onClick={handleLogout}><LogOut size={16} className="ml-2" />تسجيل الخروج</Button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 min-w-0 overflow-y-auto">
+        <div className="p-6 max-w-7xl mx-auto">
+          {/* Dashboard */}
+          {section === 'dashboard' && (() => {
+            // Computed dashboard values
+            const buildingCount = buildings.length;
+            const unitCount = units.length;
+            const vacantUnits = units.filter(u => u.status === 'available').length;
+            const rentedUnits = units.filter(u => u.status === 'rented').length;
+            const occupancyRate = unitCount > 0 ? Math.round((rentedUnits / unitCount) * 100) : 0;
+
+            // Arrears: sum of pending/overdue payment amounts
+            const arrearsAmount = payments.filter(p => p.status === 'pending' || p.status === 'overdue').reduce((sum, p) => sum + (p.amount || 0), 0);
+
+            // Loan balance: total principal - total paid
+            const loanTotalPrincipal = loans.reduce((s: number, l: any) => s + (l.principal || 0), 0);
+            const loanTotalPaid = loanPayments.reduce((s: number, lp: any) => s + (lp.principal || lp.amount || 0), 0);
+            const loanBalance = loanTotalPrincipal - loanTotalPaid;
+
+            // Open maintenance count
+            const openMaintCount = maintenance.filter(m => m.status === 'open' || m.status === 'in_progress').length;
+
+            // Revenue & Expenses from transactions
+            const totalRevenue = transactions.filter((t: any) => t.type === 'income').reduce((s: number, t: any) => s + (t.amount || 0), 0);
+            const totalExpenses = transactions.filter((t: any) => t.type === 'expense').reduce((s: number, t: any) => s + (t.amount || 0), 0);
+            const netMovement = totalRevenue - totalExpenses;
+
+            // Building comparison data: for each building, count its units, revenue, expenses
+            const buildingComparison = buildings.map(b => {
+              const bUnits = units.filter(u => u.buildingId === b.id);
+              const bIncome = transactions.filter((t: any) => t.buildingId === b.id && t.type === 'income').reduce((s: number, t: any) => s + (t.amount || 0), 0);
+              const bExpense = transactions.filter((t: any) => t.buildingId === b.id && t.type === 'expense').reduce((s: number, t: any) => s + (t.amount || 0), 0);
+              return { ...b, unitCount: bUnits.length, income: bIncome, expense: bExpense, net: bIncome - bExpense };
+            });
+
+            // Arrears by tenant: for each active contract with pending/overdue payments
+            const arrearsByTenant = contracts.filter(c => c.status === 'active').map(c => {
+              const contractPayments = payments.filter(p => p.contractId === c.id);
+              const pendingOrOverdue = contractPayments.filter(p => p.status === 'pending' || p.status === 'overdue');
+              const totalDue = pendingOrOverdue.reduce((s, p) => s + (p.amount || 0), 0);
+              const totalPaid = contractPayments.filter(p => p.status === 'paid').reduce((s, p) => s + (p.amount || 0), 0);
+              const dueMonths = pendingOrOverdue.length;
+              return {
+                tenantName: c.tenant?.name || '-',
+                unitNumber: c.unit?.number || '-',
+                buildingName: c.unit?.building?.name || '-',
+                rentAmount: c.rentAmount,
+                dueMonths,
+                totalDue,
+                totalPaid,
+                arrears: totalDue,
+              };
+            }).filter(a => a.arrears > 0);
+
+            // Expiring contracts: within 30 days or already expired
+            const now = new Date();
+            const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+            const expiringContracts = contracts.filter(c => {
+              if (c.status !== 'active' && c.status !== 'expired') return false;
+              const end = new Date(c.endDate);
+              return end <= thirtyDaysFromNow;
+            }).map(c => ({
+              ...c,
+              isExpired: new Date(c.endDate) < now,
+            }));
+
+            const fmt = (n: number) => n.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+            return (
+            <div className="space-y-6">
+              <div className="flex items-center gap-3 mb-2"><h2 className="text-2xl font-bold text-gray-900">لوحة التحكم</h2><Badge className="bg-orange-100 text-orange-800">{new Date().toLocaleDateString('ar')}</Badge></div>
+
+              {/* KPI Cards - لوحة المؤشرات المجمعة */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                {[
+                  { icon: <Building2 size={22} />, label: 'عدد العمارات', value: buildingCount, color: 'from-orange-500 to-amber-500' },
+                  { icon: <Home size={22} />, label: 'عدد الوحدات', value: unitCount, color: 'from-blue-500 to-indigo-500' },
+                  { icon: <Home size={22} />, label: 'وحدات شاغرة', value: vacantUnits, color: 'from-teal-500 to-cyan-500' },
+                  { icon: <Activity size={22} />, label: 'نسبة الإشغال', value: `${occupancyRate}%`, color: 'from-emerald-500 to-green-500' },
+                  { icon: <AlertTriangle size={22} />, label: 'المتأخرات', value: `${fmt(arrearsAmount)}`, color: 'from-red-500 to-rose-500' },
+                  { icon: <Briefcase size={22} />, label: 'رصيد القروض', value: `${fmt(loanBalance)}`, color: 'from-purple-500 to-violet-500' },
+                  { icon: <Wrench size={22} />, label: 'صيانة مفتوحة', value: openMaintCount, color: 'from-amber-500 to-yellow-500' },
+                  { icon: <DollarSign size={22} />, label: 'الإيرادات', value: `${fmt(totalRevenue)}`, color: 'from-emerald-500 to-teal-500' },
+                  { icon: <DollarSign size={22} />, label: 'المصروفات', value: `${fmt(totalExpenses)}`, color: 'from-red-500 to-pink-500' },
+                  { icon: <DollarSign size={22} />, label: 'صافي الحركة', value: `${fmt(netMovement)}`, color: netMovement >= 0 ? 'from-emerald-500 to-green-500' : 'from-red-500 to-rose-500' },
+                ].map((stat, i) => (
+                  <Card key={i} className="border-0 shadow-lg overflow-hidden">
+                    <div className={`h-1 bg-gradient-to-l ${stat.color}`} />
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div><p className="text-xs text-gray-500 mb-1">{stat.label}</p><p className="text-2xl font-bold text-gray-900">{stat.value}</p></div>
+                        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center text-white shadow-md`}>{stat.icon}</div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              {/* ملخص العمارات - Building Summary */}
+              <Card className="border-0 shadow-lg">
+                <CardHeader className="pb-2"><CardTitle className="text-lg flex items-center gap-2"><Building2 size={20} className="text-orange-600" />ملخص العمارات</CardTitle></CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="p-3 bg-orange-50 rounded-xl text-center"><p className="text-xs text-gray-600">العمارات</p><p className="text-xl font-bold text-orange-700">{buildingCount}</p></div>
+                    <div className="p-3 bg-blue-50 rounded-xl text-center"><p className="text-xs text-gray-600">الوحدات</p><p className="text-xl font-bold text-blue-700">{unitCount}</p></div>
+                    <div className="p-3 bg-emerald-50 rounded-xl text-center"><p className="text-xs text-gray-600">مؤجرة</p><p className="text-xl font-bold text-emerald-700">{rentedUnits}</p></div>
+                    <div className="p-3 bg-teal-50 rounded-xl text-center"><p className="text-xs text-gray-600">شاغرة</p><p className="text-xl font-bold text-teal-700">{vacantUnits}</p></div>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="p-3 bg-emerald-50 rounded-xl text-center"><p className="text-xs text-gray-600">الإيرادات</p><p className="text-xl font-bold text-emerald-700">{fmt(totalRevenue)}</p></div>
+                    <div className="p-3 bg-red-50 rounded-xl text-center"><p className="text-xs text-gray-600">المصروفات</p><p className="text-xl font-bold text-red-700">{fmt(totalExpenses)}</p></div>
+                    <div className="p-3 bg-amber-50 rounded-xl text-center"><p className="text-xs text-gray-600">المتأخرات</p><p className="text-xl font-bold text-amber-700">{fmt(arrearsAmount)}</p></div>
+                    <div className="p-3 bg-purple-50 rounded-xl text-center"><p className="text-xs text-gray-600">رصيد القروض</p><p className="text-xl font-bold text-purple-700">{fmt(loanBalance)}</p></div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* مقارنة العمارات - Building Comparison Table */}
+              <Card className="border-0 shadow-lg overflow-hidden">
+                <CardHeader className="pb-2"><CardTitle className="text-lg flex items-center gap-2"><Building2 size={20} className="text-blue-600" />مقارنة العمارات</CardTitle></CardHeader>
+                <CardContent>
+                  {buildingComparison.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader><TableRow className="bg-orange-50">
+                          <TableHead>الكود</TableHead>
+                          <TableHead>العمارة</TableHead>
+                          <TableHead>الوحدات</TableHead>
+                          <TableHead>الإيرادات</TableHead>
+                          <TableHead>المصروفات</TableHead>
+                          <TableHead>الصافي</TableHead>
+                        </TableRow></TableHeader>
+                        <TableBody>{buildingComparison.map(b => (
+                          <TableRow key={b.id}>
+                            <TableCell className="font-mono text-sm">{b.code || b.id.slice(0, 8)}</TableCell>
+                            <TableCell className="font-medium">{b.name}</TableCell>
+                            <TableCell>{b.unitCount}</TableCell>
+                            <TableCell className="text-emerald-700 font-semibold">{fmt(b.income)}</TableCell>
+                            <TableCell className="text-red-700 font-semibold">{fmt(b.expense)}</TableCell>
+                            <TableCell className={b.net >= 0 ? 'text-emerald-700 font-bold' : 'text-red-700 font-bold'}>{fmt(b.net)}</TableCell>
+                          </TableRow>
+                        ))}</TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 text-center py-6">ابدأ بإضافة أول عمارة من تبويب «العمارات»</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* المتأخرات حسب المستأجر - Arrears by Tenant */}
+                <Card className="border-0 shadow-lg overflow-hidden">
+                  <CardHeader className="pb-2"><CardTitle className="text-lg flex items-center gap-2"><AlertTriangle size={20} className="text-red-600" />المتأخرات حسب المستأجر</CardTitle></CardHeader>
+                  <CardContent>
+                    {arrearsByTenant.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader><TableRow className="bg-red-50">
+                            <TableHead>المستأجر</TableHead>
+                            <TableHead>الوحدة</TableHead>
+                            <TableHead>الإيجار</TableHead>
+                            <TableHead>أشهر مستحقة</TableHead>
+                            <TableHead>المستحق</TableHead>
+                            <TableHead>المدفوع</TableHead>
+                            <TableHead>المتأخر</TableHead>
+                          </TableRow></TableHeader>
+                          <TableBody>{arrearsByTenant.map((a, i) => (
+                            <TableRow key={i}>
+                              <TableCell className="font-medium text-sm">{a.tenantName}</TableCell>
+                              <TableCell className="text-sm">{a.unitNumber}</TableCell>
+                              <TableCell className="text-sm">{fmt(a.rentAmount)}</TableCell>
+                              <TableCell className="text-sm text-center">{a.dueMonths}</TableCell>
+                              <TableCell className="text-sm text-red-700 font-semibold">{fmt(a.totalDue)}</TableCell>
+                              <TableCell className="text-sm text-emerald-700">{fmt(a.totalPaid)}</TableCell>
+                              <TableCell className="text-sm text-red-700 font-bold">{fmt(a.arrears)}</TableCell>
+                            </TableRow>
+                          ))}</TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400 text-center py-6">لا توجد متأخرات</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* عقود تنتهي خلال 30 يومًا أو منتهية - Expiring Contracts */}
+                <Card className="border-0 shadow-lg overflow-hidden">
+                  <CardHeader className="pb-2"><CardTitle className="text-lg flex items-center gap-2"><Clock size={20} className="text-amber-600" />عقود تنتهي خلال 30 يومًا أو منتهية</CardTitle></CardHeader>
+                  <CardContent>
+                    {expiringContracts.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader><TableRow className="bg-amber-50">
+                            <TableHead>المستأجر</TableHead>
+                            <TableHead>الوحدة</TableHead>
+                            <TableHead>النهاية</TableHead>
+                            <TableHead>الحالة</TableHead>
+                          </TableRow></TableHeader>
+                          <TableBody>{expiringContracts.map(c => (
+                            <TableRow key={c.id}>
+                              <TableCell className="font-medium text-sm">{c.tenant?.name || '-'}</TableCell>
+                              <TableCell className="text-sm">{c.unit?.number || '-'}{c.unit?.building ? ` - ${c.unit.building.name}` : ''}</TableCell>
+                              <TableCell className="text-sm">{new Date(c.endDate).toLocaleDateString('ar')}</TableCell>
+                              <TableCell><Badge className={c.isExpired ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}>{c.isExpired ? 'منتهي' : 'قريب الانتهاء'}</Badge></TableCell>
+                            </TableRow>
+                          ))}</TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400 text-center py-6">لا توجد عقود قريبة الانتهاء</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Latest Maintenance Requests */}
+              <Card className="border-0 shadow-lg">
+                <CardHeader className="pb-2"><CardTitle className="text-lg flex items-center gap-2"><Wrench size={20} className="text-orange-600" />آخر طلبات الصيانة</CardTitle></CardHeader>
+                <CardContent><div className="space-y-2">
+                  {maintenance.slice(0, 5).map(m => (
+                    <div key={m.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50">
+                      <div className="flex items-center gap-2"><Badge className={MAINT_STATUS_MAP[m.status]?.color || 'bg-gray-100'}>{MAINT_STATUS_MAP[m.status]?.label || m.status}</Badge><span className="text-sm">{m.title}</span></div>
+                      <Badge className={PRIORITY_MAP[m.priority]?.color || 'bg-gray-100'}>{PRIORITY_MAP[m.priority]?.label || m.priority}</Badge>
+                    </div>
+                  ))}
+                  {maintenance.length === 0 && <p className="text-sm text-gray-400 text-center py-4">لا توجد طلبات صيانة</p>}
+                </div></CardContent>
+              </Card>
+            </div>
+            );
+          })()}
+
+          {/* Buildings */}
+          {section === 'buildings' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">المباني</h2>
+                <div className="flex items-center gap-2">
+                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+                  {canWriteCheck('buildings') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة مبنى</Button>} title="إضافة مبنى جديد">{(close) => <BuildingForm onSave={async (data) => { await api('/api/buildings', 'POST', data); autoRestore('إضافة مبنى'); loadData('buildings'); }} onClose={close} />}</FormDialog>)}
+                </div>
+              </div>
+              <div className="grid gap-4">
+                {buildings.filter(b => !searchQuery || b.name.includes(searchQuery) || (b.code || '').includes(searchQuery) || (b.city || '').includes(searchQuery) || (b.address || '').includes(searchQuery)).map(b => (
+                  <Card key={b.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-5">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center text-white shadow"><Building2 size={24} /></div>
+                        <div><h3 className="font-bold text-lg text-gray-900">{b.name}</h3>
+                          <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
+                            {b.address && <span className="flex items-center gap-1"><MapPin size={14} />{b.address}</span>}
+                            {b.city && <span>{b.city}</span>}
+                            {b.floors && <span className="flex items-center gap-1"><Hash size={14} />{b.floors} طوابق</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-orange-100 text-orange-800">{(b.units || []).length} وحدة</Badge>
+                        {canWriteCheck('buildings') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={16} /></Button>} title="تعديل المبنى">{(close) => <BuildingForm initial={b} onSave={async (data) => { await api(`/api/buildings/${b.id}`, 'PUT', data); autoRestore('تعديل مبنى'); loadData('buildings'); }} onClose={close} />}</FormDialog>}
+                        {canWriteCheck('buildings') && <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('هل تريد حذف هذا المبنى؟')) { await api(`/api/buildings/${b.id}`, 'DELETE'); autoRestore('حذف مبنى'); loadData('buildings'); toast.success('تم حذف المبنى'); } }}><Trash2 size={16} /></Button>}
+                      </div>
+                    </div>
+                  </CardContent></Card>
+                ))}
+                {buildings.length === 0 && <EmptyState icon={<Building2 size={48} />} text="لا توجد مباني مضافة" />}
+              </div>
+            </div>
+          )}
+
+          {/* Units */}
+          {section === 'units' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">الوحدات</h2>
+                <div className="flex items-center gap-2">
+                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+                  {canWriteCheck('units') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة وحدة</Button>} title="إضافة وحدة جديدة">{(close) => <UnitForm buildings={buildings} onSave={async (data) => { await api('/api/units', 'POST', data); autoRestore('إضافة وحدة'); loadData('units'); }} onClose={close} />}</FormDialog>)}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {units.filter(u => !searchQuery || u.number.includes(searchQuery) || (u.building?.name || '').includes(searchQuery) || u.status.includes(searchQuery)).map(u => (
+                  <Card key={u.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-4">
+                    <div className="flex items-center justify-between mb-3"><h3 className="font-bold text-gray-900">وحدة {u.number}</h3><Badge className={UNIT_STATUS_MAP[u.status]?.color || 'bg-gray-100'}>{UNIT_STATUS_MAP[u.status]?.label || u.status}</Badge></div>
+                    <div className="space-y-1 text-sm text-gray-600">
+                      {u.building && <p className="flex items-center gap-1"><Building2 size={14} />{u.building.name}</p>}
+                      {u.floor && <p>الطابق: {u.floor}</p>}
+                      {u.area && <p>المساحة: {u.area} م²</p>}
+                      {u.rentAmount && <p className="font-semibold text-emerald-700">الإيجار: {u.rentAmount.toLocaleString('ar')} {CURRENCY}</p>}
+                    </div>
+                    {canWriteCheck('units') && <div className="flex gap-2 mt-3"><FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الوحدة">{(close) => <UnitForm buildings={buildings} initial={u} onSave={async (data) => { await api(`/api/units/${u.id}`, 'PUT', data); autoRestore('تعديل وحدة'); loadData('units'); }} onClose={close} />}</FormDialog><Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/units/${u.id}`, 'DELETE'); autoRestore('حذف وحدة'); loadData('units'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button></div>}
+                  </CardContent></Card>
+                ))}
+                {units.length === 0 && <EmptyState icon={<Home size={48} />} text="لا توجد وحدات مضافة" />}
+              </div>
+            </div>
+          )}
+
+          {/* Tenants */}
+          {section === 'tenants' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">المستأجرين</h2>
+                <div className="flex items-center gap-2">
+                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+                  {canWriteCheck('tenants') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة مستأجر</Button>} title="إضافة مستأجر جديد">{(close) => <TenantForm onSave={async (data) => { await api('/api/tenants', 'POST', data); autoRestore('إضافة مستأجر'); loadData('tenants'); }} onClose={close} />}</FormDialog>)}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {tenants.filter(t => !searchQuery || t.name.includes(searchQuery) || (t.phone || '').includes(searchQuery) || (t.idNumber || '').includes(searchQuery)).map(t => (
+                  <Card key={t.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-4">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold">{t.name.charAt(0)}</div>
+                      <div><h3 className="font-bold text-gray-900">{t.name}</h3>{t.idNumber && <p className="text-xs text-gray-500">رقم الهوية: {t.idNumber}</p>}</div>
+                    </div>
+                    <div className="space-y-1 text-sm text-gray-600">
+                      {t.phone && <p className="flex items-center gap-1"><Phone size={14} />{t.phone}</p>}
+                      {t.email && <p className="flex items-center gap-1"><Mail size={14} />{t.email}</p>}
+                    </div>
+                    {/* Tenant uploads (civil ID, etc.) - with inline thumbnail preview */}
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {(t.uploads || []).map(f => (
+                          <span key={f.id} className="inline-flex items-center gap-1">
+                            <FilePreviewDialog fileId={f.id} fileName={f.originalName} mimeType={f.mimeType} showThumbnail />
+                            <span className="text-xs text-gray-600 max-w-[60px] truncate" title={f.originalName}>{f.originalName}</span>
+                          </span>
+                        ))}
+                      </div>
+                      {canWriteCheck('files') && (
+                        <div className="flex gap-2">
+                          <label className="cursor-pointer">
+                            <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => {
+                              const file = e.target.files?.[0]; if (!file) return;
+                              try { await uploadFile(file, 'identity', { tenantId: t.id }); toast.success('تم رفع المدنية'); loadData('tenants'); } catch { toast.error('فشل رفع الملف'); }
+                            }} />
+                            <Button variant="outline" size="sm" className="border-blue-200 text-blue-700"><Camera size={14} className="ml-1" />رفع المدنية</Button>
+                          </label>
+                          <label className="cursor-pointer">
+                            <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => {
+                              const file = e.target.files?.[0]; if (!file) return;
+                              try { await uploadFile(file, 'general', { tenantId: t.id }); toast.success('تم رفع المستند'); loadData('tenants'); } catch { toast.error('فشل رفع الملف'); }
+                            }} />
+                            <Button variant="outline" size="sm" className="border-orange-200 text-orange-700"><Upload size={14} className="ml-1" />رفع مستند</Button>
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                    {canWriteCheck('tenants') && <div className="flex gap-2 mt-3"><FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل المستأجر">{(close) => <TenantForm initial={t} onSave={async (data) => { await api(`/api/tenants/${t.id}`, 'PUT', data); autoRestore('تعديل مستأجر'); loadData('tenants'); }} onClose={close} />}</FormDialog><Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/tenants/${t.id}`, 'DELETE'); autoRestore('حذف مستأجر'); loadData('tenants'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button></div>}
+                  </CardContent></Card>
+                ))}
+                {tenants.length === 0 && <EmptyState icon={<Users size={48} />} text="لا يوجد مستأجرين" />}
+              </div>
+            </div>
+          )}
+
+          {/* Contracts */}
+          {section === 'contracts' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">العقود</h2>
+                <div className="flex items-center gap-2">
+                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+                  {canWriteCheck('contracts') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة عقد</Button>} title="إضافة عقد جديد" maxWidth="max-w-lg">{(close) => <ContractForm units={units} tenants={tenants} onSave={async (data) => { await api('/api/contracts', 'POST', data); autoRestore('إضافة عقد'); loadData('contracts'); }} onClose={close} />}</FormDialog>)}
+                </div>
+              </div>
+              <div className="grid gap-4">
+                {contracts.filter(c => !searchQuery || (c.tenant?.name || '').includes(searchQuery) || (c.unit?.number || '').includes(searchQuery) || (c.unit?.building?.name || '').includes(searchQuery) || c.status.includes(searchQuery)).map(c => (
+                  <Card key={c.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-5">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2 mb-2"><Badge className={CONTRACT_STATUS_MAP[c.status]?.color || 'bg-gray-100'}>{CONTRACT_STATUS_MAP[c.status]?.label || c.status}</Badge><span className="text-sm text-gray-500">العقد #{c.id.slice(0, 8)}</span></div>
+                        <div className="space-y-1 text-sm">
+                          {c.unit && <p className="flex items-center gap-1"><Home size={14} className="text-gray-400" />وحدة {c.unit.number} - {c.unit.building?.name}</p>}
+                          {c.tenant && <p className="flex items-center gap-1"><Users size={14} className="text-gray-400" />{c.tenant.name}</p>}
+                          <p className="flex items-center gap-1"><Calendar size={14} className="text-gray-400" />{new Date(c.startDate).toLocaleDateString('ar')} - {new Date(c.endDate).toLocaleDateString('ar')}</p>
+                          <p className="font-semibold text-emerald-700">الإيجار: {c.rentAmount.toLocaleString('ar')} {CURRENCY}</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-2 items-end">
+                        {canWriteCheck('contracts') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل العقد" maxWidth="max-w-lg">{(close) => <ContractForm units={units} tenants={tenants} initial={c} onSave={async (data) => { await api(`/api/contracts/${c.id}`, 'PUT', data); autoRestore('تعديل عقد'); loadData('contracts'); }} onClose={close} />}</FormDialog>}
+                        {canWriteCheck('files') && (
+                          <label className="cursor-pointer">
+                            <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => {
+                              const file = e.target.files?.[0]; if (!file) return;
+                              try { await uploadFile(file, 'contract', { contractId: c.id }); toast.success('تم رفع الملف'); loadData('contracts'); } catch { toast.error('فشل رفع الملف'); }
+                            }} />
+                            <Button variant="outline" size="sm" className="border-orange-200 text-orange-700"><Camera size={14} className="ml-1" />رفع صورة العقد</Button>
+                          </label>
+                        )}
+                        {canWriteCheck('contracts') && <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/contracts/${c.id}`, 'DELETE'); autoRestore('حذف عقد'); loadData('contracts'); toast.success('تم الحذف'); } }}><Trash2 size={16} /></Button>}
+                      </div>
+                    </div>
+                    {c.attachments && c.attachments.length > 0 && (<div className="mt-3 flex flex-wrap gap-2">{c.attachments.map(f => (<span key={f.id} className="inline-flex items-center gap-1"><FilePreviewDialog fileId={f.id} fileName={f.originalName} mimeType={f.mimeType} showThumbnail /><span className="text-xs text-gray-600 max-w-[60px] truncate" title={f.originalName}>{f.originalName}</span></span>))}</div>)}
+                  </CardContent></Card>
+                ))}
+                {contracts.length === 0 && <EmptyState icon={<FileText size={48} />} text="لا توجد عقود" />}
+              </div>
+            </div>
+          )}
+
+          {/* Payments */}
+          {section === 'payments' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">المدفوعات</h2>
+                <div className="flex items-center gap-2">
+                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+                  {canWriteCheck('payments') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />تسجيل دفعة</Button>} title="تسجيل دفعة جديدة">{(close) => <PaymentForm contracts={contracts} onSave={async (data) => { await api('/api/payments', 'POST', data); autoRestore('تسجيل دفعة'); loadData('payments'); }} onClose={close} />}</FormDialog>)}
+                </div>
+              </div>
+              <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
+                <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>المبلغ</TableHead><TableHead>تاريخ الاستحقاق</TableHead><TableHead>تاريخ الدفع</TableHead><TableHead>الحالة</TableHead><TableHead>الطريقة</TableHead><TableHead>العقد</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
+                <TableBody>{payments.filter(p => !searchQuery || p.status.includes(searchQuery) || (p.method || '').includes(searchQuery) || String(p.amount).includes(searchQuery)).map(p => (<TableRow key={p.id}>
+                  <TableCell className="font-semibold">{p.amount.toLocaleString('ar')} {CURRENCY}</TableCell>
+                  <TableCell>{new Date(p.dueDate).toLocaleDateString('ar')}</TableCell>
+                  <TableCell>{p.paidDate ? new Date(p.paidDate).toLocaleDateString('ar') : '-'}</TableCell>
+                  <TableCell><Badge className={PAYMENT_STATUS_MAP[p.status]?.color}>{PAYMENT_STATUS_MAP[p.status]?.label || p.status}</Badge></TableCell>
+                  <TableCell>{p.method || '-'}</TableCell>
+                  <TableCell className="text-xs text-gray-500">{p.contractId?.slice(0, 8)}</TableCell>
+                  <TableCell><div className="flex gap-1">
+                    {canWriteCheck('payments') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الدفعة">{(close) => <PaymentForm contracts={contracts} initial={p} onSave={async (data) => { await api(`/api/payments/${p.id}`, 'PUT', data); autoRestore('تعديل دفعة'); loadData('payments'); }} onClose={close} />}</FormDialog>}
+                    {canWriteCheck('payments') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/payments/${p.id}`, 'DELETE'); autoRestore('حذف دفعة'); loadData('payments'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>}
+                  </div></TableCell>
+                </TableRow>))}</TableBody></Table>
+              </div></Card>
+              {payments.length === 0 && <EmptyState icon={<DollarSign size={48} />} text="لا توجد مدفوعات" />}
+            </div>
+          )}
+
+          {/* Maintenance */}
+          {section === 'maintenance' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">طلبات الصيانة</h2>
+                <div className="flex items-center gap-2">
+                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+                  {canWriteCheck('maintenance') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />طلب صيانة</Button>} title="طلب صيانة جديد">{(close) => <MaintenanceForm onSave={async (data) => { await api('/api/maintenance', 'POST', data); autoRestore('طلب صيانة'); loadData('maintenance'); }} onClose={close} />}</FormDialog>)}
+                </div>
+              </div>
+              <div className="grid gap-4">
+                {maintenance.filter(m => !searchQuery || m.title.includes(searchQuery) || m.status.includes(searchQuery) || m.priority.includes(searchQuery)).map(m => (
+                  <Card key={m.id} className="border-0 shadow-lg"><CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2 mb-2"><Badge className={MAINT_STATUS_MAP[m.status]?.color}>{MAINT_STATUS_MAP[m.status]?.label || m.status}</Badge><Badge className={PRIORITY_MAP[m.priority]?.color}>{PRIORITY_MAP[m.priority]?.label || m.priority}</Badge></div>
+                        <h3 className="font-bold text-gray-900">{m.title}</h3>
+                        {m.description && <p className="text-sm text-gray-600 mt-1">{m.description}</p>}
+                        {m.cost && <p className="text-sm text-emerald-700 mt-1">التكلفة: {m.cost.toLocaleString('ar')} {CURRENCY}</p>}
+                        {/* Maintenance attachments with inline preview */}
+                        {(m.attachments && m.attachments.length > 0) && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {m.attachments.map(f => (
+                              <span key={f.id} className="inline-flex items-center gap-1">
+                                <FilePreviewDialog fileId={f.id} fileName={f.originalName} mimeType={f.mimeType} showThumbnail />
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        {canWriteCheck('maintenance') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل طلب الصيانة">{(close) => <MaintenanceForm initial={m} onSave={async (data) => { await api(`/api/maintenance/${m.id}`, 'PUT', data); autoRestore('تعديل صيانة'); loadData('maintenance'); }} onClose={close} />}</FormDialog>}
+                        {canWriteCheck('files') && (
+                          <label className="cursor-pointer">
+                            <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { await uploadFile(file, 'maintenance', { maintenanceId: m.id }); toast.success('تم رفع الملف'); loadData('maintenance'); } catch { toast.error('فشل رفع الملف'); } }} />
+                            <Button variant="outline" size="sm" className="border-orange-200 text-orange-700"><Camera size={14} className="ml-1" />صورة</Button>
+                          </label>
+                        )}
+                        {canWriteCheck('maintenance') && m.status !== 'completed' && <Button variant="outline" size="sm" className="border-emerald-200 text-emerald-700" onClick={async () => { await api(`/api/maintenance/${m.id}`, 'PUT', { status: 'completed', completedAt: new Date().toISOString() }); autoRestore('إكمال صيانة'); loadData('maintenance'); toast.success('تم إكمال الطلب'); }}><CheckCircle2 size={14} /></Button>}
+                        {canWriteCheck('maintenance') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/maintenance/${m.id}`, 'DELETE'); autoRestore('حذف صيانة'); loadData('maintenance'); } }}><Trash2 size={14} /></Button>}
+                      </div>
+                    </div>
+                  </CardContent></Card>
+                ))}
+                {maintenance.length === 0 && <EmptyState icon={<Wrench size={48} />} text="لا توجد طلبات صيانة" />}
+              </div>
+            </div>
+          )}
+
+          {/* Audit */}
+          {section === 'audit' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">سجل التدقيق</h2>
+                <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+              </div>
+              <Card className="border-0 shadow-lg overflow-hidden"><ScrollArea className="h-[600px]">
+                <Table><TableHeader><TableRow className="bg-orange-50 sticky top-0"><TableHead>الوقت</TableHead><TableHead>المستخدم</TableHead><TableHead>الإجراء</TableHead><TableHead>الكيان</TableHead><TableHead>التفاصيل</TableHead></TableRow></TableHeader>
+                <TableBody>{auditLogs.filter(l => !searchQuery || (l.user?.name || '').includes(searchQuery) || l.action.includes(searchQuery) || l.entity.includes(searchQuery) || (l.details || '').includes(searchQuery)).map(l => (<TableRow key={l.id}>
+                  <TableCell className="text-xs whitespace-nowrap">{new Date(l.createdAt).toLocaleString('ar')}</TableCell>
+                  <TableCell className="text-sm">{l.user?.name || '-'}</TableCell>
+                  <TableCell><Badge className="bg-blue-100 text-blue-800 text-xs">{l.action}</Badge></TableCell>
+                  <TableCell className="text-sm">{l.entity}</TableCell>
+                  <TableCell className="text-xs text-gray-500 max-w-xs truncate">{l.details || '-'}</TableCell>
+                </TableRow>))}</TableBody></Table>
+              </ScrollArea></Card>
+            </div>
+          )}
+
+          {/* Restore Points */}
+          {section === 'restore' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">نقاط الاستعادة</h2>
+                <div className="flex items-center gap-2">
+                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+                  {isAdmin && <Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md" onClick={async () => { const name = prompt('اسم نقطة الاستعادة:'); if (name) { await api('/api/restore', 'POST', { name }); loadData('restore'); toast.success('تم إنشاء نقطة الاستعادة'); } }}><Archive size={18} className="ml-2" />إنشاء نقطة استعادة</Button>}
+                </div>
+              </div>
+              <div className="grid gap-4">
+                {restorePoints.filter(rp => !searchQuery || rp.name.includes(searchQuery) || (rp.creator?.name || '').includes(searchQuery)).map(rp => (
+                  <Card key={rp.id} className="border-0 shadow-lg"><CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div><h3 className="font-bold text-gray-900">{rp.name}</h3><p className="text-sm text-gray-500 mt-1">{new Date(rp.createdAt).toLocaleString('ar')} — {rp.creator?.name}</p>{rp.description && <p className="text-sm text-gray-600 mt-1">{rp.description}</p>}</div>
+                      {isAdmin && <Button variant="outline" className="border-orange-200 text-orange-700" onClick={async () => { if (confirm('هل تريد الاستعادة؟ سيتم استبدال البيانات.')) { await api(`/api/restore/${rp.id}`, 'POST'); toast.success('تمت الاستعادة'); loadData('dashboard'); } }}><RefreshCw size={16} className="ml-2" />استعادة</Button>}
+                    </div>
+                  </CardContent></Card>
+                ))}
+                {restorePoints.length === 0 && <EmptyState icon={<Archive size={48} />} text="لا توجد نقاط استعادة" />}
+              </div>
+            </div>
+          )}
+
+          {/* Users */}
+          {section === 'users' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">المستخدمون</h2>
+                <div className="flex items-center gap-2">
+                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+                  {isAdmin && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><UserPlus size={18} className="ml-2" />إضافة مستخدم</Button>} title="إضافة مستخدم جديد">{(close) => <UserForm onSave={async (data) => { await api('/api/users', 'POST', data); loadData('users'); }} onClose={close} />}</FormDialog>)}
+                </div>
+              </div>
+              <Card className="border-0 shadow-lg overflow-hidden"><Table>
+                <TableHeader><TableRow className="bg-orange-50"><TableHead>الاسم</TableHead><TableHead>اسم المستخدم</TableHead><TableHead>الدور</TableHead><TableHead>الصلاحيات</TableHead><TableHead>الحالة</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
+                <TableBody>{allUsers.filter((u: any) => !searchQuery || (u.name || '').includes(searchQuery) || (u.username || '').includes(searchQuery) || (u.role || '').includes(searchQuery)).map((u: any) => (<TableRow key={u.id}>
+                  <TableCell className="font-medium">{u.name}</TableCell><TableCell>{u.username}</TableCell>
+                  <TableCell><Badge className="bg-orange-100 text-orange-800">{ROLES_MAP[u.role] || u.role}</Badge></TableCell>
+                  <TableCell className="text-xs max-w-[200px]">{u.permissions ? (() => { try { const p = JSON.parse(u.permissions); return Object.entries(p).filter(([,v]) => v === true).map(([k]) => k).join('، ') || 'افتراضي'; } catch { return '-'; } })() : (<span className="text-gray-400">افتراضي</span>)}</TableCell>
+                  <TableCell>{u.active ? <Badge className="bg-emerald-100 text-emerald-800">نشط</Badge> : <Badge className="bg-red-100 text-red-800">معطّل</Badge>}</TableCell>
+                  <TableCell><div className="flex gap-1">
+                    {isAdmin && (<>
+                      <Button variant="ghost" size="sm" onClick={async () => { const pw = prompt('كلمة السر الجديدة:'); if (pw) { await api(`/api/users/${u.id}`, 'PATCH', { password: pw }); toast.success('تم تغيير كلمة السر'); } }}><Key size={14} /></Button>
+                      <Button variant="ghost" size="sm" onClick={async () => { const newRole = prompt('الدور الجديد:', u.role); if (newRole) { await api(`/api/users/${u.id}`, 'PATCH', { role: newRole }); loadData('users'); } }}><Edit3 size={14} /></Button>
+                      <FormDialog trigger={<Button variant="ghost" size="sm" title="صلاحيات"><Shield size={14} /></Button>} title={'صلاحيات ' + u.name}>{(close) => <PermissionsEditor currentPerms={u.permissions || '{}'} onSave={async (perms) => { await api(`/api/users/${u.id}`, 'PATCH', { permissions: perms }); loadData('users'); toast.success('تم تحديث الصلاحيات'); }} onClose={close} />}</FormDialog>
+                      <Button variant="ghost" size="sm" className={u.active ? 'text-red-500' : 'text-emerald-500'} onClick={async () => { await api(`/api/users/${u.id}`, 'PATCH', { active: !u.active }); loadData('users'); }}>{u.active ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}</Button>
+                    </>)}
+                  </div></TableCell>
+                </TableRow>))}</TableBody>
+              </Table></Card>
+            </div>
+          )}
+
+          {/* Transactions */}
+          {section === 'transactions' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">الإيرادات والمصروفات</h2>
+                <div className="flex items-center gap-2">
+                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+                  {canWriteCheck('transactions') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة حركة</Button>} title="إضافة حركة مالية">{(close) => <TransactionForm buildings={buildings} onSave={async (data) => { await api('/api/transactions', 'POST', data); autoRestore('إضافة حركة مالية'); loadData('transactions'); }} onClose={close} />}</FormDialog>)}
+                </div>
+              </div>
+              <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
+                <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>التاريخ</TableHead><TableHead>العمارة</TableHead><TableHead>النوع</TableHead><TableHead>البيان</TableHead><TableHead>المبلغ</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
+                <TableBody>{transactions.filter((t: any) => !searchQuery || (t.category || '').includes(searchQuery) || (t.type || '').includes(searchQuery) || (t.building?.name || '').includes(searchQuery) || String(t.amount).includes(searchQuery)).map((t: any) => (<TableRow key={t.id}>
+                  <TableCell className="text-sm">{new Date(t.date).toLocaleDateString('ar')}</TableCell>
+                  <TableCell className="text-sm">{t.building?.name || '-'}</TableCell>
+                  <TableCell><Badge className={t.type === 'income' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}>{t.type === 'income' ? 'إيراد' : 'مصروف'}</Badge></TableCell>
+                  <TableCell className="text-sm">{t.category || '-'}</TableCell>
+                  <TableCell className="font-semibold">{t.amount?.toLocaleString('ar')} {CURRENCY}</TableCell>
+                  <TableCell><div className="flex gap-1">
+                    {canWriteCheck('transactions') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الحركة">{(close) => <TransactionForm buildings={buildings} initial={t} onSave={async (data) => { await api(`/api/transactions/${t.id}`, 'PUT', data); autoRestore('تعديل حركة مالية'); loadData('transactions'); }} onClose={close} />}</FormDialog>}
+                    {canWriteCheck('transactions') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/transactions/${t.id}`, 'DELETE'); autoRestore('حذف حركة مالية'); loadData('transactions'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>}
+                  </div></TableCell>
+                </TableRow>))}</TableBody></Table>
+              </div></Card>
+              {transactions.length === 0 && <EmptyState icon={<DollarSign size={48} />} text="لا توجد حركات مالية" />}
+            </div>
+          )}
+
+          {/* Loans */}
+          {section === 'loans' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">القروض</h2>
+                <div className="flex items-center gap-2">
+                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+                  {canWriteCheck('loans') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة قرض</Button>} title="إضافة قرض جديد">{(close) => <LoanForm buildings={buildings} onSave={async (data) => { await api('/api/loans', 'POST', data); autoRestore('إضافة قرض'); loadData('loans'); }} onClose={close} />}</FormDialog>)}
+                </div>
+              </div>
+              <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
+                <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>القرض</TableHead><TableHead>المبلغ</TableHead><TableHead>التاريخ</TableHead><TableHead>الفائدة%</TableHead><TableHead>المدة</TableHead><TableHead>المسدد</TableHead><TableHead>المتبقي</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
+                <TableBody>{loans.filter((l: any) => !searchQuery || l.name.includes(searchQuery) || String(l.principal).includes(searchQuery)).map((l: any) => {
+                  const paid = (loanPayments.filter((lp: any) => lp.loanId === l.id) as any[]).reduce((s: number, lp: any) => s + (lp.amount || 0), 0);
+                  const remaining = (l.principal || 0) - paid;
+                  return (<TableRow key={l.id}>
+                    <TableCell className="font-medium">{l.name}</TableCell>
+                    <TableCell className="font-semibold">{l.principal?.toLocaleString('ar')} {CURRENCY}</TableCell>
+                    <TableCell className="text-sm">{new Date(l.date).toLocaleDateString('ar')}</TableCell>
+                    <TableCell>{l.rate}%</TableCell>
+                    <TableCell>{l.months} شهر</TableCell>
+                    <TableCell className="text-emerald-700">{paid.toLocaleString('ar')} {CURRENCY}</TableCell>
+                    <TableCell className="text-red-700">{remaining.toLocaleString('ar')} {CURRENCY}</TableCell>
+                    <TableCell><div className="flex gap-1">
+                      {canWriteCheck('loans') && (<>
+                        <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل القرض">{(close) => <LoanForm buildings={buildings} initial={l} onSave={async (data) => { await api(`/api/loans/${l.id}`, 'PUT', data); autoRestore('تعديل قرض'); loadData('loans'); }} onClose={close} />}</FormDialog>
+                        <Button variant="ghost" size="sm" className="text-emerald-600" onClick={async () => { const amt = prompt('مبلغ القسط:'); if (amt) { await api('/api/loan-payments', 'POST', { loanId: l.id, amount: +amt, date: new Date().toISOString().slice(0,10) }); autoRestore('قسط قرض'); loadData('loans'); toast.success('تم تسجيل القسط'); } }}><DollarSign size={14} /></Button>
+                        <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/loans/${l.id}`, 'DELETE'); autoRestore('حذف قرض'); loadData('loans'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>
+                      </>)}
+                    </div></TableCell>
+                  </TableRow>);
+                })}</TableBody></Table>
+              </div></Card>
+              {loans.length > 0 && (<>
+                <h3 className="text-lg font-bold text-gray-900 mt-6">أقساط القروض</h3>
+                <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
+                  <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>القرض</TableHead><TableHead>المبلغ</TableHead><TableHead>التاريخ</TableHead></TableRow></TableHeader>
+                  <TableBody>{loanPayments.map((lp: any) => (<TableRow key={lp.id}>
+                    <TableCell className="text-sm">{loans.find((l: any) => l.id === lp.loanId)?.name || '-'}</TableCell>
+                    <TableCell className="font-semibold">{lp.amount?.toLocaleString('ar')} {CURRENCY}</TableCell>
+                    <TableCell className="text-sm">{new Date(lp.date).toLocaleDateString('ar')}</TableCell>
+                  </TableRow>))}</TableBody></Table>
+                </div></Card>
+              </>)}
+              {loans.length === 0 && <EmptyState icon={<Briefcase size={48} />} text="لا توجد قروض" />}
+            </div>
+          )}
+
+          {/* Accounts */}
+          {section === 'accounts' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">شجرة الحسابات</h2>
+                <div className="flex items-center gap-2">
+                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+                  {isAdmin && <Button variant="outline" className="border-orange-200 text-orange-700" onClick={async () => { try { await api('/api/accounts/seed', 'POST'); loadData('accounts'); toast.success('تم إنشاء الشجرة الافتراضية'); } catch (e: any) { toast.error(e.message); } }}>إنشاء الشجرة الافتراضية</Button>}
+                  {canWriteCheck('accounts') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة حساب</Button>} title="إضافة حساب جديد">{(close) => <AccountForm accounts={accounts} onSave={async (data) => { await api('/api/accounts', 'POST', data); loadData('accounts'); }} onClose={close} />}</FormDialog>)}
+                </div>
+              </div>
+              <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
+                <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>رقم الحساب</TableHead><TableHead>اسم الحساب</TableHead><TableHead>النوع</TableHead><TableHead>التصنيف</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
+                <TableBody>{accounts.filter((a: any) => !searchQuery || (a.code || '').includes(searchQuery) || (a.name || '').includes(searchQuery) || (a.type || '').includes(searchQuery)).map((a: any) => (<TableRow key={a.id}>
+                  <TableCell className="font-mono text-sm">{a.code}</TableCell>
+                  <TableCell className="font-medium">{a.name}</TableCell>
+                  <TableCell><Badge className="bg-blue-100 text-blue-800">{({ asset: 'أصول', liability: 'التزامات', equity: 'حقوق الملكية', revenue: 'إيرادات', expense: 'مصروفات' } as any)[a.type] || a.type}</Badge></TableCell>
+                  <TableCell><Badge className={a.kind === 'group' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'}>{a.kind === 'group' ? 'رئيسي' : 'فرعي'}</Badge></TableCell>
+                  <TableCell><div className="flex gap-1">
+                    {canWriteCheck('accounts') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الحساب">{(close) => <AccountForm accounts={accounts} initial={a} onSave={async (data) => { await api(`/api/accounts/${a.id}`, 'PUT', data); loadData('accounts'); }} onClose={close} />}</FormDialog>}
+                    {canWriteCheck('accounts') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/accounts/${a.id}`, 'DELETE'); autoRestore('حذف حساب'); loadData('accounts'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>}
+                  </div></TableCell>
+                </TableRow>))}</TableBody></Table>
+              </div></Card>
+              {accounts.length === 0 && <EmptyState icon={<Hash size={48} />} text="لا توجد حسابات" />}
+            </div>
+          )}
+
+          {/* Journal */}
+          {section === 'journal' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">القيود اليومية</h2>
+                <div className="flex items-center gap-2">
+                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+                  {canWriteCheck('journal') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة قيد</Button>} title="إضافة قيد يومي" maxWidth="max-w-lg">{(close) => <JournalForm accounts={accounts} buildings={buildings} onSave={async (data) => { await api('/api/journal', 'POST', data); loadData('journal'); }} onClose={close} />}</FormDialog>)}
+                </div>
+              </div>
+              <Card className="border-0 shadow-lg overflow-hidden"><ScrollArea className="h-[600px]">
+                <Table><TableHeader><TableRow className="bg-orange-50 sticky top-0"><TableHead>التاريخ</TableHead><TableHead>البيان</TableHead><TableHead>العمارة</TableHead><TableHead>القيود</TableHead></TableRow></TableHeader>
+                <TableBody>{journalEntries.filter((j: any) => !searchQuery || (j.description || '').includes(searchQuery) || (j.building?.name || '').includes(searchQuery) || (j.date || '').includes(searchQuery)).map((j: any) => (<TableRow key={j.id}>
+                  <TableCell className="text-sm whitespace-nowrap">{new Date(j.date).toLocaleDateString('ar')}</TableCell>
+                  <TableCell className="text-sm">{j.description}</TableCell>
+                  <TableCell className="text-sm">{j.building?.name || '-'}</TableCell>
+                  <TableCell className="text-xs">
+                    <div className="space-y-1">
+                      {(j.lines || []).map((line: any, i: number) => (
+                        <div key={i} className="flex gap-2 items-center">
+                          <span className="text-gray-600">{line.account?.name || line.accountCode}</span>
+                          {line.debit > 0 && <Badge className="bg-emerald-100 text-emerald-800">م {line.debit}</Badge>}
+                          {line.credit > 0 && <Badge className="bg-red-100 text-red-800">د {line.credit}</Badge>}
+                        </div>
+                      ))}
+                    </div>
+                  </TableCell>
+                </TableRow>))}</TableBody></Table>
+              </ScrollArea></Card>
+              {journalEntries.length === 0 && <EmptyState icon={<FileText size={48} />} text="لا توجد قيود يومية" />}
+            </div>
+          )}
+
+          {/* Settings */}
+          {section === 'settings' && (
+            <div className="space-y-4"><h2 className="text-2xl font-bold text-gray-900">الإعدادات</h2>
+              <Card className="border-0 shadow-lg max-w-lg"><CardHeader><CardTitle>تغيير كلمة السر</CardTitle></CardHeader>
+                <CardContent><SettingsPasswordForm onSave={async (data) => { await api('/api/auth/password', 'POST', data); toast.success('تم تغيير كلمة السر'); }} /></CardContent>
+              </Card>
+              <Card className="border-0 shadow-lg max-w-lg"><CardHeader><CardTitle>معلومات الحساب</CardTitle></CardHeader>
+                <CardContent className="space-y-2"><p><strong>الاسم:</strong> {user.name}</p><p><strong>اسم المستخدم:</strong> {user.username}</p><p><strong>الدور:</strong> {user.roleName}</p></CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Files */}
+          {section === 'files' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">الملفات والصور</h2>
+                <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+              </div>
+              <Card className="border-0 shadow-lg overflow-hidden"><ScrollArea className="h-[600px]">
+                <Table><TableHeader><TableRow className="bg-orange-50 sticky top-0"><TableHead>الملف</TableHead><TableHead>النوع</TableHead><TableHead>الحجم</TableHead><TableHead>التصنيف</TableHead><TableHead>مرتبط بـ</TableHead><TableHead>التاريخ</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
+                <TableBody>{[
+                  ...contracts.flatMap(c => (c.attachments || []).map(a => ({...a, linkedTo: `عقد - ${(c.tenant?.name || c.id.slice(0,8))}`}))),
+                  ...tenants.flatMap(t => (t.uploads || []).map(a => ({...a, linkedTo: `مستأجر - ${t.name}`}))),
+                  ...allFiles.filter(f => !f.contractId && !f.tenantId).map(f => ({...f, linkedTo: '-'}))
+                ].filter(f => !searchQuery || f.originalName.includes(searchQuery) || f.category.includes(searchQuery) || (f.linkedTo || '').includes(searchQuery)).map(f => (<TableRow key={f.id}>
+                  <TableCell className="flex items-center gap-2"><FilePreviewDialog fileId={f.id} fileName={f.originalName} mimeType={f.mimeType} showThumbnail /><span className="text-sm">{f.originalName}</span></TableCell>
+                  <TableCell className="text-xs text-gray-500">{f.mimeType}</TableCell>
+                  <TableCell className="text-xs text-gray-500">{(f.size / 1024).toFixed(1)} KB</TableCell>
+                  <TableCell><Badge className="bg-blue-100 text-blue-800 text-xs">{f.category === 'identity' ? 'مدنية' : f.category === 'contract' ? 'عقد' : f.category === 'maintenance' ? 'صيانة' : f.category}</Badge></TableCell>
+                  <TableCell className="text-xs text-gray-500">{f.linkedTo || '-'}</TableCell>
+                  <TableCell className="text-xs">{new Date(f.createdAt).toLocaleDateString('ar')}</TableCell>
+                  <TableCell><div className="flex gap-1">
+                    <FilePreviewDialog fileId={f.id} fileName={f.originalName} mimeType={f.mimeType} />
+                    <a href={`/api/files/${f.id}`} target="_blank" className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-orange-50 text-orange-700 hover:bg-orange-100"><Download size={12} />تحميل</a>
+                    {canWriteCheck('files') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/files/${f.id}`, 'DELETE'); loadData('files'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>}
+                  </div></TableCell>
+                </TableRow>))}</TableBody></Table>
+              </ScrollArea></Card>
+              {[...contracts.flatMap(c => c.attachments || []), ...tenants.flatMap(t => t.uploads || [])].length === 0 && <EmptyState icon={<FolderOpen size={48} />} text="لا توجد ملفات مرفوعة" />}
+            </div>
+          )}
+
+          {/* System Health */}
+          {section === 'health' && (
+            <div className="space-y-4"><h2 className="text-2xl font-bold text-gray-900">صحة النظام</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {[{ icon: <CheckCircle2 size={24} className="text-emerald-600" />, label: 'حالة السيرفر', value: 'يعمل', color: 'from-emerald-500 to-teal-500' },
+                  { icon: <CheckCircle2 size={24} className="text-emerald-600" />, label: 'قاعدة البيانات', value: 'متصلة', color: 'from-blue-500 to-indigo-500' },
+                  { icon: <CheckCircle2 size={24} className="text-emerald-600" />, label: 'التخزين', value: 'جاهز', color: 'from-purple-500 to-pink-500' },
+                  { icon: <Activity size={24} className="text-emerald-600" />, label: 'آخر فحص', value: new Date().toLocaleTimeString('ar'), color: 'from-orange-500 to-amber-500' },
+                ].map((stat, i) => (
+                  <Card key={i} className="border-0 shadow-lg"><div className={`h-1 bg-gradient-to-l ${stat.color}`} />
+                    <CardContent className="p-5"><div className="flex items-center justify-between">
+                      <div><p className="text-sm text-gray-500 mb-1">{stat.label}</p><p className="text-xl font-bold text-gray-900">{stat.value}</p></div>
+                      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center text-white shadow`}>{stat.icon}</div>
+                    </div></CardContent>
+                  </Card>
+                ))}
+              </div>
+              <Card className="border-0 shadow-lg"><CardHeader><CardTitle>معلومات النظام</CardTitle></CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex justify-between items-center p-3 bg-emerald-50 rounded-xl"><span className="text-sm text-gray-700">الإصدار</span><span className="font-bold text-emerald-700">2.0.0</span></div>
+                  <div className="flex justify-between items-center p-3 bg-blue-50 rounded-xl"><span className="text-sm text-gray-700">قاعدة البيانات</span><span className="font-bold text-blue-700">SQLite (Prisma)</span></div>
+                  <div className="flex justify-between items-center p-3 bg-purple-50 rounded-xl"><span className="text-sm text-gray-700">التخزين</span><span className="font-bold text-purple-700">محلي مشفر</span></div>
+                  <div className="flex justify-between items-center p-3 bg-orange-50 rounded-xl"><span className="text-sm text-gray-700">المباني</span><span className="font-bold text-orange-700">{buildings.length}</span></div>
+                  <div className="flex justify-between items-center p-3 bg-amber-50 rounded-xl"><span className="text-sm text-gray-700">العقود النشطة</span><span className="font-bold text-amber-700">{activeContracts}</span></div>
+                  <div className="flex justify-between items-center p-3 bg-red-50 rounded-xl"><span className="text-sm text-gray-700">المستخدمون</span><span className="font-bold text-red-700">{allUsers.length}</span></div>
+                  <div className="flex justify-between items-center p-3 bg-gray-50 rounded-xl"><span className="text-sm text-gray-700">سجلات التدقيق</span><span className="font-bold text-gray-700">{auditLogs.length}</span></div>
+                  <div className="flex justify-between items-center p-3 bg-teal-50 rounded-xl"><span className="text-sm text-gray-700">نقاط الاستعادة</span><span className="font-bold text-teal-700">{restorePoints.length}</span></div>
+                </CardContent>
+              </Card>
+              <Card className="border-0 shadow-lg"><CardHeader><CardTitle>نظام الأمان</CardTitle></CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-3 p-3 bg-emerald-50 rounded-xl"><CheckCircle2 size={20} className="text-emerald-600" /><div><p className="font-semibold text-gray-900">تشفير كلمات السر</p><p className="text-xs text-gray-500">Scrypt مع salt عشوائي لكل مستخدم</p></div></div>
+                  <div className="flex items-center gap-3 p-3 bg-emerald-50 rounded-xl"><CheckCircle2 size={20} className="text-emerald-600" /><div><p className="font-semibold text-gray-900">حماية من هجمات القوة الغاشمة</p><p className="text-xs text-gray-500">قفل 10 دقائق بعد 5 محاولات فاشلة</p></div></div>
+                  <div className="flex items-center gap-3 p-3 bg-emerald-50 rounded-xl"><CheckCircle2 size={20} className="text-emerald-600" /><div><p className="font-semibold text-gray-900">صلاحيات متعددة المستويات</p><p className="text-xs text-gray-500">5 أدوار: مدير، مدير فرعي، محاسب، محصل، مشاهد</p></div></div>
+                  <div className="flex items-center gap-3 p-3 bg-emerald-50 rounded-xl"><CheckCircle2 size={20} className="text-emerald-600" /><div><p className="font-semibold text-gray-900">سجل تدقيق كامل</p><p className="text-xs text-gray-500">تسجيل كل عملية: إنشاء، تعديل، حذف، دخول، رفع ملفات</p></div></div>
+                  <div className="flex items-center gap-3 p-3 bg-emerald-50 rounded-xl"><CheckCircle2 size={20} className="text-emerald-600" /><div><p className="font-semibold text-gray-900">نقاط استعادة</p><p className="text-xs text-gray-500">نسخ كاملة من البيانات مع إمكانية الاسترجاع</p></div></div>
+                  <div className="flex items-center gap-3 p-3 bg-emerald-50 rounded-xl"><CheckCircle2 size={20} className="text-emerald-600" /><div><p className="font-semibold text-gray-900">جلسات آمنة</p><p className="text-xs text-gray-500">HttpOnly cookies + Bearer tokens، تجديد تلقائي</p></div></div>
+                </CardContent>
+              </Card>
+              <Card className="border-0 shadow-lg"><CardHeader><CardTitle>نظام النسخ الاحتياطية</CardTitle></CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl"><Archive size={20} className="text-blue-600" /><div><p className="font-semibold text-gray-900">الطبقة 1 — نقاط استعادة فورية</p><p className="text-xs text-gray-500">نسخة كاملة من البيانات في أي وقت مع استرجاع فوري</p></div></div>
+                  <div className="flex items-center gap-3 p-3 bg-purple-50 rounded-xl"><Archive size={20} className="text-purple-600" /><div><p className="font-semibold text-gray-900">الطبقة 2 — نسخة قاعدة البيانات</p><p className="text-xs text-gray-500">نسخة دورية من ملف SQLite مشفرة ومقفولة ضد الحذف</p></div></div>
+                  <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-xl"><Archive size={20} className="text-amber-600" /><div><p className="font-semibold text-gray-900">الطبقة 3 — نسخ خارجية</p><p className="text-xs text-gray-500">نسخ إلى تخزين خارجي كل 6 ساعات بوضع Compliance</p></div></div>
+                  <div className="flex items-center gap-3 p-3 bg-emerald-50 rounded-xl"><Archive size={20} className="text-emerald-600" /><div><p className="font-semibold text-gray-900">الطبقة 4 — الكود على GitHub</p><p className="text-xs text-gray-500">تحكم بالنسخ والتتبع الكامل لكل تغيير</p></div></div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+// Login Screen
+function LoginScreen({ onLogin }: { onLogin: () => void }) {
+  const [username, setUsername] = useState('admin');
+  const [password, setPassword] = useState('admin123');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault(); setError(''); setLoading(true);
+    try {
+      const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }), credentials: 'include' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.token) { setStoredToken(data.token); onLogin(); } else { setError(data.error || 'فشل'); }
+    } catch { setError('خطأ في الاتصال'); } finally { setLoading(false); }
+  };
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 p-4">
+      <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-2 gap-0 bg-white rounded-3xl shadow-2xl overflow-hidden border border-orange-100">
+        <div className="bg-gradient-to-br from-orange-500 via-amber-500 to-orange-600 p-10 text-white flex flex-col justify-between min-h-[500px]">
+          <div>
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/15 backdrop-blur rounded-full font-bold text-sm mb-8"><Building2 size={18} /> PropertyHub</div>
+            <h1 className="text-4xl font-extrabold leading-tight mb-4">إدارة عقارات<br />بأقل تعقيد</h1>
+            <p className="text-white/90 text-lg leading-relaxed max-w-sm">نظام متكامل وآمن لإدارة المباني والوحدات والمستأجرين والعقود</p>
+          </div>
+          <ul className="space-y-3 mt-8">
+            {[{ icon: <Shield size={18} />, text: 'نظام صلاحيات متعدد المستويات' }, { icon: <FileImage size={18} />, text: 'رفع صور العقود والمستندات' }, { icon: <Archive size={18} />, text: 'نقاط استعادة وتدقيق كامل' }, { icon: <Activity size={18} />, text: 'تتبع كل تحديث بالتفصيل' }].map((f, i) => (
+              <li key={i} className="flex items-center gap-3 bg-white/12 backdrop-blur px-4 py-3 rounded-xl text-sm font-semibold"><span className="w-7 h-7 bg-white/18 rounded-lg flex items-center justify-center">{f.icon}</span>{f.text}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="p-10 flex items-center justify-center">
+          <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-5">
+            <div><h2 className="text-2xl font-bold text-gray-900 mb-1">تسجيل الدخول</h2><p className="text-gray-500">مرحبًا بك، سجّل دخولك للمتابعة</p></div>
+            <div className="bg-orange-50 border border-orange-200 p-3 rounded-xl text-sm text-orange-800"><strong>الحساب الافتراضي:</strong><br />المستخدم: admin | كلمة السر: admin123</div>
+            <div><Label className="text-gray-700 font-semibold">اسم المستخدم</Label><Input value={username} onChange={e => setUsername(e.target.value)} className="mt-1 border-orange-200 focus:border-orange-500" required /></div>
+            <div><Label className="text-gray-700 font-semibold">كلمة السر</Label><Input type="password" value={password} onChange={e => setPassword(e.target.value)} className="mt-1 border-orange-200 focus:border-orange-500" required /></div>
+            <Button type="submit" disabled={loading} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold py-3 text-lg shadow-lg hover:shadow-xl transition-all">{loading ? 'جاري الدخول...' : 'دخول الآن'}</Button>
+            {error && <p className="text-red-600 font-semibold text-sm text-center">{error}</p>}
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Setup Screen
+function SetupScreen({ onSetup }: { onSetup: () => void }) {
+  const [username, setUsername] = useState('');
+  const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault(); setError('');
+    try {
+      const res = await fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, name, password }), credentials: 'include' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.token) { setStoredToken(data.token); onSetup(); } else { setError(data.error || 'خطأ'); }
+    } catch { setError('خطأ'); }
+  };
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-amber-50 p-4">
+      <Card className="w-full max-w-md border-0 shadow-2xl">
+        <CardHeader className="text-center"><div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center text-white mx-auto mb-4 shadow-lg"><Building2 size={32} /></div><CardTitle className="text-2xl">إعداد النظام</CardTitle><CardDescription>أنشئ حساب المدير الأول</CardDescription></CardHeader>
+        <CardContent><form onSubmit={handleSubmit} className="space-y-4">
+          <div><Label>الاسم</Label><Input value={name} onChange={e => setName(e.target.value)} required /></div>
+          <div><Label>اسم المستخدم</Label><Input value={username} onChange={e => setUsername(e.target.value)} required /></div>
+          <div><Label>كلمة السر (8 أحرف على الأقل)</Label><Input type="password" value={password} onChange={e => setPassword(e.target.value)} required /></div>
+          <Button type="submit" className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold py-3">إنشاء الحساب</Button>
+          {error && <p className="text-red-600 text-sm text-center font-semibold">{error}</p>}
+        </form></CardContent>
+      </Card>
+    </div>
+  );
+}
+
+const KUWAIT_CITIES = [
+  { value: 'العاصمة', label: 'العاصمة' },
+  { value: 'حولي', label: 'حولي' },
+  { value: 'الفروانية', label: 'الفروانية' },
+  { value: 'الأحمدي', label: 'الأحمدي' },
+  { value: 'الجهراء', label: 'الجهراء' },
+  { value: 'مبارك الكبير', label: 'مبارك الكبير' },
+  { value: 'أم صدير', label: 'أم صدير' },
+  { value: 'جليب الشيوخ', label: 'جليب الشيوخ' },
+];
+
+// Reusable Form Dialog - handles open/close state and error handling
+function FormDialog({ trigger, title, children, maxWidth = 'max-w-md' }: {
+  trigger: React.ReactNode;
+  title: string;
+  children: (close: () => void) => React.ReactNode;
+  maxWidth?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className={maxWidth}>
+        <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
+        {children(() => setOpen(false))}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Form Components
+function BuildingForm({ onSave, initial, onClose }: { onSave: (data: any) => Promise<void>; initial?: Building; onClose?: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [code, setCode] = useState(initial?.code || ''); const [name, setName] = useState(initial?.name || ''); const [address, setAddress] = useState(initial?.address || ''); const [city, setCity] = useState(initial?.city || 'العاصمة'); const [floors, setFloors] = useState(String(initial?.floors || '')); const [value, setValue] = useState(String(initial?.value || '0')); const [license, setLicense] = useState(initial?.license || ''); const [notes, setNotes] = useState(initial?.notes || '');
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ code, name, address, city, floors: floors ? +floors : null, value: +value, license, notes }); toast.success(initial ? 'تم تعديل المبنى' : 'تم إنشاء المبنى'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div><Label>كود العمارة</Label><Input value={code} onChange={e => setCode(e.target.value)} required /></div>
+    <div><Label>اسم المبنى</Label><Input value={name} onChange={e => setName(e.target.value)} required /></div>
+    <div><Label>العنوان</Label><Input value={address} onChange={e => setAddress(e.target.value)} /></div>
+    <div><Label>المدينة</Label><Select value={city} onValueChange={setCity}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{KUWAIT_CITIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent></Select></div>
+    <div><Label>عدد الطوابق</Label><Input type="number" value={floors} onChange={e => setFloors(e.target.value)} /></div>
+    <div><Label>القيمة الدفترية</Label><Input type="number" value={value} onChange={e => setValue(e.target.value)} /></div>
+    <div><Label>رقم الترخيص / السجل العقاري</Label><Input value={license} onChange={e => setLicense(e.target.value)} /></div>
+    <div><Label>ملاحظات</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
+    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+  </form>);
+}
+
+function UnitForm({ buildings, onSave, initial, onClose }: { buildings: Building[]; onSave: (data: any) => Promise<void>; initial?: Unit; onClose?: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [buildingId, setBuildingId] = useState(initial?.buildingId || ''); const [number, setNumber] = useState(initial?.number || ''); const [floor, setFloor] = useState(String(initial?.floor || '')); const [area, setArea] = useState(String(initial?.area || '')); const [type, setType] = useState(initial?.type || 'apartment'); const [rentAmount, setRentAmount] = useState(String(initial?.rentAmount || '')); const [notes, setNotes] = useState(initial?.notes || '');
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ buildingId, number, floor: floor ? +floor : null, area: area ? +area : null, type, rentAmount: rentAmount ? +rentAmount : null, notes }); toast.success(initial ? 'تم تعديل الوحدة' : 'تم إنشاء الوحدة'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div><Label>المبنى</Label><Select value={buildingId} onValueChange={setBuildingId}><SelectTrigger><SelectValue placeholder="اختر المبنى" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
+    <div><Label>رقم الوحدة</Label><Input value={number} onChange={e => setNumber(e.target.value)} required /></div>
+    <div><Label>الطابق</Label><Input type="number" value={floor} onChange={e => setFloor(e.target.value)} /></div>
+    <div><Label>المساحة (م²)</Label><Input type="number" value={area} onChange={e => setArea(e.target.value)} /></div>
+    <div><Label>النوع</Label><Select value={type} onValueChange={setType}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="apartment">شقة</SelectItem><SelectItem value="office">مكتب</SelectItem><SelectItem value="shop">محل</SelectItem><SelectItem value="warehouse">مستودع</SelectItem></SelectContent></Select></div>
+    <div><Label>قيمة الإيجار</Label><Input type="number" value={rentAmount} onChange={e => setRentAmount(e.target.value)} /></div>
+    <div><Label>ملاحظات</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
+    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+  </form>);
+}
+
+function TenantForm({ onSave, initial, onClose }: { onSave: (data: any) => Promise<void>; initial?: Tenant; onClose?: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [name, setName] = useState(initial?.name || ''); const [phone, setPhone] = useState(initial?.phone || ''); const [email, setEmail] = useState(initial?.email || ''); const [idNumber, setIdNumber] = useState(initial?.idNumber || ''); const [address, setAddress] = useState(initial?.address || ''); const [guarantor, setGuarantor] = useState((initial as any)?.guarantor || ''); const [guarantorPhone, setGuarantorPhone] = useState((initial as any)?.guarantorPhone || ''); const [notes, setNotes] = useState(initial?.notes || '');
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ name, phone, email, idNumber, address, guarantor, guarantorPhone, notes }); toast.success(initial ? 'تم تعديل المستأجر' : 'تم إنشاء المستأجر'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div><Label>الاسم</Label><Input value={name} onChange={e => setName(e.target.value)} required /></div>
+    <div><Label>الهاتف</Label><Input value={phone} onChange={e => setPhone(e.target.value)} /></div>
+    <div><Label>البريد</Label><Input type="email" value={email} onChange={e => setEmail(e.target.value)} /></div>
+    <div><Label>رقم الهوية</Label><Input value={idNumber} onChange={e => setIdNumber(e.target.value)} /></div>
+    <div><Label>العنوان</Label><Input value={address} onChange={e => setAddress(e.target.value)} /></div>
+    <div><Label>اسم الضامن</Label><Input value={guarantor} onChange={e => setGuarantor(e.target.value)} /></div>
+    <div><Label>هاتف الضامن</Label><Input value={guarantorPhone} onChange={e => setGuarantorPhone(e.target.value)} /></div>
+    <div><Label>ملاحظات</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
+    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+  </form>);
+}
+
+function ContractForm({ units, tenants, onSave, initial, onClose }: { units: Unit[]; tenants: Tenant[]; onSave: (data: any) => Promise<void>; initial?: Contract; onClose?: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [unitId, setUnitId] = useState(initial?.unitId || ''); const [tenantId, setTenantId] = useState(initial?.tenantId || ''); const [startDate, setStartDate] = useState(initial?.startDate ? new Date(initial.startDate).toISOString().slice(0,10) : ''); const [endDate, setEndDate] = useState(initial?.endDate ? new Date(initial.endDate).toISOString().slice(0,10) : ''); const [rentAmount, setRentAmount] = useState(String(initial?.rentAmount || '')); const [deposit, setDeposit] = useState(String(initial?.deposit || '0')); const [paymentDay, setPaymentDay] = useState(String(initial?.paymentDay || '1')); const [notes, setNotes] = useState(initial?.notes || '');
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ unitId, tenantId, startDate, endDate, rentAmount: +rentAmount, deposit: +deposit, paymentDay: +paymentDay, notes }); toast.success(initial ? 'تم تعديل العقد' : 'تم إنشاء العقد'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div><Label>الوحدة</Label><Select value={unitId} onValueChange={setUnitId}><SelectTrigger><SelectValue placeholder="اختر الوحدة" /></SelectTrigger><SelectContent>{units.map(u => <SelectItem key={u.id} value={u.id}>وحدة {u.number}</SelectItem>)}</SelectContent></Select></div>
+    <div><Label>المستأجر</Label><Select value={tenantId} onValueChange={setTenantId}><SelectTrigger><SelectValue placeholder="اختر المستأجر" /></SelectTrigger><SelectContent>{tenants.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select></div>
+    <div><Label>تاريخ البداية</Label><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required /></div>
+    <div><Label>تاريخ النهاية</Label><Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} required /></div>
+    <div><Label>قيمة الإيجار</Label><Input type="number" value={rentAmount} onChange={e => setRentAmount(e.target.value)} required /></div>
+    <div><Label>التأمين</Label><Input type="number" value={deposit} onChange={e => setDeposit(e.target.value)} /></div>
+    <div><Label>يوم الدفع الشهري</Label><Input type="number" min="1" max="28" value={paymentDay} onChange={e => setPaymentDay(e.target.value)} /></div>
+    <div><Label>ملاحظات</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
+    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+  </form>);
+}
+
+function PaymentForm({ contracts, onSave, initial, onClose }: { contracts: Contract[]; onSave: (data: any) => Promise<void>; initial?: Payment; onClose?: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [contractId, setContractId] = useState(initial?.contractId || ''); const [amount, setAmount] = useState(String(initial?.amount || '')); const [dueDate, setDueDate] = useState(initial?.dueDate ? new Date(initial.dueDate).toISOString().slice(0,10) : ''); const [month, setMonth] = useState(initial?.month || ''); const [method, setMethod] = useState(initial?.method || 'cash'); const [reference, setReference] = useState(initial?.reference || ''); const [notes, setNotes] = useState(initial?.notes || '');
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ contractId, amount: +amount, dueDate, month, method, reference, notes, status: initial?.status || 'paid', paidDate: initial?.paidDate || new Date().toISOString() }); toast.success(initial ? 'تم تعديل الدفعة' : 'تم تسجيل الدفعة'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div><Label>العقد</Label><Select value={contractId} onValueChange={setContractId}><SelectTrigger><SelectValue placeholder="اختر العقد" /></SelectTrigger><SelectContent>{contracts.map(c => <SelectItem key={c.id} value={c.id}>عقد #{c.id.slice(0, 8)}</SelectItem>)}</SelectContent></Select></div>
+    <div><Label>المبلغ</Label><Input type="number" value={amount} onChange={e => setAmount(e.target.value)} required /></div>
+    <div><Label>عن شهر</Label><Input type="month" value={month} onChange={e => setMonth(e.target.value)} /></div>
+    <div><Label>تاريخ الاستحقاق</Label><Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} required /></div>
+    <div><Label>طريقة الدفع</Label><Select value={method} onValueChange={setMethod}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cash">نقدي</SelectItem><SelectItem value="transfer">تحويل</SelectItem><SelectItem value="check">شيك</SelectItem><SelectItem value="card">بطاقة</SelectItem></SelectContent></Select></div>
+    <div><Label>رقم المرجع</Label><Input value={reference} onChange={e => setReference(e.target.value)} /></div>
+    <div><Label>ملاحظات</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
+    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+  </form>);
+}
+
+function MaintenanceForm({ onSave, initial, onClose }: { onSave: (data: any) => Promise<void>; initial?: MaintenanceItem; onClose?: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [title, setTitle] = useState(initial?.title || ''); const [description, setDescription] = useState(initial?.description || ''); const [priority, setPriority] = useState(initial?.priority || 'medium'); const [cost, setCost] = useState(String(initial?.cost || ''));
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ title, description, priority, cost: cost ? +cost : null }); toast.success(initial ? 'تم تعديل طلب الصيانة' : 'تم إنشاء طلب الصيانة'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div><Label>العنوان</Label><Input value={title} onChange={e => setTitle(e.target.value)} required /></div>
+    <div><Label>الوصف</Label><Textarea value={description} onChange={e => setDescription(e.target.value)} /></div>
+    <div><Label>الأولوية</Label><Select value={priority} onValueChange={setPriority}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="low">منخفض</SelectItem><SelectItem value="medium">متوسط</SelectItem><SelectItem value="high">عالي</SelectItem><SelectItem value="urgent">عاجل</SelectItem></SelectContent></Select></div>
+    <div><Label>التكلفة التقديرية</Label><Input type="number" value={cost} onChange={e => setCost(e.target.value)} /></div>
+    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+  </form>);
+}
+
+function UserForm({ onSave, onClose }: { onSave: (data: any) => Promise<void>; onClose?: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [name, setName] = useState(''); const [username, setUsername] = useState(''); const [password, setPassword] = useState(''); const [role, setRole] = useState('viewer');
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ name, username, password, role }); toast.success('تم إنشاء المستخدم'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div><Label>الاسم</Label><Input value={name} onChange={e => setName(e.target.value)} required /></div>
+    <div><Label>اسم المستخدم</Label><Input value={username} onChange={e => setUsername(e.target.value)} required /></div>
+    <div><Label>كلمة السر</Label><Input type="password" value={password} onChange={e => setPassword(e.target.value)} required /></div>
+    <div><Label>الدور</Label><Select value={role} onValueChange={setRole}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="admin">مدير</SelectItem><SelectItem value="manager">مدير فرعي</SelectItem><SelectItem value="accountant">محاسب</SelectItem><SelectItem value="collector">محصّل</SelectItem><SelectItem value="viewer">مشاهد</SelectItem></SelectContent></Select></div>
+    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+  </form>);
+}
+
+function SettingsPasswordForm({ onSave, onClose }: { onSave: (data: any) => Promise<void>; onClose?: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [oldPassword, setOldPassword] = useState(''); const [newPassword, setNewPassword] = useState('');
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ oldPassword, newPassword }); setOldPassword(''); setNewPassword(''); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div><Label>كلمة السر الحالية</Label><Input type="password" value={oldPassword} onChange={e => setOldPassword(e.target.value)} required /></div>
+    <div><Label>كلمة السر الجديدة</Label><Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required /></div>
+    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'تغيير'}</Button>
+  </form>);
+}
+
+function TransactionForm({ buildings, onSave, initial, onClose }: { buildings: Building[]; onSave: (data: any) => Promise<void>; initial?: any; onClose?: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [date, setDate] = useState(initial?.date || new Date().toISOString().slice(0, 10)); const [buildingId, setBuildingId] = useState(initial?.buildingId || ''); const [type, setType] = useState(initial?.type || 'income'); const [category, setCategory] = useState(initial?.category || ''); const [amount, setAmount] = useState(String(initial?.amount || ''));
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ date, buildingId: buildingId || null, type, category, amount: +amount }); toast.success(initial ? 'تم تعديل الحركة' : 'تم إنشاء الحركة المالية'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div><Label>التاريخ</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
+    <div><Label>العمارة</Label><Select value={buildingId} onValueChange={setBuildingId}><SelectTrigger><SelectValue placeholder="اختر العمارة (اختياري)" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
+    <div><Label>النوع</Label><Select value={type} onValueChange={setType}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="income">إيراد</SelectItem><SelectItem value="expense">مصروف</SelectItem></SelectContent></Select></div>
+    <div><Label>البيان</Label><Input value={category} onChange={e => setCategory(e.target.value)} /></div>
+    <div><Label>المبلغ</Label><Input type="number" value={amount} onChange={e => setAmount(e.target.value)} required /></div>
+    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+  </form>);
+}
+
+function LoanForm({ buildings, onSave, initial, onClose }: { buildings: Building[]; onSave: (data: any) => Promise<void>; initial?: any; onClose?: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [name, setName] = useState(initial?.name || ''); const [buildingId, setBuildingId] = useState(initial?.buildingId || ''); const [principal, setPrincipal] = useState(String(initial?.principal || '')); const [date, setDate] = useState(initial?.date || new Date().toISOString().slice(0, 10)); const [rate, setRate] = useState(String(initial?.rate || '')); const [months, setMonths] = useState(String(initial?.months || ''));
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ name, buildingId: buildingId || null, principal: +principal, date, rate: +rate, months: +months }); toast.success(initial ? 'تم تعديل القرض' : 'تم إنشاء القرض'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div><Label>اسم القرض</Label><Input value={name} onChange={e => setName(e.target.value)} required /></div>
+    <div><Label>العمارة (اختياري)</Label><Select value={buildingId} onValueChange={setBuildingId}><SelectTrigger><SelectValue placeholder="اختر العمارة" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
+    <div><Label>المبلغ</Label><Input type="number" value={principal} onChange={e => setPrincipal(e.target.value)} required /></div>
+    <div><Label>التاريخ</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
+    <div><Label>نسبة الفائدة %</Label><Input type="number" step="0.1" value={rate} onChange={e => setRate(e.target.value)} required /></div>
+    <div><Label>المدة (شهور)</Label><Input type="number" value={months} onChange={e => setMonths(e.target.value)} required /></div>
+    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+  </form>);
+}
+
+function AccountForm({ accounts, onSave, initial, onClose }: { accounts: any[]; onSave: (data: any) => Promise<void>; initial?: any; onClose?: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [code, setCode] = useState(initial?.code || ''); const [name, setName] = useState(initial?.name || ''); const [type, setType] = useState(initial?.type || 'asset'); const [kind, setKind] = useState(initial?.kind || 'post'); const [parentId, setParentId] = useState(initial?.parentId || '');
+  const groupAccounts = accounts.filter((a: any) => a.kind === 'group');
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ code, name, type, kind, parentId: parentId || null }); toast.success('تم إنشاء الحساب'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div><Label>رقم الحساب</Label><Input value={code} onChange={e => setCode(e.target.value)} required /></div>
+    <div><Label>اسم الحساب</Label><Input value={name} onChange={e => setName(e.target.value)} required /></div>
+    <div><Label>النوع</Label><Select value={type} onValueChange={setType}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="asset">أصول</SelectItem><SelectItem value="liability">التزامات</SelectItem><SelectItem value="equity">حقوق الملكية</SelectItem><SelectItem value="revenue">إيرادات</SelectItem><SelectItem value="expense">مصروفات</SelectItem></SelectContent></Select></div>
+    <div><Label>التصنيف</Label><Select value={kind} onValueChange={setKind}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="group">رئيسي</SelectItem><SelectItem value="post">فرعي</SelectItem></SelectContent></Select></div>
+    <div><Label>الحساب الأب</Label><Select value={parentId} onValueChange={setParentId}><SelectTrigger><SelectValue placeholder="اختر الحساب الأب (اختياري)" /></SelectTrigger><SelectContent>{groupAccounts.map((a: any) => <SelectItem key={a.id} value={a.id}>{a.code} - {a.name}</SelectItem>)}</SelectContent></Select></div>
+    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+  </form>);
+}
+
+function JournalForm({ accounts, buildings, onSave, onClose }: { accounts: any[]; onSave: (data: any) => Promise<void>; buildings: Building[]; onClose?: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10)); const [description, setDescription] = useState(''); const [buildingId, setBuildingId] = useState('');
+  const [lines, setLines] = useState<{ accountId: string; debit: string; credit: string }[]>([{ accountId: '', debit: '', credit: '' }]);
+  const postAccounts = accounts.filter((a: any) => a.kind === 'post');
+  const addLine = () => setLines([...lines, { accountId: '', debit: '', credit: '' }]);
+  const removeLine = (i: number) => { if (lines.length > 1) setLines(lines.filter((_, idx) => idx !== i)); };
+  const updateLine = (i: number, field: string, value: string) => { const updated = [...lines]; (updated[i] as any)[field] = value; setLines(updated); };
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ date, description, buildingId: buildingId || null, lines: lines.map(l => ({ accountId: l.accountId, debit: l.debit ? +l.debit : 0, credit: l.credit ? +l.credit : 0 })) }); toast.success('تم إنشاء القيد اليومي'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div><Label>التاريخ</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
+    <div><Label>البيان</Label><Input value={description} onChange={e => setDescription(e.target.value)} required /></div>
+    <div><Label>العمارة (اختياري)</Label><Select value={buildingId} onValueChange={setBuildingId}><SelectTrigger><SelectValue placeholder="اختر العمارة" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
+    <div className="space-y-2">
+      <div className="flex items-center justify-between"><Label>القيود</Label><Button type="button" variant="outline" size="sm" onClick={addLine} className="border-orange-200 text-orange-700"><Plus size={14} className="ml-1" />إضافة سطر</Button></div>
+      {lines.map((line, i) => (<div key={i} className="flex gap-2 items-end">
+        <div className="flex-1"><Label className="text-xs">الحساب</Label><Select value={line.accountId} onValueChange={v => updateLine(i, 'accountId', v)}><SelectTrigger className="h-9"><SelectValue placeholder="حساب" /></SelectTrigger><SelectContent>{postAccounts.map((a: any) => <SelectItem key={a.id} value={a.id}>{a.code} - {a.name}</SelectItem>)}</SelectContent></Select></div>
+        <div className="w-24"><Label className="text-xs">مدين</Label><Input type="number" value={line.debit} onChange={e => updateLine(i, 'debit', e.target.value)} className="h-9" /></div>
+        <div className="w-24"><Label className="text-xs">دائن</Label><Input type="number" value={line.credit} onChange={e => updateLine(i, 'credit', e.target.value)} className="h-9" /></div>
+        <Button type="button" variant="ghost" size="sm" className="text-red-500 h-9" onClick={() => removeLine(i)}><Trash2 size={14} /></Button>
+      </div>))}
+    </div>
+    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+  </form>);
+}
+
+function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
+  return (<div className="flex flex-col items-center justify-center py-16 text-gray-400"><div className="mb-4">{icon}</div><p className="text-lg font-semibold">{text}</p></div>);
+}
+
+// File Preview Dialog - with inline thumbnail support
+function FilePreviewDialog({ fileId, fileName, mimeType, showThumbnail }: { fileId: string; fileName: string; mimeType: string; showThumbnail?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const isImage = mimeType.startsWith('image/');
+  const isPdf = mimeType === 'application/pdf';
+  const url = `/api/files/${fileId}`;
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        {showThumbnail && isImage ? (
+          <button type="button" className="relative group cursor-pointer" title={fileName}>
+            <img src={url} alt={fileName} className="w-16 h-16 object-cover rounded-lg border border-gray-200 shadow-sm group-hover:shadow-md transition" />
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 rounded-lg transition flex items-center justify-center"><Eye size={20} className="text-white opacity-0 group-hover:opacity-100 transition" /></div>
+          </button>
+        ) : (
+          <Button variant="ghost" size="sm" className="text-orange-600 hover:text-orange-800 hover:bg-orange-50" title="معاينة"><Eye size={14} /></Button>
+        )}
+      </DialogTrigger>
+      <DialogContent className="max-w-4xl max-h-[90vh]">
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><FileImage size={18} />{fileName}</DialogTitle></DialogHeader>
+        <div className="mt-2 overflow-auto" style={{ maxHeight: '70vh' }}>
+          {isImage && <img src={url} alt={fileName} className="max-w-full max-h-[70vh] mx-auto rounded-lg shadow" />}
+          {isPdf && <iframe src={url} className="w-full border-0 rounded-lg" style={{ height: '70vh' }} title={fileName} />}
+          {!isImage && !isPdf && <div className="text-center py-12 text-gray-500"><FileImage size={48} className="mx-auto mb-3 opacity-50" /><p>لا يمكن معاينة هذا النوع من الملفات</p><a href={url} target="_blank" className="text-orange-600 hover:underline mt-2 inline-block">تحميل الملف</a></div>}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Inline file attachments display with thumbnails
+function FileAttachments({ files, onUpload, canUpload }: { files: FileUpload[]; onUpload?: (file: File) => void; canUpload?: boolean }) {
+  if (files.length === 0 && !canUpload) return null;
+  return (
+    <div className="flex flex-wrap gap-2 items-center">
+      {files.map(f => (
+        <span key={f.id} className="inline-flex items-center gap-1">
+          <FilePreviewDialog fileId={f.id} fileName={f.originalName} mimeType={f.mimeType} showThumbnail />
+          <span className="text-xs text-gray-500 max-w-[80px] truncate" title={f.originalName}>{f.originalName}</span>
+        </span>
+      ))}
+      {canUpload && onUpload && (
+        <label className="cursor-pointer">
+          <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; if (file) onUpload(file); }} />
+          <Button variant="outline" size="sm" className="border-orange-200 text-orange-700 text-xs h-7"><Upload size={12} className="ml-1" />رفع</Button>
+        </label>
+      )}
+    </div>
+  );
+}
+
+// Permissions Editor Component
+const PERM_ENTITIES = [
+  { key: 'buildings', label: 'المباني' },
+  { key: 'units', label: 'الوحدات' },
+  { key: 'tenants', label: 'المستأجرين' },
+  { key: 'contracts', label: 'العقود' },
+  { key: 'payments', label: 'المدفوعات' },
+  { key: 'maintenance', label: 'الصيانة' },
+  { key: 'files', label: 'الملفات' },
+  { key: 'transactions', label: 'الإيرادات والمصروفات' },
+  { key: 'loans', label: 'القروض' },
+  { key: 'accounts', label: 'الحسابات' },
+  { key: 'journal', label: 'القيود' },
+  { key: 'users', label: 'المستخدمين' },
+  { key: 'restore', label: 'الاستعادة' },
+];
+
+function PermissionsEditor({ currentPerms, onSave, onClose }: { currentPerms: string; onSave: (perms: string) => Promise<void>; onClose?: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [perms, setPerms] = useState<Record<string, boolean>>(() => { try { return JSON.parse(currentPerms); } catch { return {}; } });
+  const toggle = (key: string) => setPerms(p => ({ ...p, [key]: !p[key] }));
+  return (<div className="space-y-3">
+    <p className="text-sm text-gray-500">حدد الصلاحيات الممنوحة لهذا المستخدم (الصلاحيات الافتراضية للدور تُطبّق إذا لم يتم تحديد)</p>
+    <div className="grid grid-cols-2 gap-2">
+      {PERM_ENTITIES.map(e => (
+        <button key={e.key} type="button" onClick={() => toggle(e.key)} className={`flex items-center gap-2 p-2.5 rounded-xl text-sm transition ${perms[e.key] ? 'bg-emerald-50 border border-emerald-300 text-emerald-800' : 'bg-gray-50 border border-gray-200 text-gray-600'}`}>
+          {perms[e.key] ? <CheckCircle2 size={16} className="text-emerald-600" /> : <XCircle size={16} className="text-gray-400" />}{e.label}
+        </button>
+      ))}
+    </div>
+    <Button disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold" onClick={async () => { setSaving(true); try { await onSave(JSON.stringify(perms)); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }}>{saving ? 'جاري الحفظ...' : 'حفظ الصلاحيات'}</Button>
+  </div>);
+}
