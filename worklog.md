@@ -86,3 +86,20 @@ Stage Summary:
 - Canonical repo is NOW https://github.com/keroegypt000/propertyhub1 (old propertyhub abandoned)
 - IMPORTANT: user must reconnect Vercel project git to propertyhub1 (Settings -> Git) then Redeploy
 - Awaiting: Vercel PPG integration setup status + deploy result
+
+---
+Task ID: fix-upload-compression
+Agent: main
+Task: Fix image/contract uploads failing on Vercel deployment
+
+Work Log:
+- Diagnosed: Vercel serverless request body limit is 4.5MB (Hobby) — phone camera photos (3-6MB) rejected with platform 413 before route handler runs; user saw generic "فشل رفع الملف"
+- Verified upload UI exists in all sections (tenant ID, tenant docs, contracts, maintenance)
+- Added compressImage() in PropertyManagerApp.tsx: browser-side canvas compression — max 1920px, JPEG q0.82, white bg fill, skips GIF/files <400KB, only applies if result is smaller
+- uploadFile now: compress -> client-side 4MB guard with clear Arabic error -> upload
+- All 4 upload catch blocks now surface the real error message (e.message) instead of generic text
+- next build passed; commit 3ce3fe8 pushed to propertyhub1 main (classic PAT still valid) -> auto-deploy triggered
+
+Stage Summary:
+- Uploads >4MB should now succeed for images (auto-compressed to ~200-500KB)
+- If user still reports failure, the toast now shows the actual error text for diagnosis
