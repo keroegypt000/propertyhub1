@@ -195,10 +195,35 @@ export default function PropertyManagerApp() {
     try { await api('/api/restore', 'POST', { name: `تلقائي - ${actionDesc}`, description: actionDesc }); } catch (e) { /* silently ignore if not admin */ }
   }, []);
 
+  // ضغط الصور في المتصفح قبل الرفع (لتجاوز حد 4.5MB في السيرفر وتسريع الرفع)
+  const compressImage = async (file: File): Promise<File> => {
+    if (!file.type.startsWith('image/') || file.type === 'image/gif') return file;
+    if (file.size < 400 * 1024) return file; // الصور الصغيرة ترفع كما هي
+    try {
+      const img = await createImageBitmap(file);
+      const maxDim = 1920;
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return file;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.82));
+      if (!blob || blob.size >= file.size) return file;
+      const name = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+      return new File([blob], name, { type: 'image/jpeg' });
+    } catch { return file; }
+  };
+
   // Upload file helper
   const uploadFile = useCallback(async (file: File, category: string, meta?: { contractId?: string; tenantId?: string; maintenanceId?: string }) => {
-    const buf = await file.arrayBuffer();
-    const headers: Record<string, string> = { 'X-Filename': encodeURIComponent(file.name), 'X-Category': category };
+    const processed = await compressImage(file);
+    if (processed.size > 4 * 1024 * 1024) throw new Error('حجم الملف كبير جداً — الحد الأقصى 4MB. الصور تُضغط تلقائياً، والمستندات الكبيرة قلّل حجمها أولاً');
+    const buf = await processed.arrayBuffer();
+    const headers: Record<string, string> = { 'X-Filename': encodeURIComponent(processed.name), 'X-Category': category };
     if (meta?.contractId) headers['X-Contract-Id'] = meta.contractId;
     if (meta?.tenantId) headers['X-Tenant-Id'] = meta.tenantId;
     if (meta?.maintenanceId) headers['X-Maintenance-Id'] = meta.maintenanceId;
@@ -622,14 +647,14 @@ export default function PropertyManagerApp() {
                           <label className="cursor-pointer">
                             <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => {
                               const file = e.target.files?.[0]; if (!file) return;
-                              try { await uploadFile(file, 'identity', { tenantId: t.id }); toast.success('تم رفع المدنية'); loadData('tenants'); } catch { toast.error('فشل رفع الملف'); }
+                              try { await uploadFile(file, 'identity', { tenantId: t.id }); toast.success('تم رفع المدنية'); loadData('tenants'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
                             }} />
                             <Button variant="outline" size="sm" className="border-blue-200 text-blue-700"><Camera size={14} className="ml-1" />رفع المدنية</Button>
                           </label>
                           <label className="cursor-pointer">
                             <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => {
                               const file = e.target.files?.[0]; if (!file) return;
-                              try { await uploadFile(file, 'general', { tenantId: t.id }); toast.success('تم رفع المستند'); loadData('tenants'); } catch { toast.error('فشل رفع الملف'); }
+                              try { await uploadFile(file, 'general', { tenantId: t.id }); toast.success('تم رفع المستند'); loadData('tenants'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
                             }} />
                             <Button variant="outline" size="sm" className="border-orange-200 text-orange-700"><Upload size={14} className="ml-1" />رفع مستند</Button>
                           </label>
@@ -672,7 +697,7 @@ export default function PropertyManagerApp() {
                           <label className="cursor-pointer">
                             <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => {
                               const file = e.target.files?.[0]; if (!file) return;
-                              try { await uploadFile(file, 'contract', { contractId: c.id }); toast.success('تم رفع الملف'); loadData('contracts'); } catch { toast.error('فشل رفع الملف'); }
+                              try { await uploadFile(file, 'contract', { contractId: c.id }); toast.success('تم رفع الملف'); loadData('contracts'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
                             }} />
                             <Button variant="outline" size="sm" className="border-orange-200 text-orange-700"><Camera size={14} className="ml-1" />رفع صورة العقد</Button>
                           </label>
@@ -749,7 +774,7 @@ export default function PropertyManagerApp() {
                         {canWriteCheck('maintenance') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل طلب الصيانة">{(close) => <MaintenanceForm initial={m} onSave={async (data) => { await api(`/api/maintenance/${m.id}`, 'PUT', data); autoRestore('تعديل صيانة'); loadData('maintenance'); }} onClose={close} />}</FormDialog>}
                         {canWriteCheck('files') && (
                           <label className="cursor-pointer">
-                            <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { await uploadFile(file, 'maintenance', { maintenanceId: m.id }); toast.success('تم رفع الملف'); loadData('maintenance'); } catch { toast.error('فشل رفع الملف'); } }} />
+                            <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { await uploadFile(file, 'maintenance', { maintenanceId: m.id }); toast.success('تم رفع الملف'); loadData('maintenance'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); } }} />
                             <Button variant="outline" size="sm" className="border-orange-200 text-orange-700"><Camera size={14} className="ml-1" />صورة</Button>
                           </label>
                         )}
