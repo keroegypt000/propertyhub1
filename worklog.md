@@ -68,3 +68,21 @@ Stage Summary:
 - Repo is 100% cloud-ready: push to main triggers Vercel build; tables auto-created via db push in build
 - First-run: /api/setup creates admin; storage fully serverless-safe
 - Awaiting user: complete Prisma Postgres setup on Vercel screen + provide git push token
+
+---
+Task ID: push-propertyhub1
+Agent: main
+Task: Push v1.1.0 to new repo keroegypt000/propertyhub1 with classic PAT
+
+Work Log:
+- Fine-grained PAT attempt on old repo failed: 403 (token had read-only Contents) — diagnosed via GitHub API (repo read 200, push denied)
+- User created classic PAT + new repo propertyhub1
+- Remote origin switched to https://github.com/keroegypt000/propertyhub1.git
+- Pushed main (4fb7eba, includes v1.1.0 f41842f) with -u tracking — SUCCESS
+- Pushed tags v1.0.0 + v1.1.0 — SUCCESS
+- Verified refs on GitHub match local; no credentials persisted locally
+
+Stage Summary:
+- Canonical repo is NOW https://github.com/keroegypt000/propertyhub1 (old propertyhub abandoned)
+- IMPORTANT: user must reconnect Vercel project git to propertyhub1 (Settings -> Git) then Redeploy
+- Awaiting: Vercel PPG integration setup status + deploy result
