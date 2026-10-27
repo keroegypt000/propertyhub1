@@ -8,7 +8,15 @@ export async function GET(request: NextRequest) {
     await authMiddleware(request);
     const contracts = await db.contract.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { unit: { include: { building: true } }, tenant: true, payments: true, attachments: true },
+      include: {
+        unit: { include: { building: true } }, tenant: true, payments: true,
+        attachments: {
+          select: {
+            id: true, filename: true, originalName: true, mimeType: true, size: true,
+            category: true, contractId: true, uploadedBy: true, createdAt: true,
+          },
+        },
+      },
     });
     return NextResponse.json(contracts);
   } catch (error: any) {

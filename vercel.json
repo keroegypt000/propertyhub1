@@ -1,6 +1,5 @@
 {
-  "buildCommand": "npx prisma generate && next build",
-  "installCommand": "npm install",
-  "framework": "nextjs",
-  "regions": ["iad1"]
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "prisma generate && prisma db push --accept-data-loss && next build",
+  "framework": "nextjs"
 }

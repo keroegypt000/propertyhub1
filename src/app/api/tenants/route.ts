@@ -6,7 +6,17 @@ import { logAudit } from '@/lib/audit';
 export async function GET(request: NextRequest) {
   try {
     await authMiddleware(request);
-    const tenants = await db.tenant.findMany({ orderBy: { createdAt: 'desc' }, include: { uploads: true } });
+    const tenants = await db.tenant.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        uploads: {
+          select: {
+            id: true, filename: true, originalName: true, mimeType: true, size: true,
+            category: true, tenantId: true, uploadedBy: true, createdAt: true,
+          },
+        },
+      },
+    });
     return NextResponse.json(tenants);
   } catch (error: any) {
     return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });

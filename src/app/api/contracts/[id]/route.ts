@@ -9,7 +9,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const { id } = await params;
     const contract = await db.contract.findUnique({
       where: { id },
-      include: { unit: { include: { building: true } }, tenant: true, payments: true, attachments: true },
+      include: {
+        unit: { include: { building: true } }, tenant: true, payments: true,
+        attachments: {
+          select: {
+            id: true, filename: true, originalName: true, mimeType: true, size: true,
+            category: true, contractId: true, uploadedBy: true, createdAt: true,
+          },
+        },
+      },
     });
     if (!contract) return NextResponse.json({ error: 'غير موجود' }, { status: 404 });
     return NextResponse.json(contract);

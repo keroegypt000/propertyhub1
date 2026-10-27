@@ -8,7 +8,14 @@ export async function GET(request: NextRequest) {
     await authMiddleware(request);
     const items = await db.maintenanceRequest.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { attachments: true },
+      include: {
+        attachments: {
+          select: {
+            id: true, filename: true, originalName: true, mimeType: true, size: true,
+            category: true, maintenanceId: true, uploadedBy: true, createdAt: true,
+          },
+        },
+      },
     });
     return NextResponse.json(items);
   } catch (error: any) {

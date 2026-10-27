@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider  = "sqlite"
+  provider  = "postgresql"
   url       = env("DATABASE_URL")
 }
 
@@ -224,6 +224,7 @@ model FileUpload {
   originalName   String
   mimeType       String
   size           Int
+  data           Bytes?   // محتوى الملف مخزن في قاعدة البيانات (يعمل على السحابة بدون قرص محلي)
   category       String   @default("general") // contract, maintenance, identity, general
   contractId     String?
   maintenanceId  String?

@@ -38,7 +38,13 @@ export async function POST(request: NextRequest) {
       db.contract.findMany(),
       db.payment.findMany(),
       db.maintenanceRequest.findMany(),
-      db.fileUpload.findMany(),
+      db.fileUpload.findMany({
+        select: {
+          id: true, filename: true, originalName: true, mimeType: true, size: true,
+          category: true, contractId: true, maintenanceId: true, tenantId: true,
+          uploadedBy: true, createdAt: true,
+        },
+      }),
       db.transaction.findMany(),
       db.loan.findMany(),
       db.loanPayment.findMany(),

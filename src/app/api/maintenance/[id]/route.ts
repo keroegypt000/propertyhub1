@@ -7,7 +7,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     await authMiddleware(request);
     const { id } = await params;
-    const item = await db.maintenanceRequest.findUnique({ where: { id }, include: { attachments: true } });
+    const item = await db.maintenanceRequest.findUnique({ where: { id }, include: {
+      attachments: {
+        select: {
+          id: true, filename: true, originalName: true, mimeType: true, size: true,
+          category: true, maintenanceId: true, uploadedBy: true, createdAt: true,
+        },
+      },
+    } });
     if (!item) return NextResponse.json({ error: 'غير موجود' }, { status: 404 });
     return NextResponse.json(item);
   } catch (error: any) {

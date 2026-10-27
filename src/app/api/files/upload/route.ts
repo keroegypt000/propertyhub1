@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
-import { saveFile, detectMimeType, SUPPORTED_TYPES, MAX_FILE_SIZE, generateFileId } from '@/lib/storage';
+import { detectMimeType, SUPPORTED_TYPES, MAX_FILE_SIZE, generateFileId } from '@/lib/storage';
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,7 +34,6 @@ export async function POST(request: NextRequest) {
     }
 
     const id = generateFileId();
-    saveFile(buffer, id);
 
     const originalName = decodeURIComponent(filename);
     const fileRecord = await db.fileUpload.create({
@@ -44,6 +43,7 @@ export async function POST(request: NextRequest) {
         originalName,
         mimeType,
         size: buffer.length,
+        data: buffer,
         category,
         contractId: contractId || null,
         tenantId: tenantId || null,
@@ -54,7 +54,8 @@ export async function POST(request: NextRequest) {
 
     await logAudit(user.id, 'upload', 'file', id, { name: originalName, category, size: buffer.length }, `رفع ملف: ${originalName}`);
 
-    return NextResponse.json(fileRecord, { status: 201 });
+    const { data: _data, ...fileMeta } = fileRecord;
+    return NextResponse.json(fileMeta, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'خطأ في رفع الملف' }, { status: 400 });
   }
