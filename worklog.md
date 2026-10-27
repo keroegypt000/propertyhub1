@@ -44,3 +44,27 @@ Stage Summary:
 - main branch + v1.0.0 tag both pushed and verified
 - Upstream tracking set (main <-> origin/main)
 - Token was ephemeral only; advised user to revoke it after use
+
+---
+Task ID: vercel-deploy-prep
+Agent: main
+Task: Prepare PropertyHub for Vercel + Prisma Postgres deployment
+
+Work Log:
+- User chose Prisma Postgres (Vercel marketplace) as the database
+- Verified Prisma 6.11/6.19 client runtime natively supports prisma+postgres:// protocol (grep of library.js) — no @prisma/adapter-ppg needed (its stable 7.x is incompatible with Prisma 6)
+- Verified schema engine binary supports prisma+postgres URLs for db push
+- schema.prisma: provider sqlite -> postgresql; FileUpload gains `data Bytes?` (file content in DB)
+- storage.ts: removed FS functions; kept detectMimeType/MAX_FILE_SIZE/SUPPORTED_TYPES/generateFileId
+- files/upload: stores data:buffer; response excludes data via destructure
+- files/[id]: GET streams Buffer.from(record.data); DELETE uses metadata select
+- files/all, restore POST: metadata-only selects
+- contracts (2 routes), maintenance (2 routes), tenants: attachments/uploads includes converted to metadata-only selects
+- vercel.json: buildCommand "prisma generate && prisma db push --accept-data-loss && next build"
+- next build passed (all routes dynamic); prisma validate passed
+- Commit f41842f, tag v1.1.0 (not yet pushed — needs user token)
+
+Stage Summary:
+- Repo is 100% cloud-ready: push to main triggers Vercel build; tables auto-created via db push in build
+- First-run: /api/setup creates admin; storage fully serverless-safe
+- Awaiting user: complete Prisma Postgres setup on Vercel screen + provide git push token
