@@ -206,9 +206,11 @@ model MaintenanceRequest {
   unitId      String?
   title       String
   description String?
+  category    String?  // plumbing, electrical, ac, elevator, civil, cleaning, other
   priority    String   @default("medium") // low, medium, high, urgent
   status      String   @default("open") // open, in_progress, completed, cancelled
-  cost        Float?
+  estimatedCost Float?  // التكلفة التقديرية
+  cost        Float?   // التكلفة الفعلية
   assignedTo  String?
   completedAt DateTime?
   createdAt   DateTime @default(now())
@@ -218,13 +220,17 @@ model MaintenanceRequest {
 }
 
 // === FILE STORAGE ===
+// الملفات تُخزن في تخزين سحابي (Cloudflare R2) وعلى الميتاداتا والمرجع فقط في قاعدة البيانات
+// storageProvider: "db" للملفات القديمة (محتوى داخل الحقل data) أو "r2" للسحابي
 model FileUpload {
   id             String   @id @default(cuid())
   filename       String
   originalName   String
   mimeType       String
   size           Int
-  data           Bytes?   // محتوى الملف مخزن في قاعدة البيانات (يعمل على السحابة بدون قرص محلي)
+  data           Bytes?   // legacy: محتوى الملفات المرفوعة قبل التحول للتخزين السحابي
+  storageProvider String  @default("db")   // db | r2
+  storageKey     String?  // مفتاح الكائن في التخزين السحابي (بدون رابط عام دائم)
   category       String   @default("general") // contract, maintenance, identity, general
   contractId     String?
   maintenanceId  String?

@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
     const items = await db.maintenanceRequest.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
+        unit: { include: { building: true } },
         attachments: {
           select: {
             id: true, filename: true, originalName: true, mimeType: true, size: true,

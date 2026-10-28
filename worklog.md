@@ -103,3 +103,24 @@ Work Log:
 Stage Summary:
 - Uploads >4MB should now succeed for images (auto-compressed to ~200-500KB)
 - If user still reports failure, the toast now shows the actual error text for diagnosis
+
+---
+Task ID: master-prompt-phases
+Agent: main
+Task: MASTER PROMPT — comprehensive repair & production readiness (13 phases)
+
+Work Log (Phase 1 inspection findings -> fixes):
+- P8: /api/accounts/seed endpoint was MISSING (button 404) -> created src/app/api/accounts/seed/route.ts + src/lib/defaultAccounts.ts (44 Kuwaiti accounts, parents-before-children, idempotent, transaction, created/skipped report)
+- P2: files were stored as Bytes in DB -> src/lib/storage.ts rewritten as R2 (S3) storage service; FileUpload gains storageProvider/storageKey (data kept for legacy rows); upload route: R2 when configured + link-id validation + orphan cleanup; download streams R2 server-side (auth always); DELETE removes object
+- P3: src/lib/calc.ts shared calcs (buildingIncomeStats/totalIncomeStats/contractBalance/fmtKWD); buildings section: expected/contracted/vacant/annual per building + grand totals; ContractForm: building filter + default-rent prefill + optional "update unit default rent" checkbox (never touches history)
+- P4: contracts POST/PUT: full validation, overlap prevention (active/renewed), unit occupancy sync via $transaction; DELETE returns unit to available
+- P5: payments POST: contract/amount validation + auto partial status; PaymentForm: building filter -> contract (tenant+unit shown) + live balance panel (due/paid/outstanding); contract cards show outstanding
+- P6: MaintenanceRequest schema + category/estimatedCost; MaintenanceForm: building->unit cascade + category + est/actual cost; list shows unit/building/category badges; GET includes unit.building
+- P9: shared calc lib used by dashboard/forms; no hardcoded totals
+- P10: login screen no longer prefills admin/admin123 or shows creds hint; health page truthful labels (PostgreSQL + cloud storage); files GET requires auth; AccountForm parent field fixed (parent vs parentId mismatch)
+- P7: .env.example with placeholders + R2 setup steps
+- Build: prisma generate + next build PASS (27 routes); external file upload/upload locations audit: all go through shared uploadFile -> /api/files/upload
+
+Stage Summary:
+- R2 optional: without env vars system keeps working (DB storage); with R2 configured new uploads go to cloud
+- Tests: build+type-check passed; production e2e needs real login creds (not available here) — documented

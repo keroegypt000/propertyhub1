@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
+import { buildingIncomeStats, totalIncomeStats, contractBalance, fmtKWD } from '@/lib/calc';
 import {
   Building2, Home, Users, FileText, DollarSign, Wrench, Shield, Clock,
   Upload, Download, Trash2, Edit3, Plus, Search, Eye, Lock, LogOut,
@@ -28,7 +29,7 @@ interface Unit { id: string; buildingId: string; number: string; floor?: number;
 interface Tenant { id: string; name: string; phone?: string; email?: string; idNumber?: string; idType?: string; address?: string; notes?: string; uploads?: FileUpload[]; createdAt: string; }
 interface Contract { id: string; unitId: string; tenantId: string; startDate: string; endDate: string; rentAmount: number; deposit?: number; paymentDay?: number; status: string; terms?: string; notes?: string; unit?: Unit; tenant?: Tenant; payments?: Payment[]; attachments?: FileUpload[]; createdAt: string; }
 interface Payment { id: string; contractId: string; amount: number; dueDate: string; paidDate?: string; month?: string; status: string; method?: string; reference?: string; notes?: string; contract?: Contract; createdAt: string; }
-interface MaintenanceItem { id: string; title: string; description?: string; priority: string; status: string; cost?: number; assignedTo?: string; unitId?: string; attachments?: FileUpload[]; createdAt: string; }
+interface MaintenanceItem { id: string; title: string; description?: string; priority: string; status: string; cost?: number; estimatedCost?: number; category?: string; assignedTo?: string; unitId?: string; unit?: Unit; attachments?: FileUpload[]; createdAt: string; }
 interface FileUpload { id: string; filename: string; originalName: string; mimeType: string; size: number; category: string; contractId?: string; tenantId?: string; maintenanceId?: string; createdAt: string; }
 interface AuditEntry { id: string; userId: string; action: string; entity: string; entityId?: string; changes?: string; details?: string; createdAt: string; user?: { id: string; name: string; username: string }; }
 interface RestorePoint { id: string; name: string; description?: string; createdBy: string; createdAt: string; creator?: { id: string; name: string; username: string }; }
@@ -558,6 +559,21 @@ export default function PropertyManagerApp() {
                   {canWriteCheck('buildings') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة مبنى</Button>} title="إضافة مبنى جديد">{(close) => <BuildingForm onSave={async (data) => { await api('/api/buildings', 'POST', data); autoRestore('إضافة مبنى'); loadData('buildings'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
+              {/* لوحة الإيرادات المتوقعة — Expected Rental Income */}
+              {buildings.length > 0 && (() => { const t = totalIncomeStats(units as any, contracts as any, buildings.map(b => b.id)); return (
+                <Card className="border-0 shadow-lg"><CardContent className="p-5">
+                  <div className="flex items-center gap-2 mb-3"><DollarSign size={20} className="text-emerald-600" /><h3 className="font-bold text-gray-900">لوحة الإيرادات المتوقعة — كل العمارات</h3></div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                    <div className="p-3 bg-emerald-50 rounded-xl text-center"><p className="text-[11px] text-gray-600">المتوقع شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(t.expectedMonthly)}</p></div>
+                    <div className="p-3 bg-emerald-50 rounded-xl text-center"><p className="text-[11px] text-gray-600">المتوقع سنوياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(t.expectedAnnual)}</p></div>
+                    <div className="p-3 bg-blue-50 rounded-xl text-center"><p className="text-[11px] text-gray-600">التعاقدي شهرياً</p><p className="text-lg font-bold text-blue-700">{fmtKWD(t.contractedMonthly)}</p></div>
+                    <div className="p-3 bg-teal-50 rounded-xl text-center"><p className="text-[11px] text-gray-600">إمكانات الشواغر</p><p className="text-lg font-bold text-teal-700">{fmtKWD(t.vacantPotentialMonthly)}</p></div>
+                    <div className="p-3 bg-amber-50 rounded-xl text-center"><p className="text-[11px] text-gray-600">فرق التعاقدي عن المتوقع</p><p className={`text-lg font-bold ${t.difference >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtKWD(t.difference)}</p></div>
+                    <div className="p-3 bg-purple-50 rounded-xl text-center"><p className="text-[11px] text-gray-600">مؤجرة / شاغرة / غير قابلة</p><p className="text-lg font-bold text-purple-700">{t.occupiedUnits} / {t.vacantUnits} / {t.nonRentableUnits}</p></div>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-2">المتوقع = مجموع الإيجار الافتراضي للوحدات القابلة للتأجير (متاحة + مؤجرة) • التعاقدي = عقود نشطة فعلية • الدفعات المحصلة تظهر في لوحة التحكم — العملة {CURRENCY}</p>
+                </CardContent></Card>
+              ); })()}
               <div className="grid gap-4">
                 {buildings.filter(b => !searchQuery || b.name.includes(searchQuery) || (b.code || '').includes(searchQuery) || (b.city || '').includes(searchQuery) || (b.address || '').includes(searchQuery)).map(b => (
                   <Card key={b.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-5">
@@ -578,6 +594,15 @@ export default function PropertyManagerApp() {
                         {canWriteCheck('buildings') && <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('هل تريد حذف هذا المبنى؟')) { await api(`/api/buildings/${b.id}`, 'DELETE'); autoRestore('حذف مبنى'); loadData('buildings'); toast.success('تم حذف المبنى'); } }}><Trash2 size={16} /></Button>}
                       </div>
                     </div>
+                    {(() => { const s = buildingIncomeStats(units as any, contracts as any, b.id); const maintCost = maintenance.filter(m => m.unit?.buildingId === b.id).reduce((sum, m) => sum + (m.cost || 0), 0); return (
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-4 pt-4 border-t border-gray-100">
+                        <div className="p-2 bg-emerald-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">إيجار متوقع/شهر</p><p className="font-bold text-emerald-700 text-sm">{fmtKWD(s.expectedMonthly)} {CURRENCY}</p></div>
+                        <div className="p-2 bg-blue-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">تعاقدي/شهر</p><p className="font-bold text-blue-700 text-sm">{fmtKWD(s.contractedMonthly)} {CURRENCY}</p></div>
+                        <div className="p-2 bg-teal-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">إمكانات الشواغر</p><p className="font-bold text-teal-700 text-sm">{fmtKWD(s.vacantPotentialMonthly)} {CURRENCY}</p></div>
+                        <div className="p-2 bg-amber-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">سنوياً (متوقع)</p><p className="font-bold text-amber-700 text-sm">{fmtKWD(s.expectedAnnual)} {CURRENCY}</p></div>
+                        <div className="p-2 bg-red-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">مصروف صيانة تراكمي</p><p className="font-bold text-red-700 text-sm">{fmtKWD(maintCost)} {CURRENCY}</p></div>
+                      </div>
+                    ); })()}
                   </CardContent></Card>
                 ))}
                 {buildings.length === 0 && <EmptyState icon={<Building2 size={48} />} text="لا توجد مباني مضافة" />}
@@ -675,7 +700,7 @@ export default function PropertyManagerApp() {
               <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">العقود</h2>
                 <div className="flex items-center gap-2">
                   <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
-                  {canWriteCheck('contracts') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة عقد</Button>} title="إضافة عقد جديد" maxWidth="max-w-lg">{(close) => <ContractForm units={units} tenants={tenants} onSave={async (data) => { await api('/api/contracts', 'POST', data); autoRestore('إضافة عقد'); loadData('contracts'); }} onClose={close} />}</FormDialog>)}
+                  {canWriteCheck('contracts') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة عقد</Button>} title="إضافة عقد جديد" maxWidth="max-w-lg">{(close) => <ContractForm units={units} tenants={tenants} buildings={buildings} onSave={async (data) => { await api('/api/contracts', 'POST', data); if (data.updateDefaultRent && data.unitId) { await api(`/api/units/${data.unitId}`, 'PUT', { rentAmount: data.rentAmount }); loadData('units'); } autoRestore('إضافة عقد'); loadData('contracts'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
               <div className="grid gap-4">
@@ -689,10 +714,11 @@ export default function PropertyManagerApp() {
                           {c.tenant && <p className="flex items-center gap-1"><Users size={14} className="text-gray-400" />{c.tenant.name}</p>}
                           <p className="flex items-center gap-1"><Calendar size={14} className="text-gray-400" />{new Date(c.startDate).toLocaleDateString('ar')} - {new Date(c.endDate).toLocaleDateString('ar')}</p>
                           <p className="font-semibold text-emerald-700">الإيجار: {c.rentAmount.toLocaleString('ar')} {CURRENCY}</p>
+                          {(() => { try { const bal = contractBalance(c as any, (c.payments || []) as any); if (bal.totalDue <= 0) return null; return (<p className={`text-sm font-semibold ${bal.outstanding > 0 ? 'text-red-600' : 'text-emerald-600'}`}>المستحق: {fmtKWD(bal.totalDue)} — المدفوع: {fmtKWD(bal.totalPaid)} — المتبقي: {fmtKWD(bal.outstanding)} {CURRENCY}</p>); } catch { return null; } })()}
                         </div>
                       </div>
                       <div className="flex flex-col gap-2 items-end">
-                        {canWriteCheck('contracts') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل العقد" maxWidth="max-w-lg">{(close) => <ContractForm units={units} tenants={tenants} initial={c} onSave={async (data) => { await api(`/api/contracts/${c.id}`, 'PUT', data); autoRestore('تعديل عقد'); loadData('contracts'); }} onClose={close} />}</FormDialog>}
+                        {canWriteCheck('contracts') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل العقد" maxWidth="max-w-lg">{(close) => <ContractForm units={units} tenants={tenants} buildings={buildings} initial={c} onSave={async (data) => { await api(`/api/contracts/${c.id}`, 'PUT', data); if (data.updateDefaultRent && data.unitId) { await api(`/api/units/${data.unitId}`, 'PUT', { rentAmount: data.rentAmount }); loadData('units'); } autoRestore('تعديل عقد'); loadData('contracts'); }} onClose={close} />}</FormDialog>}
                         {canWriteCheck('files') && (
                           <label className="cursor-pointer">
                             <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => {
@@ -719,7 +745,7 @@ export default function PropertyManagerApp() {
               <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">المدفوعات</h2>
                 <div className="flex items-center gap-2">
                   <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
-                  {canWriteCheck('payments') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />تسجيل دفعة</Button>} title="تسجيل دفعة جديدة">{(close) => <PaymentForm contracts={contracts} onSave={async (data) => { await api('/api/payments', 'POST', data); autoRestore('تسجيل دفعة'); loadData('payments'); }} onClose={close} />}</FormDialog>)}
+                  {canWriteCheck('payments') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />تسجيل دفعة</Button>} title="تسجيل دفعة جديدة">{(close) => <PaymentForm contracts={contracts} payments={payments} buildings={buildings} onSave={async (data) => { await api('/api/payments', 'POST', data); autoRestore('تسجيل دفعة'); loadData('payments'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
               <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
@@ -732,7 +758,7 @@ export default function PropertyManagerApp() {
                   <TableCell>{p.method || '-'}</TableCell>
                   <TableCell className="text-xs text-gray-500">{p.contractId?.slice(0, 8)}</TableCell>
                   <TableCell><div className="flex gap-1">
-                    {canWriteCheck('payments') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الدفعة">{(close) => <PaymentForm contracts={contracts} initial={p} onSave={async (data) => { await api(`/api/payments/${p.id}`, 'PUT', data); autoRestore('تعديل دفعة'); loadData('payments'); }} onClose={close} />}</FormDialog>}
+                    {canWriteCheck('payments') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الدفعة">{(close) => <PaymentForm contracts={contracts} payments={payments} buildings={buildings} initial={p} onSave={async (data) => { await api(`/api/payments/${p.id}`, 'PUT', data); autoRestore('تعديل دفعة'); loadData('payments'); }} onClose={close} />}</FormDialog>}
                     {canWriteCheck('payments') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/payments/${p.id}`, 'DELETE'); autoRestore('حذف دفعة'); loadData('payments'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>}
                   </div></TableCell>
                 </TableRow>))}</TableBody></Table>
@@ -747,7 +773,7 @@ export default function PropertyManagerApp() {
               <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">طلبات الصيانة</h2>
                 <div className="flex items-center gap-2">
                   <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
-                  {canWriteCheck('maintenance') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />طلب صيانة</Button>} title="طلب صيانة جديد">{(close) => <MaintenanceForm onSave={async (data) => { await api('/api/maintenance', 'POST', data); autoRestore('طلب صيانة'); loadData('maintenance'); }} onClose={close} />}</FormDialog>)}
+                  {canWriteCheck('maintenance') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />طلب صيانة</Button>} title="طلب صيانة جديد">{(close) => <MaintenanceForm buildings={buildings} units={units} onSave={async (data) => { await api('/api/maintenance', 'POST', data); autoRestore('طلب صيانة'); loadData('maintenance'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
               <div className="grid gap-4">
@@ -755,10 +781,11 @@ export default function PropertyManagerApp() {
                   <Card key={m.id} className="border-0 shadow-lg"><CardContent className="p-4">
                     <div className="flex items-start justify-between">
                       <div>
-                        <div className="flex items-center gap-2 mb-2"><Badge className={MAINT_STATUS_MAP[m.status]?.color}>{MAINT_STATUS_MAP[m.status]?.label || m.status}</Badge><Badge className={PRIORITY_MAP[m.priority]?.color}>{PRIORITY_MAP[m.priority]?.label || m.priority}</Badge></div>
+                        <div className="flex items-center gap-2 mb-2"><Badge className={MAINT_STATUS_MAP[m.status]?.color}>{MAINT_STATUS_MAP[m.status]?.label || m.status}</Badge><Badge className={PRIORITY_MAP[m.priority]?.color}>{PRIORITY_MAP[m.priority]?.label || m.priority}</Badge>{m.unit && <Badge className="bg-purple-100 text-purple-800">وحدة {m.unit.number}{m.unit.building ? ` — ${m.unit.building.name}` : ''}</Badge>}{m.category && m.category !== 'other' && <Badge className="bg-gray-100 text-gray-700">{MAINT_CATEGORIES[m.category] || m.category}</Badge>}</div>
                         <h3 className="font-bold text-gray-900">{m.title}</h3>
                         {m.description && <p className="text-sm text-gray-600 mt-1">{m.description}</p>}
-                        {m.cost && <p className="text-sm text-emerald-700 mt-1">التكلفة: {m.cost.toLocaleString('ar')} {CURRENCY}</p>}
+                        {m.estimatedCost != null && <p className="text-sm text-amber-700 mt-1">التكلفة التقديرية: {m.estimatedCost.toLocaleString('ar')} {CURRENCY}</p>}
+                        {m.cost && <p className="text-sm text-emerald-700 mt-1">التكلفة الفعلية: {m.cost.toLocaleString('ar')} {CURRENCY}</p>}
                         {/* Maintenance attachments with inline preview */}
                         {(m.attachments && m.attachments.length > 0) && (
                           <div className="mt-2 flex flex-wrap gap-2">
@@ -771,7 +798,7 @@ export default function PropertyManagerApp() {
                         )}
                       </div>
                       <div className="flex gap-2">
-                        {canWriteCheck('maintenance') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل طلب الصيانة">{(close) => <MaintenanceForm initial={m} onSave={async (data) => { await api(`/api/maintenance/${m.id}`, 'PUT', data); autoRestore('تعديل صيانة'); loadData('maintenance'); }} onClose={close} />}</FormDialog>}
+                        {canWriteCheck('maintenance') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل طلب الصيانة">{(close) => <MaintenanceForm buildings={buildings} units={units} initial={m} onSave={async (data) => { await api(`/api/maintenance/${m.id}`, 'PUT', data); autoRestore('تعديل صيانة'); loadData('maintenance'); }} onClose={close} />}</FormDialog>}
                         {canWriteCheck('files') && (
                           <label className="cursor-pointer">
                             <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { await uploadFile(file, 'maintenance', { maintenanceId: m.id }); toast.success('تم رفع الملف'); loadData('maintenance'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); } }} />
@@ -940,7 +967,7 @@ export default function PropertyManagerApp() {
               <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">شجرة الحسابات</h2>
                 <div className="flex items-center gap-2">
                   <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
-                  {isAdmin && <Button variant="outline" className="border-orange-200 text-orange-700" onClick={async () => { try { await api('/api/accounts/seed', 'POST'); loadData('accounts'); toast.success('تم إنشاء الشجرة الافتراضية'); } catch (e: any) { toast.error(e.message); } }}>إنشاء الشجرة الافتراضية</Button>}
+                  {isAdmin && <Button variant="outline" className="border-orange-200 text-orange-700" onClick={async () => { if (!confirm('سيتم إنشاء الحسابات الافتراضية غير الموجودة فقط — لن يتم تعديل أو حذف أي حساب قائم. متابعة؟')) return; try { const r = await api<any>('/api/accounts/seed', 'POST'); toast.success(`تم الاستيراد: ${r.created} حساب جديد — ${r.skipped.length} موجود مسبقاً (من إجمالي ${r.total})`); loadData('accounts'); } catch (e: any) { toast.error(e.message); } }}>إنشاء الشجرة الافتراضية</Button>}
                   {canWriteCheck('accounts') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة حساب</Button>} title="إضافة حساب جديد">{(close) => <AccountForm accounts={accounts} onSave={async (data) => { await api('/api/accounts', 'POST', data); loadData('accounts'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
@@ -1054,9 +1081,9 @@ export default function PropertyManagerApp() {
               </div>
               <Card className="border-0 shadow-lg"><CardHeader><CardTitle>معلومات النظام</CardTitle></CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="flex justify-between items-center p-3 bg-emerald-50 rounded-xl"><span className="text-sm text-gray-700">الإصدار</span><span className="font-bold text-emerald-700">2.0.0</span></div>
-                  <div className="flex justify-between items-center p-3 bg-blue-50 rounded-xl"><span className="text-sm text-gray-700">قاعدة البيانات</span><span className="font-bold text-blue-700">SQLite (Prisma)</span></div>
-                  <div className="flex justify-between items-center p-3 bg-purple-50 rounded-xl"><span className="text-sm text-gray-700">التخزين</span><span className="font-bold text-purple-700">محلي مشفر</span></div>
+                  <div className="flex justify-between items-center p-3 bg-emerald-50 rounded-xl"><span className="text-sm text-gray-700">الإصدار</span><span className="font-bold text-emerald-700">2.1.0</span></div>
+                  <div className="flex justify-between items-center p-3 bg-blue-50 rounded-xl"><span className="text-sm text-gray-700">قاعدة البيانات</span><span className="font-bold text-blue-700">PostgreSQL سحابية (Prisma)</span></div>
+                  <div className="flex justify-between items-center p-3 bg-purple-50 rounded-xl"><span className="text-sm text-gray-700">التخزين</span><span className="font-bold text-purple-700">سحابي مؤمّن (R2 عند الإعداد)</span></div>
                   <div className="flex justify-between items-center p-3 bg-orange-50 rounded-xl"><span className="text-sm text-gray-700">المباني</span><span className="font-bold text-orange-700">{buildings.length}</span></div>
                   <div className="flex justify-between items-center p-3 bg-amber-50 rounded-xl"><span className="text-sm text-gray-700">العقود النشطة</span><span className="font-bold text-amber-700">{activeContracts}</span></div>
                   <div className="flex justify-between items-center p-3 bg-red-50 rounded-xl"><span className="text-sm text-gray-700">المستخدمون</span><span className="font-bold text-red-700">{allUsers.length}</span></div>
@@ -1092,8 +1119,8 @@ export default function PropertyManagerApp() {
 
 // Login Screen
 function LoginScreen({ onLogin }: { onLogin: () => void }) {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1122,7 +1149,6 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
         <div className="p-10 flex items-center justify-center">
           <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-5">
             <div><h2 className="text-2xl font-bold text-gray-900 mb-1">تسجيل الدخول</h2><p className="text-gray-500">مرحبًا بك، سجّل دخولك للمتابعة</p></div>
-            <div className="bg-orange-50 border border-orange-200 p-3 rounded-xl text-sm text-orange-800"><strong>الحساب الافتراضي:</strong><br />المستخدم: admin | كلمة السر: admin123</div>
             <div><Label className="text-gray-700 font-semibold">اسم المستخدم</Label><Input value={username} onChange={e => setUsername(e.target.value)} className="mt-1 border-orange-200 focus:border-orange-500" required /></div>
             <div><Label className="text-gray-700 font-semibold">كلمة السر</Label><Input type="password" value={password} onChange={e => setPassword(e.target.value)} className="mt-1 border-orange-200 focus:border-orange-500" required /></div>
             <Button type="submit" disabled={loading} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold py-3 text-lg shadow-lg hover:shadow-xl transition-all">{loading ? 'جاري الدخول...' : 'دخول الآن'}</Button>
@@ -1242,45 +1268,71 @@ function TenantForm({ onSave, initial, onClose }: { onSave: (data: any) => Promi
   </form>);
 }
 
-function ContractForm({ units, tenants, onSave, initial, onClose }: { units: Unit[]; tenants: Tenant[]; onSave: (data: any) => Promise<void>; initial?: Contract; onClose?: () => void }) {
+function ContractForm({ units, tenants, buildings, onSave, initial, onClose }: { units: Unit[]; tenants: Tenant[]; buildings: Building[]; onSave: (data: any) => Promise<void>; initial?: Contract; onClose?: () => void }) {
   const [saving, setSaving] = useState(false);
-  const [unitId, setUnitId] = useState(initial?.unitId || ''); const [tenantId, setTenantId] = useState(initial?.tenantId || ''); const [startDate, setStartDate] = useState(initial?.startDate ? new Date(initial.startDate).toISOString().slice(0,10) : ''); const [endDate, setEndDate] = useState(initial?.endDate ? new Date(initial.endDate).toISOString().slice(0,10) : ''); const [rentAmount, setRentAmount] = useState(String(initial?.rentAmount || '')); const [deposit, setDeposit] = useState(String(initial?.deposit || '0')); const [paymentDay, setPaymentDay] = useState(String(initial?.paymentDay || '1')); const [notes, setNotes] = useState(initial?.notes || '');
-  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ unitId, tenantId, startDate, endDate, rentAmount: +rentAmount, deposit: +deposit, paymentDay: +paymentDay, notes }); toast.success(initial ? 'تم تعديل العقد' : 'تم إنشاء العقد'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
-    <div><Label>الوحدة</Label><Select value={unitId} onValueChange={setUnitId}><SelectTrigger><SelectValue placeholder="اختر الوحدة" /></SelectTrigger><SelectContent>{units.map(u => <SelectItem key={u.id} value={u.id}>وحدة {u.number}</SelectItem>)}</SelectContent></Select></div>
+  const [buildingId, setBuildingId] = useState(initial?.unit?.buildingId || ''); const [unitId, setUnitId] = useState(initial?.unitId || ''); const [tenantId, setTenantId] = useState(initial?.tenantId || ''); const [startDate, setStartDate] = useState(initial?.startDate ? new Date(initial.startDate).toISOString().slice(0,10) : ''); const [endDate, setEndDate] = useState(initial?.endDate ? new Date(initial.endDate).toISOString().slice(0,10) : ''); const [rentAmount, setRentAmount] = useState(String(initial?.rentAmount || '')); const [deposit, setDeposit] = useState(String(initial?.deposit || '0')); const [paymentDay, setPaymentDay] = useState(String(initial?.paymentDay || '1')); const [notes, setNotes] = useState(initial?.notes || '');
+  const [updateDefaultRent, setUpdateDefaultRent] = useState(false);
+  const filteredUnits = buildingId ? units.filter(u => u.buildingId === buildingId) : units;
+  const selectedUnit = units.find(u => u.id === unitId);
+  // عند اختيار وحدة جديدة (إنشاء عقد جديد): تعبئة الإيجار الافتراضي تلقائياً — قيمة العقد قابلة للتعديل
+  const handleUnitChange = (id: string) => { setUnitId(id); if (!initial) { const u = units.find(x => x.id === id); if (u?.rentAmount) setRentAmount(String(u.rentAmount)); } };
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ unitId, tenantId, startDate, endDate, rentAmount: +rentAmount, deposit: +deposit, paymentDay: +paymentDay, notes, updateDefaultRent }); toast.success(initial ? 'تم تعديل العقد' : 'تم إنشاء العقد'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div><Label>المبنى</Label><Select value={buildingId} onValueChange={(v) => { setBuildingId(v); setUnitId(''); }}><SelectTrigger><SelectValue placeholder="اختر المبنى أولاً" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
+    <div><Label>الوحدة</Label><Select value={unitId} onValueChange={handleUnitChange}><SelectTrigger><SelectValue placeholder={buildingId ? 'اختر الوحدة' : 'اختر المبنى أولاً'} /></SelectTrigger><SelectContent>{filteredUnits.map(u => <SelectItem key={u.id} value={u.id}>وحدة {u.number}{u.status === 'rented' ? ' (مؤجرة)' : ''}{u.rentAmount ? ` — افتراضي ${u.rentAmount}` : ''}</SelectItem>)}</SelectContent></Select></div>
+    {selectedUnit?.rentAmount && <p className="text-xs text-emerald-700 bg-emerald-50 p-2 rounded-lg">الإيجار الافتراضي للوحدة: <b>{selectedUnit.rentAmount} {CURRENCY}</b> — عدّل قيمة العقد المتفق عليها أدناه إن اختلفت، ولن تتأثر القيمة الافتراضية إلا إذا فعّلت الخيار الأخير</p>}
     <div><Label>المستأجر</Label><Select value={tenantId} onValueChange={setTenantId}><SelectTrigger><SelectValue placeholder="اختر المستأجر" /></SelectTrigger><SelectContent>{tenants.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select></div>
-    <div><Label>تاريخ البداية</Label><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required /></div>
-    <div><Label>تاريخ النهاية</Label><Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} required /></div>
-    <div><Label>قيمة الإيجار</Label><Input type="number" value={rentAmount} onChange={e => setRentAmount(e.target.value)} required /></div>
-    <div><Label>التأمين</Label><Input type="number" value={deposit} onChange={e => setDeposit(e.target.value)} /></div>
-    <div><Label>يوم الدفع الشهري</Label><Input type="number" min="1" max="28" value={paymentDay} onChange={e => setPaymentDay(e.target.value)} /></div>
+    <div className="grid grid-cols-2 gap-3"><div><Label>تاريخ البداية</Label><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required /></div><div><Label>تاريخ النهاية</Label><Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} required /></div></div>
+    <div><Label>قيمة الإيجار المتفق عليها ({CURRENCY})</Label><Input type="number" value={rentAmount} onChange={e => setRentAmount(e.target.value)} required /></div>
+    <div className="grid grid-cols-2 gap-3"><div><Label>التأمين</Label><Input type="number" value={deposit} onChange={e => setDeposit(e.target.value)} /></div><div><Label>يوم الدفع الشهري</Label><Input type="number" min="1" max="28" value={paymentDay} onChange={e => setPaymentDay(e.target.value)} /></div></div>
+    {!initial && selectedUnit?.rentAmount && (<div className="flex items-start gap-2 p-2.5 bg-blue-50 rounded-lg"><input type="checkbox" id="updDefaultRent" checked={updateDefaultRent} onChange={e => setUpdateDefaultRent(e.target.checked)} className="w-4 h-4 mt-0.5" /><Label htmlFor="updDefaultRent" className="text-xs cursor-pointer font-normal">تحديث الإيجار الافتراضي للوحدة إلى قيمة العقد ({rentAmount || 0} {CURRENCY}) — لن يتغير أي عقد سابق</Label></div>)}
     <div><Label>ملاحظات</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
     <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
   </form>);
 }
 
-function PaymentForm({ contracts, onSave, initial, onClose }: { contracts: Contract[]; onSave: (data: any) => Promise<void>; initial?: Payment; onClose?: () => void }) {
+function PaymentForm({ contracts, payments, buildings, onSave, initial, onClose }: { contracts: Contract[]; payments: Payment[]; buildings: Building[]; onSave: (data: any) => Promise<void>; initial?: Payment; onClose?: () => void }) {
   const [saving, setSaving] = useState(false);
-  const [contractId, setContractId] = useState(initial?.contractId || ''); const [amount, setAmount] = useState(String(initial?.amount || '')); const [dueDate, setDueDate] = useState(initial?.dueDate ? new Date(initial.dueDate).toISOString().slice(0,10) : ''); const [month, setMonth] = useState(initial?.month || ''); const [method, setMethod] = useState(initial?.method || 'cash'); const [reference, setReference] = useState(initial?.reference || ''); const [notes, setNotes] = useState(initial?.notes || '');
+  const [buildingId, setBuildingId] = useState(''); const [contractId, setContractId] = useState(initial?.contractId || ''); const [amount, setAmount] = useState(String(initial?.amount || '')); const [dueDate, setDueDate] = useState(initial?.dueDate ? new Date(initial.dueDate).toISOString().slice(0,10) : ''); const [month, setMonth] = useState(initial?.month || ''); const [method, setMethod] = useState(initial?.method || 'cash'); const [reference, setReference] = useState(initial?.reference || ''); const [notes, setNotes] = useState(initial?.notes || '');
+  // اختيار متسلسل: مبنى ← عقد (مفلتر بالمبنى) ← تفاصيل المستأجر والرصيد
+  const filteredContracts = buildingId ? contracts.filter(c => c.unit?.buildingId === buildingId) : contracts;
+  const selected = contracts.find(c => c.id === contractId);
+  const balance = selected ? contractBalance(selected as any, (selected.payments || []) as any) : null;
   return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ contractId, amount: +amount, dueDate, month, method, reference, notes, status: initial?.status || 'paid', paidDate: initial?.paidDate || new Date().toISOString() }); toast.success(initial ? 'تم تعديل الدفعة' : 'تم تسجيل الدفعة'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
-    <div><Label>العقد</Label><Select value={contractId} onValueChange={setContractId}><SelectTrigger><SelectValue placeholder="اختر العقد" /></SelectTrigger><SelectContent>{contracts.map(c => <SelectItem key={c.id} value={c.id}>عقد #{c.id.slice(0, 8)}</SelectItem>)}</SelectContent></Select></div>
-    <div><Label>المبلغ</Label><Input type="number" value={amount} onChange={e => setAmount(e.target.value)} required /></div>
-    <div><Label>عن شهر</Label><Input type="month" value={month} onChange={e => setMonth(e.target.value)} /></div>
-    <div><Label>تاريخ الاستحقاق</Label><Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} required /></div>
-    <div><Label>طريقة الدفع</Label><Select value={method} onValueChange={setMethod}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cash">نقدي</SelectItem><SelectItem value="transfer">تحويل</SelectItem><SelectItem value="check">شيك</SelectItem><SelectItem value="card">بطاقة</SelectItem></SelectContent></Select></div>
-    <div><Label>رقم المرجع</Label><Input value={reference} onChange={e => setReference(e.target.value)} /></div>
+    <div><Label>المبنى (فلتر)</Label><Select value={buildingId} onValueChange={setBuildingId}><SelectTrigger><SelectValue placeholder="كل المباني" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
+    <div><Label>العقد</Label><Select value={contractId} onValueChange={setContractId}><SelectTrigger><SelectValue placeholder="اختر العقد" /></SelectTrigger><SelectContent>{filteredContracts.map(c => <SelectItem key={c.id} value={c.id}>عقد #{c.id.slice(0, 8)} — {c.tenant?.name || 'بدون مستأجر'} — وحدة {c.unit?.number || '?'}</SelectItem>)}</SelectContent></Select></div>
+    {selected && balance && (<div className="p-3 bg-blue-50 border border-blue-100 rounded-xl space-y-1 text-sm">
+      <p className="font-semibold text-gray-800">{selected.tenant?.name} — وحدة {selected.unit?.number}{selected.unit?.building ? ` (${selected.unit.building.name})` : ''}</p>
+      <p className="text-gray-600">الإيجار الشهري: <b>{fmtKWD(selected.rentAmount)} {CURRENCY}</b> — مدفوعات مسجلة: {(selected.payments || []).length}</p>
+      <p className="text-gray-600">المستحق حتى الآن: <b>{fmtKWD(balance.totalDue)}</b> — المدفوع فعلياً: <b className="text-emerald-700">{fmtKWD(balance.totalPaid)}</b> — <span className={balance.outstanding > 0 ? 'text-red-700 font-bold' : 'text-emerald-700 font-bold'}>المتبقي: {fmtKWD(balance.outstanding)} {CURRENCY}</span></p>
+    </div>)}
+    <div><Label>المبلغ ({CURRENCY})</Label><Input type="number" value={amount} onChange={e => setAmount(e.target.value)} required /></div>
+    <div className="grid grid-cols-2 gap-3"><div><Label>عن شهر</Label><Input type="month" value={month} onChange={e => setMonth(e.target.value)} /></div><div><Label>تاريخ الاستحقاق</Label><Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} required /></div></div>
+    <div className="grid grid-cols-2 gap-3"><div><Label>طريقة الدفع</Label><Select value={method} onValueChange={setMethod}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cash">نقدي</SelectItem><SelectItem value="transfer">تحويل</SelectItem><SelectItem value="check">شيك</SelectItem><SelectItem value="card">بطاقة</SelectItem></SelectContent></Select></div><div><Label>رقم المرجع</Label><Input value={reference} onChange={e => setReference(e.target.value)} /></div></div>
     <div><Label>ملاحظات</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
     <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
   </form>);
 }
 
-function MaintenanceForm({ onSave, initial, onClose }: { onSave: (data: any) => Promise<void>; initial?: MaintenanceItem; onClose?: () => void }) {
+const MAINT_CATEGORIES: Record<string, string> = {
+  plumbing: 'سباكة وتمديدات مياه', electrical: 'كهرباء', ac: 'تكييف وتبريد',
+  elevator: 'مصاعد', civil: 'أعمال مدنية ودهانات', cleaning: 'نظافة', other: 'أخرى',
+};
+
+function MaintenanceForm({ buildings, units, onSave, initial, onClose }: { buildings: Building[]; units: Unit[]; onSave: (data: any) => Promise<void>; initial?: MaintenanceItem; onClose?: () => void }) {
   const [saving, setSaving] = useState(false);
-  const [title, setTitle] = useState(initial?.title || ''); const [description, setDescription] = useState(initial?.description || ''); const [priority, setPriority] = useState(initial?.priority || 'medium'); const [cost, setCost] = useState(String(initial?.cost || ''));
-  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ title, description, priority, cost: cost ? +cost : null }); toast.success(initial ? 'تم تعديل طلب الصيانة' : 'تم إنشاء طلب الصيانة'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
-    <div><Label>العنوان</Label><Input value={title} onChange={e => setTitle(e.target.value)} required /></div>
+  const [buildingId, setBuildingId] = useState(initial?.unit?.buildingId || ''); const [unitId, setUnitId] = useState(initial?.unitId || ''); const [title, setTitle] = useState(initial?.title || ''); const [description, setDescription] = useState(initial?.description || ''); const [category, setCategory] = useState(initial?.category || 'other'); const [priority, setPriority] = useState(initial?.priority || 'medium'); const [estimatedCost, setEstimatedCost] = useState(String(initial?.estimatedCost ?? '')); const [cost, setCost] = useState(String(initial?.cost || ''));
+  // اختيار متسلسل: مبنى ← وحداته فقط — وتصفير الوحدة عند تغيير المبنى
+  const filteredUnits = buildingId ? units.filter(u => u.buildingId === buildingId) : units;
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ title, description, unitId: unitId || null, category, priority, estimatedCost: estimatedCost ? +estimatedCost : null, cost: cost ? +cost : null }); toast.success(initial ? 'تم تعديل طلب الصيانة' : 'تم إنشاء طلب الصيانة'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div className="grid grid-cols-2 gap-3">
+      <div><Label>المبنى</Label><Select value={buildingId} onValueChange={(v) => { setBuildingId(v); setUnitId(''); }}><SelectTrigger><SelectValue placeholder="اختر المبنى" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
+      <div><Label>الوحدة</Label><Select value={unitId} onValueChange={setUnitId}><SelectTrigger><SelectValue placeholder={buildingId ? 'اختر الوحدة (اختياري)' : 'اختر المبنى أولاً'} /></SelectTrigger><SelectContent>{filteredUnits.map(u => <SelectItem key={u.id} value={u.id}>وحدة {u.number}</SelectItem>)}</SelectContent></Select></div>
+    </div>
+    <div><Label>عنوان الطلب</Label><Input value={title} onChange={e => setTitle(e.target.value)} required /></div>
+    <div><Label>التصنيف</Label><Select value={category} onValueChange={setCategory}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(MAINT_CATEGORIES).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent></Select></div>
     <div><Label>الوصف</Label><Textarea value={description} onChange={e => setDescription(e.target.value)} /></div>
     <div><Label>الأولوية</Label><Select value={priority} onValueChange={setPriority}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="low">منخفض</SelectItem><SelectItem value="medium">متوسط</SelectItem><SelectItem value="high">عالي</SelectItem><SelectItem value="urgent">عاجل</SelectItem></SelectContent></Select></div>
-    <div><Label>التكلفة التقديرية</Label><Input type="number" value={cost} onChange={e => setCost(e.target.value)} /></div>
+    <div className="grid grid-cols-2 gap-3"><div><Label>التكلفة التقديرية ({CURRENCY})</Label><Input type="number" value={estimatedCost} onChange={e => setEstimatedCost(e.target.value)} /></div><div><Label>التكلفة الفعلية ({CURRENCY})</Label><Input type="number" value={cost} onChange={e => setCost(e.target.value)} /></div></div>
     <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
   </form>);
 }
@@ -1336,9 +1388,9 @@ function LoanForm({ buildings, onSave, initial, onClose }: { buildings: Building
 
 function AccountForm({ accounts, onSave, initial, onClose }: { accounts: any[]; onSave: (data: any) => Promise<void>; initial?: any; onClose?: () => void }) {
   const [saving, setSaving] = useState(false);
-  const [code, setCode] = useState(initial?.code || ''); const [name, setName] = useState(initial?.name || ''); const [type, setType] = useState(initial?.type || 'asset'); const [kind, setKind] = useState(initial?.kind || 'post'); const [parentId, setParentId] = useState(initial?.parentId || '');
+  const [code, setCode] = useState(initial?.code || ''); const [name, setName] = useState(initial?.name || ''); const [type, setType] = useState(initial?.type || 'asset'); const [kind, setKind] = useState(initial?.kind || 'post'); const [parentId, setParentId] = useState(initial?.parent || '');
   const groupAccounts = accounts.filter((a: any) => a.kind === 'group');
-  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ code, name, type, kind, parentId: parentId || null }); toast.success('تم إنشاء الحساب'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ code, name, type, kind, parent: parentId || null }); toast.success('تم إنشاء الحساب'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
     <div><Label>رقم الحساب</Label><Input value={code} onChange={e => setCode(e.target.value)} required /></div>
     <div><Label>اسم الحساب</Label><Input value={name} onChange={e => setName(e.target.value)} required /></div>
     <div><Label>النوع</Label><Select value={type} onValueChange={setType}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="asset">أصول</SelectItem><SelectItem value="liability">التزامات</SelectItem><SelectItem value="equity">حقوق الملكية</SelectItem><SelectItem value="revenue">إيرادات</SelectItem><SelectItem value="expense">مصروفات</SelectItem></SelectContent></Select></div>
