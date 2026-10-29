@@ -70,6 +70,7 @@ model Unit {
 
   building    Building  @relation(fields: [buildingId], references: [id], onDelete: Cascade)
   contracts   Contract[]
+  maintenanceRequests MaintenanceRequest[]
 }
 
 model Tenant {
@@ -216,6 +217,7 @@ model MaintenanceRequest {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  unit        Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
   attachments FileUpload[]
 }
 

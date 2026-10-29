@@ -20,7 +20,10 @@ export async function GET(request: NextRequest) {
     });
     return NextResponse.json(items);
   } catch (error: any) {
-    return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
+    // تمييز خطأ المصادقة الحقيقي عن أخطاء الخادم الأخرى (كان يُخفي أخطاء Prisma كـ"غير مصرح")
+    if (error?.message === 'غير مصرح') return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
+    console.error('[maintenance GET]', error?.message);
+    return NextResponse.json({ error: error.message || 'خطأ في تحميل طلبات الصيانة' }, { status: 500 });
   }
 }
 

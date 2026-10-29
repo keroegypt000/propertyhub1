@@ -18,7 +18,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (!item) return NextResponse.json({ error: 'غير موجود' }, { status: 404 });
     return NextResponse.json(item);
   } catch (error: any) {
-    return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
+    if (error?.message === 'غير مصرح') return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
+    console.error('[maintenance GET:id]', error?.message);
+    return NextResponse.json({ error: error.message || 'خطأ' }, { status: 500 });
   }
 }
 
@@ -33,7 +35,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     await logAudit(user.id, 'update', 'maintenance', id, { before: old, after: body }, `تعديل طلب صيانة`);
     return NextResponse.json(item);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'خطأ' }, { status: 400 });
+    if (error?.message === 'غير مصرح') return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
+    console.error('[maintenance PUT]', error?.message);
+    return NextResponse.json({ error: error.message || 'خطأ' }, { status: 500 });
   }
 }
 
@@ -46,6 +50,8 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     await logAudit(user.id, 'delete', 'maintenance', id, undefined, `حذف طلب صيانة`);
     return NextResponse.json({ ok: true });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'خطأ' }, { status: 400 });
+    if (error?.message === 'غير مصرح') return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
+    console.error('[maintenance DELETE]', error?.message);
+    return NextResponse.json({ error: error.message || 'خطأ' }, { status: 500 });
   }
 }

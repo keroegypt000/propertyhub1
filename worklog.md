@@ -151,3 +151,19 @@ Work Log:
 
 Stage Summary:
 - لم يعد ممكناً أن "يختفي" ملف بعد رفع ناجح: إما R2 أو قاعدة البيانات، مع ظهور سبب فشل السحابة نصاً
+
+## Task: إصلاح صفحة الصيانة غير العاملة (2026-10-29)
+
+Work Log:
+- Symptom: "الصيانة مش شغالة — مش بتستجيب ولا بتسجل": القائمة فارغة دائماً والطلبات تظهر كأنها لم تُحفظ
+- Root cause: schema.prisma — MaintenanceRequest فيه unitId لكن بدون علاقة معرّفة مع Unit، بينما GET /api/maintenance يستخدم include: { unit: { include: { building: true } } } → PrismaClientValidationError وقت التشغيل (Unknown argument unit)
+- Masking layer: catch في الـ route كان يرجّع كل الأخطاء كـ401 "غير مصرح" — فالواجهة تُظهر "خطأ في تحميل البيانات" بدل السبب الحقيقي (اكتُشف بمراجعة كل include في الـ API مقابل السكيما — العلاقة الوحيدة الناقصة)
+- Fix A: schema.prisma — MaintenanceRequest.unit Unit? @relation(fields: [unitId], references: [id], onDelete: SetNull) + Unit.maintenanceRequests MaintenanceRequest[]
+- Fix B: routes الصيانة (GET/PUT/DELETE) تفرّق خطأ المصادقة (401) عن أخطاء الخادم (500 مع الرسالة الحقيقية) — لم يعد إخفاء أخطاء Prisma
+- Insight: POST كان ينجح فعلاً — الطلبات المدخلة سابقاً محفوظة وساظهر بعد النشر لأن GET سيعمل
+- Verify: prisma validate ✅ + prisma generate ✅ + tsc --noEmit بلا أخطاء في ملفات الصيانة
+- Build: prisma db push سيضيف FK فقط (بلا فقدان بيانات)
+
+Stage Summary:
+- صفحة الصيانة ستحمّل الطلبات وتعرض الوحدة/العمارة؛ الطلبات المدخلة سابقاً ستظهر لأول مرة
+- أي خطأ مستقبلي سيظهر بنصه الحقيقي في toast بدل "غير مصرح" المضلل
