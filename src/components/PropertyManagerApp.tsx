@@ -9,7 +9,7 @@ import {
   ChevronDown, ChevronLeft, RefreshCw, AlertTriangle, CheckCircle2,
   XCircle, Calendar, Phone, Mail, MapPin, Hash, Briefcase, Settings,
   Archive, Activity, UserPlus, Key, ToggleLeft, ToggleRight, Info,
-  LayoutDashboard, FolderOpen, Camera, FileImage
+  LayoutDashboard, FolderOpen, Camera, FileImage, CloudUpload
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1021,6 +1021,7 @@ export default function PropertyManagerApp() {
               <Card className="border-0 shadow-lg max-w-lg"><CardHeader><CardTitle>معلومات الحساب</CardTitle></CardHeader>
                 <CardContent className="space-y-2"><p><strong>الاسم:</strong> {user.name}</p><p><strong>اسم المستخدم:</strong> {user.username}</p><p><strong>الدور:</strong> {user.roleName}</p></CardContent>
               </Card>
+              {user.role === 'admin' && <StorageMaintenanceCard />}
             </div>
           )}
 
@@ -1351,6 +1352,52 @@ function SettingsPasswordForm({ onSave, onClose }: { onSave: (data: any) => Prom
     <div><Label>كلمة السر الجديدة</Label><Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required /></div>
     <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'تغيير'}</Button>
   </form>);
+}
+
+// كرت إدارة التخزين السحابي — للمدير: فحص R2 مباشرة + نقل ملفات قاعدة البيانات إلى السحابة بضغطة
+function StorageMaintenanceCard() {
+  const [status, setStatus] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    try { setStatus(await api<any>('/api/debug/storage')); } catch (e: any) { setStatus({ error: e.message }); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const dbCount: number = status?.dbFiles?.count ?? 0;
+  const dbBytes: number = status?.dbFiles?.totalBytes ?? 0;
+  const steps: any[] = status?.steps || [];
+  const r2Ok = steps.length > 0 && steps.every((s) => s.ok);
+  const firstError = steps.find((s) => !s.ok)?.error;
+  const migrate = async () => {
+    setBusy(true);
+    try {
+      const res: any = await api('/api/files/migrate-to-r2', 'POST');
+      if (res.failed?.length) toast.warning(`نُقل ${res.migrated?.length || 0} — فشل ${res.failed.length}: ${res.failed[0]?.error || ''}`);
+      else toast.success(res.note || 'تم نقل الملفات إلى السحابة');
+      await load();
+    } catch (e: any) { toast.error(e.message || 'فشل الترحيل'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <Card className="border-0 shadow-lg max-w-lg"><CardHeader className="pb-2"><CardTitle className="text-lg flex items-center gap-2"><CloudUpload size={20} className="text-purple-600" />التخزين السحابي (Cloudflare R2)</CardTitle></CardHeader>
+      <CardContent className="space-y-3">
+        {status?.error && <p className="text-sm text-red-600">{status.error}</p>}
+        {status && !status.error && (<>
+          <div className="flex items-center gap-2 text-sm">
+            {r2Ok ? <><CheckCircle2 size={16} className="text-emerald-600" /><span>الاتصال بالتخزين السحابي يعمل بشكل صحيح</span></>
+              : status.configured === false ? <><AlertTriangle size={16} className="text-amber-600" /><span>متغيرات R2 غير مكتملة في هذا النشر</span></>
+              : <><XCircle size={16} className="text-red-600" /><span>مشكلة في التخزين السحابي: {firstError || 'غير معروفة'}</span></>}
+          </div>
+          <div className="flex items-center gap-2 text-sm text-gray-600"><Archive size={16} /><span>ملفات محفوظة مؤقتًا في قاعدة البيانات: <strong>{dbCount}</strong> ({(dbBytes / 1024).toFixed(0)} KB)</span></div>
+          {dbCount > 0 && (r2Ok
+            ? <Button type="button" disabled={busy} onClick={migrate} className="w-full bg-gradient-to-l from-purple-500 to-indigo-500 text-white font-bold">{busy ? 'جاري النقل...' : `نقل ${dbCount} ملف إلى السحابة`}</Button>
+            : <p className="text-xs text-amber-700 bg-amber-50 rounded-lg p-2">صلّح إعدادات R2 في Vercel أولاً — زر النقل يُفعّل تلقائياً عندما يعمل الاتصال</p>)}
+          {dbCount === 0 && <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg p-2">قاعدة البيانات خفيفة — كل الملفات على السحابة ✅</p>}
+          <Button type="button" variant="outline" size="sm" onClick={load} disabled={busy} className="w-full text-gray-600"><RefreshCw size={14} className="ml-1" />إعادة فحص الحالة</Button>
+        </>)}
+        {!status && <p className="text-sm text-gray-400">جاري فحص حالة التخزين...</p>}
+      </CardContent>
+    </Card>
+  );
 }
 
 function TransactionForm({ buildings, onSave, initial, onClose }: { buildings: Building[]; onSave: (data: any) => Promise<void>; initial?: any; onClose?: () => void }) {
