@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
+import { syncPaymentEntry } from '@/lib/accounting';
 
 export async function GET(request: NextRequest) {
   try {
@@ -50,7 +51,16 @@ export async function POST(request: NextRequest) {
       },
     });
     await logAudit(user.id, 'create', 'payment', payment.id, body, `تسجيل دفعة ${amount} على العقد`);
-    return NextResponse.json(payment, { status: 201 });
+
+    // توليد القيد المحاسبي التلقائي (تحصيل إيجار) — فشل القيد لا يُسقط الدفعة لكن يُعلن
+    let entryWarning: string | null = null;
+    try {
+      await syncPaymentEntry(db, payment);
+    } catch (entryErr: any) {
+      entryWarning = entryErr?.message || 'تعذر توليد القيد المحاسبي';
+      console.error('[payments POST entry]', entryWarning);
+    }
+    return NextResponse.json({ ...payment, entryWarning }, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'خطأ' }, { status: 400 });
   }

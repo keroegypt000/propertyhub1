@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
+import { syncMaintenanceEntry } from '@/lib/accounting';
 
 export async function GET(request: NextRequest) {
   try {
@@ -34,7 +35,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const item = await db.maintenanceRequest.create({ data: body });
     await logAudit(user.id, 'create', 'maintenance', item.id, body, `إنشاء طلب صيانة: ${body.title}`);
-    return NextResponse.json(item, { status: 201 });
+    // إن أُنشئ الطلب مكتملًا بتكلفة فعلية → توليد قيد مصروف الصيانة فورًا
+    let entryWarning: string | null = null;
+    try {
+      const withUnit = await db.maintenanceRequest.findUnique({ where: { id: item.id }, include: { unit: true } });
+      if (withUnit) await syncMaintenanceEntry(db, withUnit);
+    } catch (entryErr: any) {
+      entryWarning = entryErr?.message || 'تعذر توليد قيد الصيانة';
+      console.error('[maintenance POST entry]', entryWarning);
+    }
+    return NextResponse.json({ ...item, entryWarning }, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'خطأ' }, { status: 400 });
   }

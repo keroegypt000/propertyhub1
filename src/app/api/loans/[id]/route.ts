@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
+import { syncLoanEntry, removeLoanEntries } from '@/lib/accounting';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -27,7 +28,15 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const old = await db.loan.findUnique({ where: { id } });
     const loan = await db.loan.update({ where: { id }, data: body });
     await logAudit(user.id, 'update', 'loan', id, { before: old, after: body }, `تعديل قرض: ${body.name || old?.name}`);
-    return NextResponse.json(loan);
+    // مزامنة قيد استلام القرض مع التعديل (المبلغ / التاريخ / العمارة)
+    let entryWarning: string | null = null;
+    try {
+      await syncLoanEntry(db, loan);
+    } catch (entryErr: any) {
+      entryWarning = entryErr?.message || 'تعذر مزامنة قيد القرض';
+      console.error('[loans PUT entry]', entryWarning);
+    }
+    return NextResponse.json({ ...loan, entryWarning });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'خطأ' }, { status: 400 });
   }
@@ -39,8 +48,10 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     if (!canWrite(user.role, 'loans')) return NextResponse.json({ error: 'ليست لديك صلاحية' }, { status: 403 });
     const { id } = await params;
     const old = await db.loan.findUnique({ where: { id } });
+    // حذف قيود القرض وقيود أقساطه قبل حذف القرض (الأقساط تُحذف تلقائيًا بالعلاقة)
+    try { await removeLoanEntries(db, id); } catch (e: any) { console.error('[loans DELETE entries]', e?.message); }
     await db.loan.delete({ where: { id } });
-    await logAudit(user.id, 'delete', 'loan', id, old, `حذف قرض: ${old?.name}`);
+    await logAudit(user.id, 'delete', 'loan', id, old || undefined, `حذف قرض: ${old?.name}`);
     return NextResponse.json({ ok: true });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'خطأ' }, { status: 400 });

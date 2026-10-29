@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import { buildingIncomeStats, totalIncomeStats, contractBalance, fmtKWD } from '@/lib/calc';
+import { SOURCE_LABELS } from '@/lib/accounting';
 import {
   Building2, Home, Users, FileText, DollarSign, Wrench, Shield, Clock,
   Upload, Download, Trash2, Edit3, Plus, Search, Eye, Lock, LogOut,
@@ -332,9 +333,9 @@ export default function PropertyManagerApp() {
             // Arrears: sum of pending/overdue payment amounts
             const arrearsAmount = payments.filter(p => p.status === 'pending' || p.status === 'overdue').reduce((sum, p) => sum + (p.amount || 0), 0);
 
-            // Loan balance: total principal - total paid
+            // Loan balance: total principal - total paid (الأصل المسدد فقط — الفوائد مصروف لا يخصم من أصل القرض)
             const loanTotalPrincipal = loans.reduce((s: number, l: any) => s + (l.principal || 0), 0);
-            const loanTotalPaid = loanPayments.reduce((s: number, lp: any) => s + (lp.principal || lp.amount || 0), 0);
+            const loanTotalPaid = loanPayments.reduce((s: number, lp: any) => s + (Number(lp.principal) || 0), 0);
             const loanBalance = loanTotalPrincipal - loanTotalPaid;
 
             // Open maintenance count
@@ -918,7 +919,7 @@ export default function PropertyManagerApp() {
               <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
                 <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>القرض</TableHead><TableHead>المبلغ</TableHead><TableHead>التاريخ</TableHead><TableHead>الفائدة%</TableHead><TableHead>المدة</TableHead><TableHead>المسدد</TableHead><TableHead>المتبقي</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
                 <TableBody>{loans.filter((l: any) => !searchQuery || l.name.includes(searchQuery) || String(l.principal).includes(searchQuery)).map((l: any) => {
-                  const paid = (loanPayments.filter((lp: any) => lp.loanId === l.id) as any[]).reduce((s: number, lp: any) => s + (lp.amount || 0), 0);
+                  const paid = (loanPayments.filter((lp: any) => lp.loanId === l.id) as any[]).reduce((s: number, lp: any) => s + (Number(lp.principal) || 0), 0);
                   const remaining = (l.principal || 0) - paid;
                   return (<TableRow key={l.id}>
                     <TableCell className="font-medium">{l.name}</TableCell>
@@ -931,7 +932,7 @@ export default function PropertyManagerApp() {
                     <TableCell><div className="flex gap-1">
                       {canWriteCheck('loans') && (<>
                         <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل القرض">{(close) => <LoanForm buildings={buildings} initial={l} onSave={async (data) => { await api(`/api/loans/${l.id}`, 'PUT', data); autoRestore('تعديل قرض'); loadData('loans'); }} onClose={close} />}</FormDialog>
-                        <Button variant="ghost" size="sm" className="text-emerald-600" onClick={async () => { const amt = prompt('مبلغ القسط:'); if (amt) { await api('/api/loan-payments', 'POST', { loanId: l.id, amount: +amt, date: new Date().toISOString().slice(0,10) }); autoRestore('قسط قرض'); loadData('loans'); toast.success('تم تسجيل القسط'); } }}><DollarSign size={14} /></Button>
+                        <FormDialog trigger={<Button variant="ghost" size="sm" className="text-emerald-600 hover:bg-emerald-50" title="تسجيل قسط"><DollarSign size={14} /></Button>} title={`تسجيل قسط — ${l.name}`}>{(close) => <LoanPaymentForm loanName={l.name} onSave={async (data) => { await api('/api/loan-payments', 'POST', { ...data, loanId: l.id }); autoRestore('قسط قرض'); loadData('loans'); toast.success('تم تسجيل القسط وتوليد القيد المحاسبي'); }} onClose={close} />}</FormDialog>
                         <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/loans/${l.id}`, 'DELETE'); autoRestore('حذف قرض'); loadData('loans'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>
                       </>)}
                     </div></TableCell>
@@ -941,12 +942,17 @@ export default function PropertyManagerApp() {
               {loans.length > 0 && (<>
                 <h3 className="text-lg font-bold text-gray-900 mt-6">أقساط القروض</h3>
                 <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
-                  <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>القرض</TableHead><TableHead>المبلغ</TableHead><TableHead>التاريخ</TableHead></TableRow></TableHeader>
-                  <TableBody>{loanPayments.map((lp: any) => (<TableRow key={lp.id}>
-                    <TableCell className="text-sm">{loans.find((l: any) => l.id === lp.loanId)?.name || '-'}</TableCell>
-                    <TableCell className="font-semibold">{lp.amount?.toLocaleString('ar')} {CURRENCY}</TableCell>
-                    <TableCell className="text-sm">{new Date(lp.date).toLocaleDateString('ar')}</TableCell>
-                  </TableRow>))}</TableBody></Table>
+                  <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>القرض</TableHead><TableHead>الأصل المسدد</TableHead><TableHead>الفائدة</TableHead><TableHead>الإجمالي</TableHead><TableHead>التاريخ</TableHead></TableRow></TableHeader>
+                  <TableBody>{loanPayments.map((lp: any) => {
+                    const total = (Number(lp.principal) || 0) + (Number(lp.interest) || 0);
+                    return (<TableRow key={lp.id}>
+                      <TableCell className="text-sm">{loans.find((l: any) => l.id === lp.loanId)?.name || lp.loan?.name || '-'}</TableCell>
+                      <TableCell className="font-semibold text-emerald-700">{(Number(lp.principal) || 0).toLocaleString('ar')} {CURRENCY}</TableCell>
+                      <TableCell className="text-amber-700">{(Number(lp.interest) || 0).toLocaleString('ar')} {CURRENCY}</TableCell>
+                      <TableCell className="font-bold">{total.toLocaleString('ar')} {CURRENCY}</TableCell>
+                      <TableCell className="text-sm">{new Date(lp.date).toLocaleDateString('ar')}</TableCell>
+                    </TableRow>);
+                  })}</TableBody></Table>
                 </div></Card>
               </>)}
               {loans.length === 0 && <EmptyState icon={<Briefcase size={48} />} text="لا توجد قروض" />}
@@ -993,15 +999,20 @@ export default function PropertyManagerApp() {
                 <Table><TableHeader><TableRow className="bg-orange-50 sticky top-0"><TableHead>التاريخ</TableHead><TableHead>البيان</TableHead><TableHead>العمارة</TableHead><TableHead>القيود</TableHead></TableRow></TableHeader>
                 <TableBody>{journalEntries.filter((j: any) => !searchQuery || (j.description || '').includes(searchQuery) || (j.building?.name || '').includes(searchQuery) || (j.date || '').includes(searchQuery)).map((j: any) => (<TableRow key={j.id}>
                   <TableCell className="text-sm whitespace-nowrap">{new Date(j.date).toLocaleDateString('ar')}</TableCell>
-                  <TableCell className="text-sm">{j.description}</TableCell>
+                  <TableCell className="text-sm">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span>{j.description}</span>
+                      {j.source && j.source !== 'manual' && <Badge className="bg-indigo-100 text-indigo-800 shrink-0">{SOURCE_LABELS[j.source] || 'تلقائي'}</Badge>}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-sm">{j.building?.name || '-'}</TableCell>
                   <TableCell className="text-xs">
                     <div className="space-y-1">
                       {(j.lines || []).map((line: any, i: number) => (
                         <div key={i} className="flex gap-2 items-center">
-                          <span className="text-gray-600">{line.account?.name || line.accountCode}</span>
-                          {line.debit > 0 && <Badge className="bg-emerald-100 text-emerald-800">م {line.debit}</Badge>}
-                          {line.credit > 0 && <Badge className="bg-red-100 text-red-800">د {line.credit}</Badge>}
+                          <span className="text-gray-600"><span className="font-mono text-gray-400 ml-1">{line.accountCode}</span>{line.accountName || line.account?.name || ''}</span>
+                          {line.debit > 0 && <Badge className="bg-emerald-100 text-emerald-800">م {line.debit.toLocaleString?.('ar') ?? line.debit}</Badge>}
+                          {line.credit > 0 && <Badge className="bg-red-100 text-red-800">د {line.credit.toLocaleString?.('ar') ?? line.credit}</Badge>}
                         </div>
                       ))}
                     </div>
@@ -1449,6 +1460,11 @@ function JournalForm({ accounts, buildings, onSave, onClose }: { accounts: any[]
   const addLine = () => setLines([...lines, { accountId: '', debit: '', credit: '' }]);
   const removeLine = (i: number) => { if (lines.length > 1) setLines(lines.filter((_, idx) => idx !== i)); };
   const updateLine = (i: number, field: string, value: string) => { const updated = [...lines]; (updated[i] as any)[field] = value; setLines(updated); };
+  // مؤشر التوازن: مجموع المدين مقابل الدائن لحظيًا
+  const totalDebit = lines.reduce((s, l) => s + (+l.debit || 0), 0);
+  const totalCredit = lines.reduce((s, l) => s + (+l.credit || 0), 0);
+  const balanced = totalDebit > 0 && Math.round(totalDebit * 1000) === Math.round(totalCredit * 1000);
+  const allAccountsChosen = lines.every(l => l.accountId);
   return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ date, description, buildingId: buildingId || null, lines: lines.map(l => ({ accountId: l.accountId, debit: l.debit ? +l.debit : 0, credit: l.credit ? +l.credit : 0 })) }); toast.success('تم إنشاء القيد اليومي'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
     <div><Label>التاريخ</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
     <div><Label>البيان</Label><Input value={description} onChange={e => setDescription(e.target.value)} required /></div>
@@ -1462,7 +1478,32 @@ function JournalForm({ accounts, buildings, onSave, onClose }: { accounts: any[]
         <Button type="button" variant="ghost" size="sm" className="text-red-500 h-9" onClick={() => removeLine(i)}><Trash2 size={14} /></Button>
       </div>))}
     </div>
-    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+    <div className={`p-2.5 rounded-xl text-sm flex items-center justify-between ${balanced ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
+      <span>مدين: <b>{totalDebit.toLocaleString('ar')}</b> — دائن: <b>{totalCredit.toLocaleString('ar')}</b></span>
+      <span className="font-semibold">{balanced ? 'القيد متوازن ✓' : 'غير متوازن بعد'}</span>
+    </div>
+    <Button type="submit" disabled={saving || !balanced || !allAccountsChosen} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : (!balanced || !allAccountsChosen ? 'أكمل السطور ووازن القيد للحفظ' : 'حفظ')}</Button>
+  </form>);
+}
+
+// نموذج تسجيل قسط قرض — أصل + فائدة (يولّد قيد سداد تلقائي في المحاسبة)
+function LoanPaymentForm({ loanName, onSave, onClose }: { loanName?: string; onSave: (data: any) => Promise<void>; onClose?: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [principal, setPrincipal] = useState('');
+  const [interest, setInterest] = useState('');
+  const [notes, setNotes] = useState('');
+  const total = (+principal || 0) + (+interest || 0);
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ date, principal: +principal || 0, interest: +interest || 0, notes: notes || null }); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    {loanName && <p className="text-sm text-gray-600 bg-orange-50 rounded-lg p-2.5">القرض: <b>{loanName}</b></p>}
+    <div><Label>تاريخ السداد</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
+    <div className="grid grid-cols-2 gap-3">
+      <div><Label>الأصل المسدد ({CURRENCY})</Label><Input type="number" value={principal} onChange={e => setPrincipal(e.target.value)} placeholder="0" /></div>
+      <div><Label>الفائدة المسددة ({CURRENCY})</Label><Input type="number" value={interest} onChange={e => setInterest(e.target.value)} placeholder="0" /></div>
+    </div>
+    <p className="text-xs text-gray-500">الإجمالي المُسدد من البنك: <b className="text-gray-800">{total.toLocaleString('ar')} {CURRENCY}</b> — سيولّد قيد محاسبي تلقائي (مدين أصل القرض {`+`} الفوائد / دائن البنك)</p>
+    <div><Label>ملاحظات</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
+    <Button type="submit" disabled={saving || total <= 0} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : (total <= 0 ? 'أدخل مبلغ الأصل أو الفائدة' : 'حفظ القسط')}</Button>
   </form>);
 }
 

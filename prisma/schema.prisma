@@ -191,14 +191,20 @@ model Account {
 }
 
 // === JOURNAL ENTRIES ===
+// source: manual (يدوي) | payment (تحصيل إيجار) | maintenance (مصروف صيانة) | loan (استلام قرض) | loanPayment (سداد قرض)
+// sourceId: معرّف العملية الأصلية التي وُلّد منها القيد — يُستخدم للتحديث/الحذف التلقائي
 model JournalEntry {
   id          String   @id @default(cuid())
   date        String   // YYYY-MM-DD
   description String   // البيان
   buildingId  String?
-  lines       String   // JSON: [{account, debit, credit}]
+  lines       String   // JSON: [{accountId, accountCode, accountName, debit, credit}]
+  source      String   @default("manual")
+  sourceId    String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@unique([source, sourceId])
 }
 
 // === MAINTENANCE ===

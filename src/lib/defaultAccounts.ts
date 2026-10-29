@@ -38,6 +38,8 @@ export const DEFAULT_ACCOUNTS: DefaultAccount[] = [
   { code: '2102', name: 'مصروفات مستحقة', type: 'liability', kind: 'post', parentCode: '21' },
   { code: '2103', name: 'تأمينات المستأجرين (ودائع قابلة للرد)', type: 'liability', kind: 'post', parentCode: '21' },
   { code: '2104', name: 'إيجارات محصلة مقدماً', type: 'liability', kind: 'post', parentCode: '21' },
+  { code: '22', name: 'التزامات طويلة الأجل', type: 'liability', kind: 'group', parentCode: '2' },
+  { code: '2201', name: 'قروض بنكية — أصل مطلوب السداد', type: 'liability', kind: 'post', parentCode: '22' },
 
   // === 3 حقوق الملكية ===
   { code: '3', name: 'حقوق الملكية', type: 'equity', kind: 'group' },
@@ -74,4 +76,5 @@ export const DEFAULT_ACCOUNTS: DefaultAccount[] = [
   { code: '5204', name: 'مصروف بنكية', type: 'expense', kind: 'post', parentCode: '52' },
   { code: '5205', name: 'مصروف إهلاك', type: 'expense', kind: 'post', parentCode: '52' },
   { code: '5206', name: 'مصروفات متنوعة', type: 'expense', kind: 'post', parentCode: '52' },
+  { code: '5207', name: 'فوائد ومصاريف قروض', type: 'expense', kind: 'post', parentCode: '52' },
 ];

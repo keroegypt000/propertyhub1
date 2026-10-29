@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
+import { syncMaintenanceEntry, removeAutoEntry } from '@/lib/accounting';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -33,7 +34,17 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const old = await db.maintenanceRequest.findUnique({ where: { id } });
     const item = await db.maintenanceRequest.update({ where: { id }, data: body });
     await logAudit(user.id, 'update', 'maintenance', id, { before: old, after: body }, `تعديل طلب صيانة`);
-    return NextResponse.json(item);
+
+    // مزامنة قيد مصروف الصيانة مع الحالة والتكلفة الجديدة
+    let entryWarning: string | null = null;
+    try {
+      const withUnit = await db.maintenanceRequest.findUnique({ where: { id }, include: { unit: true } });
+      if (withUnit) await syncMaintenanceEntry(db, withUnit);
+    } catch (entryErr: any) {
+      entryWarning = entryErr?.message || 'تعذر مزامنة قيد الصيانة';
+      console.error('[maintenance PUT entry]', entryWarning);
+    }
+    return NextResponse.json({ ...item, entryWarning });
   } catch (error: any) {
     if (error?.message === 'غير مصرح') return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
     console.error('[maintenance PUT]', error?.message);
@@ -46,8 +57,11 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const user = await authMiddleware(request);
     if (!canWrite(user.role, 'maintenance')) return NextResponse.json({ error: 'ليست لديك صلاحية' }, { status: 403 });
     const { id } = await params;
+    const old = await db.maintenanceRequest.findUnique({ where: { id } });
     await db.maintenanceRequest.delete({ where: { id } });
-    await logAudit(user.id, 'delete', 'maintenance', id, undefined, `حذف طلب صيانة`);
+    // حذف قيد مصروف الصيانة المرتبط بالطلب المحذوف
+    try { await removeAutoEntry(db, 'maintenance', id); } catch (e: any) { console.error('[maintenance DELETE entry]', e?.message); }
+    await logAudit(user.id, 'delete', 'maintenance', id, old || undefined, `حذف طلب صيانة`);
     return NextResponse.json({ ok: true });
   } catch (error: any) {
     if (error?.message === 'غير مصرح') return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
