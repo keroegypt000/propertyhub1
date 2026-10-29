@@ -118,5 +118,33 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* خط عربي واضح ومتوافق مع كل الأجهزة */
+    font-family: 'Segoe UI', Tahoma, 'Noto Sans Arabic', 'Noto Kufi Arabic', 'Helvetica Neue', Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* شرائط تمرير رفيعة وأنيقة تناسب الهوية البرتقالية */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #e7e5e4;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #fdba74;
+}
+
+/* منع التمرير الأفقي غير المقصود على الجوال مع الحفاظ على تمرير الجداول */
+body {
+  overflow-x: hidden;
 }

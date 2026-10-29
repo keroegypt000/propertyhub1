@@ -16,7 +16,8 @@ import {
   ChevronDown, ChevronLeft, RefreshCw, AlertTriangle, CheckCircle2,
   XCircle, Calendar, Phone, Mail, MapPin, Hash, Briefcase, Settings,
   Archive, Activity, UserPlus, Key, ToggleLeft, ToggleRight, Info,
-  LayoutDashboard, FolderOpen, Camera, FileImage, CloudUpload, Printer, Scale
+  LayoutDashboard, FolderOpen, Camera, FileImage, CloudUpload, Printer, Scale,
+  Menu, X, Percent
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,7 +28,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
 
 // Types
 interface User { id: string; username: string; name: string; role: string; roleName: string; permissions?: string; }
@@ -132,6 +132,8 @@ export default function PropertyManagerApp() {
   const [searchQuery, setSearchQuery] = useState('');
   const [allFiles, setAllFiles] = useState<FileUpload[]>([]);
   const [contractFilter, setContractFilter] = useState('all');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const go = (s: Section) => { setSection(s); setMobileNavOpen(false); };
 
   const checkAuth = useCallback(async () => {
     try {
@@ -283,59 +285,41 @@ export default function PropertyManagerApp() {
   };
   const isAdmin = user.role === 'admin' || user.role === 'manager';
 
-  const navItems: { key: Section; icon: React.ReactNode; label: string; admin?: boolean }[] = [
-    { key: 'dashboard', icon: <LayoutDashboard size={20} />, label: 'لوحة التحكم' },
-    { key: 'buildings', icon: <Building2 size={20} />, label: 'المباني' },
-    { key: 'units', icon: <Home size={20} />, label: 'الوحدات' },
-    { key: 'tenants', icon: <Users size={20} />, label: 'المستأجرين' },
-    { key: 'contracts', icon: <FileText size={20} />, label: 'العقود' },
-    { key: 'payments', icon: <DollarSign size={20} />, label: 'المدفوعات' },
-    { key: 'maintenance', icon: <Wrench size={20} />, label: 'الصيانة' },
-    { key: 'files', icon: <FolderOpen size={20} />, label: 'الملفات' },
-    { key: 'transactions', icon: <DollarSign size={20} />, label: 'الإيرادات والمصروفات' },
-    { key: 'loans', icon: <Briefcase size={20} />, label: 'القروض' },
-    { key: 'accounts', icon: <Hash size={20} />, label: 'شجرة الحسابات', admin: true },
-    { key: 'journal', icon: <FileText size={20} />, label: 'القيود اليومية', admin: true },
-    { key: 'trialBalance', icon: <Scale size={20} />, label: 'ميزان المراجعة', admin: true },
-    { key: 'audit', icon: <Activity size={20} />, label: 'سجل التدقيق', admin: true },
-    { key: 'restore', icon: <Archive size={20} />, label: 'نقاط الاستعادة', admin: true },
-    { key: 'health', icon: <Activity size={20} />, label: 'صحة النظام', admin: true },
-    { key: 'users', icon: <Shield size={20} />, label: 'المستخدمون', admin: true },
-    { key: 'settings', icon: <Settings size={20} />, label: 'الإعدادات' },
-  ];
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 flex">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white/80 backdrop-blur-xl border-l border-orange-200 shadow-xl flex flex-col shrink-0">
-        <div className="p-5 border-b border-orange-100">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center shadow-lg">
-              <Building2 size={22} className="text-white" />
+    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 lg:flex">
+      {/* Mobile Top Bar */}
+      <header className="lg:hidden sticky top-0 z-30 bg-white/90 backdrop-blur-xl border-b border-orange-200 shadow-sm">
+        <div className="flex items-center justify-between h-14 px-4">
+          <button onClick={() => setMobileNavOpen(true)} aria-label="فتح القائمة" className="p-2 -mr-2 rounded-xl text-orange-700 hover:bg-orange-100 active:scale-95 transition">
+            <Menu size={22} />
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center shadow">
+              <Building2 size={16} className="text-white" />
             </div>
-            <div><h1 className="font-bold text-lg text-orange-900">PropertyHub</h1><p className="text-xs text-orange-600">نظام إدارة العقارات</p></div>
+            <div className="leading-tight"><span className="font-bold text-orange-900 block">PropertyHub</span><span className="text-[10px] text-orange-600">نظام إدارة العقارات</span></div>
           </div>
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-amber-500 text-white flex items-center justify-center font-bold text-sm shadow">{user.name.charAt(0)}</div>
         </div>
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {navItems.filter(n => !n.admin || isAdmin).map(item => (
-            <button key={item.key} onClick={() => setSection(item.key)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${section === item.key ? 'bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md' : 'text-gray-700 hover:bg-orange-50 hover:text-orange-700'}`}>
-              {item.icon}<span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="p-4 border-t border-orange-100">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 rounded-full bg-orange-100 flex items-center justify-center text-orange-700 font-bold text-sm">{user.name.charAt(0)}</div>
-            <div className="flex-1 min-w-0"><p className="text-sm font-semibold text-gray-800 truncate">{user.name}</p><p className="text-xs text-orange-600">{user.roleName}</p></div>
-          </div>
-          <Button variant="outline" size="sm" className="w-full border-orange-200 text-orange-700 hover:bg-orange-50" onClick={handleLogout}><LogOut size={16} className="ml-2" />تسجيل الخروج</Button>
-        </div>
+      </header>
+
+      {/* Mobile drawer backdrop */}
+      <div className={`lg:hidden fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${mobileNavOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => setMobileNavOpen(false)} />
+
+      {/* Mobile drawer sidebar */}
+      <aside className={`lg:hidden fixed inset-y-0 right-0 z-50 w-72 max-w-[85vw] bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out ${mobileNavOpen ? 'translate-x-0' : 'translate-x-full'}`} aria-hidden={!mobileNavOpen}>
+        <button onClick={() => setMobileNavOpen(false)} aria-label="إغلاق القائمة" className="absolute top-4 left-4 p-1.5 rounded-lg text-gray-400 hover:bg-orange-50 hover:text-orange-700 transition"><X size={18} /></button>
+        <SidebarContent user={user} section={section} isAdmin={isAdmin} onNavigate={go} onLogout={handleLogout} />
+      </aside>
+
+      {/* Desktop sidebar */}
+      <aside className="hidden lg:flex sticky top-0 h-screen w-64 bg-white/80 backdrop-blur-xl border-l border-orange-200 shadow-xl flex-col shrink-0">
+        <SidebarContent user={user} section={section} isAdmin={isAdmin} onNavigate={go} onLogout={handleLogout} />
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 min-w-0 overflow-y-auto">
-        <div className="p-6 max-w-7xl mx-auto">
+      <main className="flex-1 min-w-0">
+        <div className="p-3 sm:p-6 max-w-7xl mx-auto pb-12">
           {/* Dashboard */}
           {section === 'dashboard' && (() => {
             // Computed dashboard values
@@ -404,7 +388,7 @@ export default function PropertyManagerApp() {
 
             return (
             <div className="space-y-6">
-              <div className="flex items-center gap-3 mb-2"><h2 className="text-2xl font-bold text-gray-900">لوحة التحكم</h2><Badge className="bg-orange-100 text-orange-800">{new Date().toLocaleDateString('ar')}</Badge></div>
+              <div className="flex items-center gap-3 mb-2 flex-wrap"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">لوحة التحكم</h2><Badge className="bg-orange-100 text-orange-800">{new Date().toLocaleDateString('ar')}</Badge></div>
 
               {/* KPI Cards - لوحة المؤشرات المجمعة */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -570,9 +554,9 @@ export default function PropertyManagerApp() {
           {/* Buildings */}
           {section === 'buildings' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">المباني</h2>
-                <div className="flex items-center gap-2">
-                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المباني</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   {canWriteCheck('buildings') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة مبنى</Button>} title="إضافة مبنى جديد">{(close) => <BuildingForm onSave={async (data) => { await api('/api/buildings', 'POST', data); autoRestore('إضافة مبنى'); loadData('buildings'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
@@ -594,7 +578,7 @@ export default function PropertyManagerApp() {
               <div className="grid gap-4">
                 {buildings.filter(b => !searchQuery || b.name.includes(searchQuery) || (b.code || '').includes(searchQuery) || (b.city || '').includes(searchQuery) || (b.address || '').includes(searchQuery)).map(b => (
                   <Card key={b.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-5">
-                    <div className="flex items-start justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       <div className="flex items-center gap-4">
                         <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center text-white shadow"><Building2 size={24} /></div>
                         <div><h3 className="font-bold text-lg text-gray-900">{b.name}</h3>
@@ -630,9 +614,9 @@ export default function PropertyManagerApp() {
           {/* Units */}
           {section === 'units' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">الوحدات</h2>
-                <div className="flex items-center gap-2">
-                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الوحدات</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   {canWriteCheck('units') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة وحدة</Button>} title="إضافة وحدة جديدة">{(close) => <UnitForm buildings={buildings} onSave={async (data) => { await api('/api/units', 'POST', data); autoRestore('إضافة وحدة'); loadData('units'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
@@ -657,9 +641,9 @@ export default function PropertyManagerApp() {
           {/* Tenants */}
           {section === 'tenants' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">المستأجرين</h2>
-                <div className="flex items-center gap-2">
-                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المستأجرين</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   {canWriteCheck('tenants') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة مستأجر</Button>} title="إضافة مستأجر جديد">{(close) => <TenantForm onSave={async (data) => { await api('/api/tenants', 'POST', data); autoRestore('إضافة مستأجر'); loadData('tenants'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
@@ -706,9 +690,9 @@ export default function PropertyManagerApp() {
           {/* Contracts */}
           {section === 'contracts' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">العقود</h2>
-                <div className="flex items-center gap-2">
-                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">العقود</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   {canWriteCheck('contracts') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة عقد</Button>} title="إضافة عقد جديد" maxWidth="max-w-lg">{(close) => <ContractForm units={units} tenants={tenants} buildings={buildings} onSave={async (data) => { await api('/api/contracts', 'POST', data); if (data.updateDefaultRent && data.unitId) { await api(`/api/units/${data.unitId}`, 'PUT', { rentAmount: data.rentAmount }); loadData('units'); } autoRestore('إضافة عقد'); loadData('contracts'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
@@ -720,7 +704,7 @@ export default function PropertyManagerApp() {
               <div className="grid gap-4">
                 {contracts.filter(c => (contractFilter === 'all' || c.status === contractFilter) && (!searchQuery || (c.tenant?.name || '').includes(searchQuery) || (c.unit?.number || '').includes(searchQuery) || (c.unit?.building?.name || '').includes(searchQuery) || c.status.includes(searchQuery))).map(c => (
                   <Card key={c.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-5">
-                    <div className="flex items-start justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       <div>
                         <div className="flex items-center gap-2 mb-2"><Badge className={CONTRACT_STATUS_MAP[c.status]?.color || 'bg-gray-100'}>{CONTRACT_STATUS_MAP[c.status]?.label || c.status}</Badge><span className="text-sm text-gray-500">العقد #{c.id.slice(0, 8)}</span></div>
                         <div className="space-y-1 text-sm">
@@ -751,17 +735,21 @@ export default function PropertyManagerApp() {
           )}
 
           {/* Payments */}
-          {section === 'payments' && (
+          {section === 'payments' && (() => {
+            const filteredPayments = payments.filter(p => !searchQuery || p.status.includes(searchQuery) || (p.method || '').includes(searchQuery) || String(p.amount).includes(searchQuery));
+            return (
             <div className="space-y-4">
-              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">المدفوعات</h2>
-                <div className="flex items-center gap-2">
-                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المدفوعات</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   {canWriteCheck('payments') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />تسجيل دفعة</Button>} title="تسجيل دفعة جديدة">{(close) => <PaymentForm contracts={contracts} payments={payments} buildings={buildings} onSave={async (data) => { await api('/api/payments', 'POST', data); autoRestore('تسجيل دفعة'); loadData('payments'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
+              {/* Desktop table */}
+              <div className="hidden md:block">
               <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
                 <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>المبلغ</TableHead><TableHead>تاريخ الاستحقاق</TableHead><TableHead>تاريخ الدفع</TableHead><TableHead>الحالة</TableHead><TableHead>الطريقة</TableHead><TableHead>العقد</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
-                <TableBody>{payments.filter(p => !searchQuery || p.status.includes(searchQuery) || (p.method || '').includes(searchQuery) || String(p.amount).includes(searchQuery)).map(p => (<TableRow key={p.id}>
+                <TableBody>{filteredPayments.map(p => (<TableRow key={p.id}>
                   <TableCell className="font-semibold">{p.amount.toLocaleString('ar')} {CURRENCY}</TableCell>
                   <TableCell>{new Date(p.dueDate).toLocaleDateString('ar')}</TableCell>
                   <TableCell>{p.paidDate ? new Date(p.paidDate).toLocaleDateString('ar') : '-'}</TableCell>
@@ -775,23 +763,46 @@ export default function PropertyManagerApp() {
                   </div></TableCell>
                 </TableRow>))}</TableBody></Table>
               </div></Card>
+              </div>
+              {/* Mobile cards */}
+              <div className="grid gap-3 md:hidden">
+                {filteredPayments.map(p => (
+                  <Card key={p.id} className="border-0 shadow-md"><CardContent className="p-4 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-lg text-gray-900">{p.amount.toLocaleString('ar')} {CURRENCY}</span>
+                      <Badge className={PAYMENT_STATUS_MAP[p.status]?.color}>{PAYMENT_STATUS_MAP[p.status]?.label || p.status}</Badge>
+                    </div>
+                    <div className="text-xs text-gray-500 space-y-1">
+                      <p className="flex items-center gap-1"><Calendar size={13} />استحقاق: {new Date(p.dueDate).toLocaleDateString('ar')}{p.paidDate ? ` — دُفع: ${new Date(p.paidDate).toLocaleDateString('ar')}` : ''}</p>
+                      {p.month && <p>عن شهر: {p.month}</p>}
+                      <p>الطريقة: {p.method || '-'} — العقد: {p.contractId?.slice(0, 8)}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 pt-2 border-t border-gray-100">
+                      {(p.status === 'paid' || p.status === 'partial') && <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند قبض"><Printer size={14} /></Button>} title="سند قبض — إيجار" docHtml={paymentReceiptHtml(p, CURRENCY)} />}
+                      {canWriteCheck('payments') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الدفعة">{(close) => <PaymentForm contracts={contracts} payments={payments} buildings={buildings} initial={p} onSave={async (data) => { await api(`/api/payments/${p.id}`, 'PUT', data); autoRestore('تعديل دفعة'); loadData('payments'); }} onClose={close} />}</FormDialog>}
+                      {canWriteCheck('payments') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/payments/${p.id}`, 'DELETE'); autoRestore('حذف دفعة'); loadData('payments'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>}
+                    </div>
+                  </CardContent></Card>
+                ))}
+              </div>
               {payments.length === 0 && <EmptyState icon={<DollarSign size={48} />} text="لا توجد مدفوعات" />}
             </div>
-          )}
+            );
+          })()}
 
           {/* Maintenance */}
           {section === 'maintenance' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">طلبات الصيانة</h2>
-                <div className="flex items-center gap-2">
-                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">طلبات الصيانة</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   {canWriteCheck('maintenance') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />طلب صيانة</Button>} title="طلب صيانة جديد">{(close) => <MaintenanceForm buildings={buildings} units={units} onSave={async (data) => { await api('/api/maintenance', 'POST', data); autoRestore('طلب صيانة'); loadData('maintenance'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
               <div className="grid gap-4">
                 {maintenance.filter(m => !searchQuery || m.title.includes(searchQuery) || m.status.includes(searchQuery) || m.priority.includes(searchQuery)).map(m => (
                   <Card key={m.id} className="border-0 shadow-lg"><CardContent className="p-4">
-                    <div className="flex items-start justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       <div>
                         <div className="flex items-center gap-2 mb-2"><Badge className={MAINT_STATUS_MAP[m.status]?.color}>{MAINT_STATUS_MAP[m.status]?.label || m.status}</Badge><Badge className={PRIORITY_MAP[m.priority]?.color}>{PRIORITY_MAP[m.priority]?.label || m.priority}</Badge>{m.unit && <Badge className="bg-purple-100 text-purple-800">وحدة {m.unit.number}{m.unit.building ? ` — ${m.unit.building.name}` : ''}</Badge>}{m.category && m.category !== 'other' && <Badge className="bg-gray-100 text-gray-700">{MAINT_CATEGORIES[m.category] || m.category}</Badge>}</div>
                         <h3 className="font-bold text-gray-900">{m.title}</h3>
@@ -829,10 +840,10 @@ export default function PropertyManagerApp() {
           {/* Audit */}
           {section === 'audit' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">سجل التدقيق</h2>
-                <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">سجل التدقيق</h2>
+                <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
               </div>
-              <Card className="border-0 shadow-lg overflow-hidden"><ScrollArea className="h-[600px]">
+              <Card className="border-0 shadow-lg overflow-hidden"><div className="h-[600px] overflow-auto"><div className="min-w-[680px]">
                 <Table><TableHeader><TableRow className="bg-orange-50 sticky top-0"><TableHead>الوقت</TableHead><TableHead>المستخدم</TableHead><TableHead>الإجراء</TableHead><TableHead>الكيان</TableHead><TableHead>التفاصيل</TableHead></TableRow></TableHeader>
                 <TableBody>{auditLogs.filter(l => !searchQuery || (l.user?.name || '').includes(searchQuery) || l.action.includes(searchQuery) || l.entity.includes(searchQuery) || (l.details || '').includes(searchQuery)).map(l => (<TableRow key={l.id}>
                   <TableCell className="text-xs whitespace-nowrap">{new Date(l.createdAt).toLocaleString('ar')}</TableCell>
@@ -841,16 +852,16 @@ export default function PropertyManagerApp() {
                   <TableCell className="text-sm">{l.entity}</TableCell>
                   <TableCell className="text-xs text-gray-500 max-w-xs truncate">{l.details || '-'}</TableCell>
                 </TableRow>))}</TableBody></Table>
-              </ScrollArea></Card>
+              </div></div></Card>
             </div>
           )}
 
           {/* Restore Points */}
           {section === 'restore' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">نقاط الاستعادة</h2>
-                <div className="flex items-center gap-2">
-                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">نقاط الاستعادة</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   {isAdmin && <Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md" onClick={async () => { const name = prompt('اسم نقطة الاستعادة:'); if (name) { await api('/api/restore', 'POST', { name }); loadData('restore'); toast.success('تم إنشاء نقطة الاستعادة'); } }}><Archive size={18} className="ml-2" />إنشاء نقطة استعادة</Button>}
                 </div>
               </div>
@@ -871,13 +882,14 @@ export default function PropertyManagerApp() {
           {/* Users */}
           {section === 'users' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">المستخدمون</h2>
-                <div className="flex items-center gap-2">
-                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المستخدمون</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   {isAdmin && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><UserPlus size={18} className="ml-2" />إضافة مستخدم</Button>} title="إضافة مستخدم جديد">{(close) => <UserForm onSave={async (data) => { await api('/api/users', 'POST', data); loadData('users'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
-              <Card className="border-0 shadow-lg overflow-hidden"><Table>
+              <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto"><div className="min-w-[680px]">
+                <Table>
                 <TableHeader><TableRow className="bg-orange-50"><TableHead>الاسم</TableHead><TableHead>اسم المستخدم</TableHead><TableHead>الدور</TableHead><TableHead>الصلاحيات</TableHead><TableHead>الحالة</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
                 <TableBody>{allUsers.filter((u: any) => !searchQuery || (u.name || '').includes(searchQuery) || (u.username || '').includes(searchQuery) || (u.role || '').includes(searchQuery)).map((u: any) => (<TableRow key={u.id}>
                   <TableCell className="font-medium">{u.name}</TableCell><TableCell>{u.username}</TableCell>
@@ -893,22 +905,26 @@ export default function PropertyManagerApp() {
                     </>)}
                   </div></TableCell>
                 </TableRow>))}</TableBody>
-              </Table></Card>
+              </Table></div></div></Card>
             </div>
           )}
 
           {/* Transactions */}
-          {section === 'transactions' && (
+          {section === 'transactions' && (() => {
+            const filteredTransactions = transactions.filter((t: any) => !searchQuery || (t.category || '').includes(searchQuery) || (t.type || '').includes(searchQuery) || (t.building?.name || '').includes(searchQuery) || String(t.amount).includes(searchQuery));
+            return (
             <div className="space-y-4">
-              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">الإيرادات والمصروفات</h2>
-                <div className="flex items-center gap-2">
-                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الإيرادات والمصروفات</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   {canWriteCheck('transactions') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة حركة</Button>} title="إضافة حركة مالية">{(close) => <TransactionForm buildings={buildings} onSave={async (data) => { await api('/api/transactions', 'POST', data); autoRestore('إضافة حركة مالية'); loadData('transactions'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
+              {/* Desktop table */}
+              <div className="hidden md:block">
               <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
                 <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>التاريخ</TableHead><TableHead>العمارة</TableHead><TableHead>النوع</TableHead><TableHead>البيان</TableHead><TableHead>المبلغ</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
-                <TableBody>{transactions.filter((t: any) => !searchQuery || (t.category || '').includes(searchQuery) || (t.type || '').includes(searchQuery) || (t.building?.name || '').includes(searchQuery) || String(t.amount).includes(searchQuery)).map((t: any) => (<TableRow key={t.id}>
+                <TableBody>{filteredTransactions.map((t: any) => (<TableRow key={t.id}>
                   <TableCell className="text-sm">{new Date(t.date).toLocaleDateString('ar')}</TableCell>
                   <TableCell className="text-sm">{t.building?.name || '-'}</TableCell>
                   <TableCell><Badge className={t.type === 'income' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}>{t.type === 'income' ? 'إيراد' : 'مصروف'}</Badge></TableCell>
@@ -921,70 +937,81 @@ export default function PropertyManagerApp() {
                   </div></TableCell>
                 </TableRow>))}</TableBody></Table>
               </div></Card>
+              </div>
+              {/* Mobile cards */}
+              <div className="grid gap-3 md:hidden">
+                {filteredTransactions.map((t: any) => (
+                  <Card key={t.id} className="border-0 shadow-md"><CardContent className="p-4 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`font-bold text-lg ${t.type === 'income' ? 'text-emerald-700' : 'text-red-700'}`}>{t.type === 'income' ? '+' : '−'} {t.amount?.toLocaleString('ar')} {CURRENCY}</span>
+                      <Badge className={t.type === 'income' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}>{t.type === 'income' ? 'إيراد' : 'مصروف'}</Badge>
+                    </div>
+                    <div className="text-xs text-gray-500 space-y-1">
+                      <p className="flex items-center gap-1"><Calendar size={13} />{new Date(t.date).toLocaleDateString('ar')}</p>
+                      <p>{t.category || '-'}{t.building?.name ? ` — ${t.building.name}` : ''}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 pt-2 border-t border-gray-100">
+                      <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند"><Printer size={14} /></Button>} title="سند — حركة مالية" docHtml={transactionVoucherHtml(t, CURRENCY)} />
+                      {canWriteCheck('transactions') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الحركة">{(close) => <TransactionForm buildings={buildings} initial={t} onSave={async (data) => { await api(`/api/transactions/${t.id}`, 'PUT', data); autoRestore('تعديل حركة مالية'); loadData('transactions'); }} onClose={close} />}</FormDialog>}
+                      {canWriteCheck('transactions') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/transactions/${t.id}`, 'DELETE'); autoRestore('حذف حركة مالية'); loadData('transactions'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>}
+                    </div>
+                  </CardContent></Card>
+                ))}
+              </div>
               {transactions.length === 0 && <EmptyState icon={<DollarSign size={48} />} text="لا توجد حركات مالية" />}
             </div>
-          )}
+            );
+          })()}
 
-          {/* Loans */}
-          {section === 'loans' && (
+          {/* Loans — تصميم متكامل: ملخص + كارت لكل قرض بأقساطه وسنداته */}
+          {section === 'loans' && (() => {
+            const totalPrincipal = loans.reduce((s: number, l: any) => s + (l.principal || 0), 0);
+            const totalPaidPrincipal = loanPayments.reduce((s: number, lp: any) => s + (Number(lp.principal) || 0), 0);
+            const totalInterestPaid = loanPayments.reduce((s: number, lp: any) => s + (Number(lp.interest) || 0), 0);
+            const totalRemaining = Math.max(0, totalPrincipal - totalPaidPrincipal);
+            const filteredLoans = loans.filter((l: any) => !searchQuery || l.name.includes(searchQuery) || String(l.principal).includes(searchQuery));
+            const refresh = (action: string) => { autoRestore(action); loadData('loans'); };
+            return (
             <div className="space-y-4">
-              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">القروض</h2>
-                <div className="flex items-center gap-2">
-                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
-                  {canWriteCheck('loans') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة قرض</Button>} title="إضافة قرض جديد">{(close) => <LoanForm buildings={buildings} onSave={async (data) => { await api('/api/loans', 'POST', data); autoRestore('إضافة قرض'); loadData('loans'); }} onClose={close} />}</FormDialog>)}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-bold text-gray-900">القروض</h2>
+                  <p className="text-sm text-gray-500 mt-0.5">كل قرض بأقساطه وسنداته في مكان واحد</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
+                  {canWriteCheck('loans') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة قرض</Button>} title="إضافة قرض جديد">{(close) => <LoanForm buildings={buildings} onSave={async (data) => { await api('/api/loans', 'POST', data); refresh('إضافة قرض'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
-              <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
-                <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>القرض</TableHead><TableHead>المبلغ</TableHead><TableHead>التاريخ</TableHead><TableHead>الفائدة%</TableHead><TableHead>المدة</TableHead><TableHead>المسدد</TableHead><TableHead>المتبقي</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
-                <TableBody>{loans.filter((l: any) => !searchQuery || l.name.includes(searchQuery) || String(l.principal).includes(searchQuery)).map((l: any) => {
-                  const paid = (loanPayments.filter((lp: any) => lp.loanId === l.id) as any[]).reduce((s: number, lp: any) => s + (Number(lp.principal) || 0), 0);
-                  const remaining = (l.principal || 0) - paid;
-                  return (<TableRow key={l.id}>
-                    <TableCell className="font-medium">{l.name}</TableCell>
-                    <TableCell className="font-semibold">{l.principal?.toLocaleString('ar')} {CURRENCY}</TableCell>
-                    <TableCell className="text-sm">{new Date(l.date).toLocaleDateString('ar')}</TableCell>
-                    <TableCell>{l.rate}%</TableCell>
-                    <TableCell>{l.months} شهر</TableCell>
-                    <TableCell className="text-emerald-700">{paid.toLocaleString('ar')} {CURRENCY}</TableCell>
-                    <TableCell className="text-red-700">{remaining.toLocaleString('ar')} {CURRENCY}</TableCell>
-                    <TableCell><div className="flex gap-1">
-                      <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند استلام القرض"><Printer size={14} /></Button>} title="سند قبض — استلام قرض" docHtml={loanReceiptHtml(l, CURRENCY)} />
-                      {canWriteCheck('loans') && (<>
-                        <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل القرض">{(close) => <LoanForm buildings={buildings} initial={l} onSave={async (data) => { await api(`/api/loans/${l.id}`, 'PUT', data); autoRestore('تعديل قرض'); loadData('loans'); }} onClose={close} />}</FormDialog>
-                        <FormDialog trigger={<Button variant="ghost" size="sm" className="text-emerald-600 hover:bg-emerald-50" title="تسجيل قسط"><DollarSign size={14} /></Button>} title={`تسجيل قسط — ${l.name}`}>{(close) => <LoanPaymentForm loanName={l.name} onSave={async (data) => { await api('/api/loan-payments', 'POST', { ...data, loanId: l.id }); autoRestore('قسط قرض'); loadData('loans'); toast.success('تم تسجيل القسط وتوليد القيد المحاسبي'); }} onClose={close} />}</FormDialog>
-                        <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/loans/${l.id}`, 'DELETE'); autoRestore('حذف قرض'); loadData('loans'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>
-                      </>)}
-                    </div></TableCell>
-                  </TableRow>);
-                })}</TableBody></Table>
-              </div></Card>
-              {loans.length > 0 && (<>
-                <h3 className="text-lg font-bold text-gray-900 mt-6">أقساط القروض</h3>
-                <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
-                  <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>القرض</TableHead><TableHead>الأصل المسدد</TableHead><TableHead>الفائدة</TableHead><TableHead>الإجمالي</TableHead><TableHead>التاريخ</TableHead><TableHead>سند صرف</TableHead></TableRow></TableHeader>
-                  <TableBody>{loanPayments.map((lp: any) => {
-                    const total = (Number(lp.principal) || 0) + (Number(lp.interest) || 0);
-                    return (<TableRow key={lp.id}>
-                      <TableCell className="text-sm">{loans.find((l: any) => l.id === lp.loanId)?.name || lp.loan?.name || '-'}</TableCell>
-                      <TableCell className="font-semibold text-emerald-700">{(Number(lp.principal) || 0).toLocaleString('ar')} {CURRENCY}</TableCell>
-                      <TableCell className="text-amber-700">{(Number(lp.interest) || 0).toLocaleString('ar')} {CURRENCY}</TableCell>
-                      <TableCell className="font-bold">{total.toLocaleString('ar')} {CURRENCY}</TableCell>
-                      <TableCell className="text-sm">{new Date(lp.date).toLocaleDateString('ar')}</TableCell>
-                      <TableCell><VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند صرف — قسط قرض"><Printer size={14} /></Button>} title="سند صرف — قسط قرض" docHtml={loanPaymentVoucherHtml(lp, loans.find((l: any) => l.id === lp.loanId)?.name || lp.loan?.name || '-', CURRENCY)} /></TableCell>
-                    </TableRow>);
-                  })}</TableBody></Table>
-                </div></Card>
-              </>)}
+              {/* ملخص القروض */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {[
+                  { label: 'إجمالي القروض', value: fmtKWD(totalPrincipal), icon: <Briefcase size={16} />, cls: 'bg-purple-50 text-purple-700' },
+                  { label: 'المسدد من الأصل', value: fmtKWD(totalPaidPrincipal), icon: <CheckCircle2 size={16} />, cls: 'bg-emerald-50 text-emerald-700' },
+                  { label: 'المتبقي', value: fmtKWD(totalRemaining), icon: <AlertTriangle size={16} />, cls: 'bg-red-50 text-red-700' },
+                  { label: 'الفوائد المسددة', value: fmtKWD(totalInterestPaid), icon: <Percent size={16} />, cls: 'bg-amber-50 text-amber-700' },
+                ].map((s, i) => (
+                  <div key={i} className={`p-3.5 rounded-2xl ${s.cls} flex items-center gap-3 shadow-sm`}>
+                    <div className="w-9 h-9 rounded-xl bg-white/70 flex items-center justify-center shrink-0">{s.icon}</div>
+                    <div className="min-w-0"><p className="text-[11px] text-gray-600">{s.label}</p><p className="font-bold text-sm sm:text-lg truncate">{s.value} {CURRENCY}</p></div>
+                  </div>
+                ))}
+              </div>
+              {/* كروت القروض */}
+              {filteredLoans.map((l: any) => (
+                <LoanCard key={l.id} loan={l} buildingName={buildings.find(b => b.id === l.buildingId)?.name} installments={loanPayments.filter((lp: any) => lp.loanId === l.id)} canWrite={canWriteCheck('loans')} buildings={buildings} refresh={refresh} />
+              ))}
               {loans.length === 0 && <EmptyState icon={<Briefcase size={48} />} text="لا توجد قروض" />}
             </div>
-          )}
+            );
+          })()}
 
           {/* Accounts */}
           {section === 'accounts' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">شجرة الحسابات</h2>
-                <div className="flex items-center gap-2">
-                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">شجرة الحسابات</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   {isAdmin && <Button variant="outline" className="border-orange-200 text-orange-700" onClick={async () => { if (!confirm('سيتم إنشاء الحسابات الافتراضية غير الموجودة فقط — لن يتم تعديل أو حذف أي حساب قائم. متابعة؟')) return; try { const r = await api<any>('/api/accounts/seed', 'POST'); toast.success(`تم الاستيراد: ${r.created} حساب جديد — ${r.skipped.length} موجود مسبقاً (من إجمالي ${r.total})`); loadData('accounts'); } catch (e: any) { toast.error(e.message); } }}>إنشاء الشجرة الافتراضية</Button>}
                   {canWriteCheck('accounts') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة حساب</Button>} title="إضافة حساب جديد">{(close) => <AccountForm accounts={accounts} onSave={async (data) => { await api('/api/accounts', 'POST', data); loadData('accounts'); }} onClose={close} />}</FormDialog>)}
                 </div>
@@ -1009,14 +1036,14 @@ export default function PropertyManagerApp() {
           {/* Journal */}
           {section === 'journal' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">القيود اليومية</h2>
-                <div className="flex items-center gap-2">
-                  <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">القيود اليومية</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <Button variant="outline" className="border-orange-200 text-orange-700" onClick={() => printHtmlDoc(journalBookDocHtml(journalEntries.filter((j: any) => !searchQuery || (j.description || '').includes(searchQuery) || (j.building?.name || '').includes(searchQuery) || (j.date || '').includes(searchQuery)), CURRENCY), 'دفتر اليومية')}><Printer size={16} className="ml-1" />طباعة دفتر اليومية</Button>
                   {canWriteCheck('journal') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة قيد</Button>} title="إضافة قيد يومي" maxWidth="max-w-lg">{(close) => <JournalForm accounts={accounts} buildings={buildings} onSave={async (data) => { await api('/api/journal', 'POST', data); loadData('journal'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
-              <Card className="border-0 shadow-lg overflow-hidden"><ScrollArea className="h-[600px]">
+              <Card className="border-0 shadow-lg overflow-hidden"><div className="h-[600px] overflow-auto"><div className="min-w-[700px]">
                 <Table><TableHeader><TableRow className="bg-orange-50 sticky top-0"><TableHead>التاريخ</TableHead><TableHead>البيان</TableHead><TableHead>العمارة</TableHead><TableHead>القيود</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
                 <TableBody>{journalEntries.filter((j: any) => !searchQuery || (j.description || '').includes(searchQuery) || (j.building?.name || '').includes(searchQuery) || (j.date || '').includes(searchQuery)).map((j: any) => (<TableRow key={j.id}>
                   <TableCell className="text-sm whitespace-nowrap">{new Date(j.date).toLocaleDateString('ar')}</TableCell>
@@ -1044,7 +1071,7 @@ export default function PropertyManagerApp() {
                     {canWriteCheck('journal') && j.source === 'manual' && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف القيد نهائيًا؟')) { await api(`/api/journal/${j.id}`, 'DELETE'); loadData('journal'); toast.success('تم حذف القيد'); } }}><Trash2 size={14} /></Button>}
                   </div></TableCell>
                 </TableRow>))}</TableBody></Table>
-              </ScrollArea></Card>
+              </div></div></Card>
               {journalEntries.length === 0 && <EmptyState icon={<FileText size={48} />} text="لا توجد قيود يومية" />}
             </div>
           )}
@@ -1070,9 +1097,9 @@ export default function PropertyManagerApp() {
             const filtered = rows.filter(r => !searchQuery || r.code.includes(searchQuery) || r.name.includes(searchQuery));
             return (
               <div className="space-y-4">
-                <div className="flex items-center justify-between flex-wrap gap-2"><h2 className="text-2xl font-bold text-gray-900">ميزان المراجعة</h2>
-                  <div className="flex items-center gap-2">
-                    <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">ميزان المراجعة</h2>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                     <Badge className={balanced ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}>{balanced ? 'متوازن ✓' : 'غير متوازن'}</Badge>
                     <Button variant="outline" className="border-orange-200 text-orange-700" onClick={() => printHtmlDoc(trialBalanceDocHtml(filtered, CURRENCY), 'ميزان المراجعة')}><Printer size={16} className="ml-1" />طباعة</Button>
                   </div>
@@ -1103,7 +1130,7 @@ export default function PropertyManagerApp() {
 
           {/* Settings */}
           {section === 'settings' && (
-            <div className="space-y-4"><h2 className="text-2xl font-bold text-gray-900">الإعدادات</h2>
+            <div className="space-y-4"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الإعدادات</h2>
               <Card className="border-0 shadow-lg max-w-lg"><CardHeader><CardTitle>تغيير كلمة السر</CardTitle></CardHeader>
                 <CardContent><SettingsPasswordForm onSave={async (data) => { await api('/api/auth/password', 'POST', data); toast.success('تم تغيير كلمة السر'); }} /></CardContent>
               </Card>
@@ -1117,10 +1144,10 @@ export default function PropertyManagerApp() {
           {/* Files */}
           {section === 'files' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">الملفات والصور</h2>
-                <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الملفات والصور</h2>
+                <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
               </div>
-              <Card className="border-0 shadow-lg overflow-hidden"><ScrollArea className="h-[600px]">
+              <Card className="border-0 shadow-lg overflow-hidden"><div className="h-[600px] overflow-auto"><div className="min-w-[700px]">
                 <Table><TableHeader><TableRow className="bg-orange-50 sticky top-0"><TableHead>الملف</TableHead><TableHead>النوع</TableHead><TableHead>الحجم</TableHead><TableHead>التصنيف</TableHead><TableHead>مرتبط بـ</TableHead><TableHead>التاريخ</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
                 <TableBody>{allFiles.map(f => {
                   let linkedTo = '-';
@@ -1141,14 +1168,14 @@ export default function PropertyManagerApp() {
                     {canWriteCheck('files') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/files/${f.id}`, 'DELETE'); loadData('files'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>}
                   </div></TableCell>
                 </TableRow>))}</TableBody></Table>
-              </ScrollArea></Card>
+              </div></div></Card>
               {allFiles.length === 0 && <EmptyState icon={<FolderOpen size={48} />} text="لا توجد ملفات مرفوعة" />}
             </div>
           )}
 
           {/* System Health */}
           {section === 'health' && (
-            <div className="space-y-4"><h2 className="text-2xl font-bold text-gray-900">صحة النظام</h2>
+            <div className="space-y-4"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">صحة النظام</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {[{ icon: <CheckCircle2 size={24} className="text-emerald-600" />, label: 'حالة السيرفر', value: 'يعمل', color: 'from-emerald-500 to-teal-500' },
                   { icon: <CheckCircle2 size={24} className="text-emerald-600" />, label: 'قاعدة البيانات', value: 'متصلة', color: 'from-blue-500 to-indigo-500' },
@@ -1218,11 +1245,11 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 p-4">
       <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-2 gap-0 bg-white rounded-3xl shadow-2xl overflow-hidden border border-orange-100">
-        <div className="bg-gradient-to-br from-orange-500 via-amber-500 to-orange-600 p-10 text-white flex flex-col justify-between min-h-[500px]">
+        <div className="bg-gradient-to-br from-orange-500 via-amber-500 to-orange-600 p-6 sm:p-10 text-white flex flex-col justify-between min-h-[420px] sm:min-h-[500px]">
           <div>
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/15 backdrop-blur rounded-full font-bold text-sm mb-8"><Building2 size={18} /> PropertyHub</div>
-            <h1 className="text-4xl font-extrabold leading-tight mb-4">إدارة عقارات<br />بأقل تعقيد</h1>
-            <p className="text-white/90 text-lg leading-relaxed max-w-sm">نظام متكامل وآمن لإدارة المباني والوحدات والمستأجرين والعقود</p>
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/15 backdrop-blur rounded-full font-bold text-sm mb-6 sm:mb-8"><Building2 size={18} /> PropertyHub</div>
+            <h1 className="text-3xl sm:text-4xl font-extrabold leading-tight mb-4">إدارة عقارات<br />بأقل تعقيد</h1>
+            <p className="text-white/90 text-base sm:text-lg leading-relaxed max-w-sm">نظام متكامل وآمن لإدارة المباني والوحدات والمستأجرين والعقود</p>
           </div>
           <ul className="space-y-3 mt-8">
             {[{ icon: <Shield size={18} />, text: 'نظام صلاحيات متعدد المستويات' }, { icon: <FileImage size={18} />, text: 'رفع صور العقود والمستندات' }, { icon: <Archive size={18} />, text: 'نقاط استعادة وتدقيق كامل' }, { icon: <Activity size={18} />, text: 'تتبع كل تحديث بالتفصيل' }].map((f, i) => (
@@ -1230,7 +1257,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
             ))}
           </ul>
         </div>
-        <div className="p-10 flex items-center justify-center">
+        <div className="p-6 sm:p-10 flex items-center justify-center">
           <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-5">
             <div><h2 className="text-2xl font-bold text-gray-900 mb-1">تسجيل الدخول</h2><p className="text-gray-500">مرحبًا بك، سجّل دخولك للمتابعة</p></div>
             <div><Label className="text-gray-700 font-semibold">اسم المستخدم</Label><Input value={username} onChange={e => setUsername(e.target.value)} className="mt-1 border-orange-200 focus:border-orange-500" required /></div>
@@ -1596,7 +1623,7 @@ function LoanPaymentForm({ loanName, onSave, onClose }: { loanName?: string; onS
 }
 
 function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
-  return (<div className="flex flex-col items-center justify-center py-16 text-gray-400"><div className="mb-4">{icon}</div><p className="text-lg font-semibold">{text}</p></div>);
+  return (<div className="flex flex-col items-center justify-center py-14 px-6 text-center"><div className="mb-4 w-20 h-20 rounded-3xl bg-orange-100/70 text-orange-400 flex items-center justify-center shadow-inner">{icon}</div><p className="text-lg font-semibold text-gray-500">{text}</p></div>);
 }
 
 // File Preview Dialog - with inline thumbnail support
@@ -1711,4 +1738,141 @@ function PermissionsEditor({ currentPerms, onSave, onClose }: { currentPerms: st
     </div>
     <Button disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold" onClick={async () => { setSaving(true); try { await onSave(JSON.stringify(perms)); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }}>{saving ? 'جاري الحفظ...' : 'حفظ الصلاحيات'}</Button>
   </div>);
+}
+
+// محتوى القائمة الجانبية — مشترك بين الديسكتوب ودرج الموبايل
+function SidebarContent({ user, section, isAdmin, onNavigate, onLogout }: {
+  user: User; section: Section; isAdmin: boolean;
+  onNavigate: (s: Section) => void; onLogout: () => void;
+}) {
+  const navItems: { key: Section; icon: React.ReactNode; label: string; admin?: boolean }[] = [
+    { key: 'dashboard', icon: <LayoutDashboard size={20} />, label: 'لوحة التحكم' },
+    { key: 'buildings', icon: <Building2 size={20} />, label: 'المباني' },
+    { key: 'units', icon: <Home size={20} />, label: 'الوحدات' },
+    { key: 'tenants', icon: <Users size={20} />, label: 'المستأجرين' },
+    { key: 'contracts', icon: <FileText size={20} />, label: 'العقود' },
+    { key: 'payments', icon: <DollarSign size={20} />, label: 'المدفوعات' },
+    { key: 'maintenance', icon: <Wrench size={20} />, label: 'الصيانة' },
+    { key: 'files', icon: <FolderOpen size={20} />, label: 'الملفات' },
+    { key: 'transactions', icon: <DollarSign size={20} />, label: 'الإيرادات والمصروفات' },
+    { key: 'loans', icon: <Briefcase size={20} />, label: 'القروض' },
+    { key: 'accounts', icon: <Hash size={20} />, label: 'شجرة الحسابات', admin: true },
+    { key: 'journal', icon: <FileText size={20} />, label: 'القيود اليومية', admin: true },
+    { key: 'trialBalance', icon: <Scale size={20} />, label: 'ميزان المراجعة', admin: true },
+    { key: 'audit', icon: <Activity size={20} />, label: 'سجل التدقيق', admin: true },
+    { key: 'restore', icon: <Archive size={20} />, label: 'نقاط الاستعادة', admin: true },
+    { key: 'health', icon: <Activity size={20} />, label: 'صحة النظام', admin: true },
+    { key: 'users', icon: <Shield size={20} />, label: 'المستخدمون', admin: true },
+    { key: 'settings', icon: <Settings size={20} />, label: 'الإعدادات' },
+  ];
+  return (<>
+    <div className="p-5 border-b border-orange-100">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center shadow-lg">
+          <Building2 size={22} className="text-white" />
+        </div>
+        <div><h1 className="font-bold text-lg text-orange-900">PropertyHub</h1><p className="text-xs text-orange-600">نظام إدارة العقارات</p></div>
+      </div>
+    </div>
+    <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+      {navItems.filter(n => !n.admin || isAdmin).map(item => (
+        <button key={item.key} onClick={() => onNavigate(item.key)}
+          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${section === item.key ? 'bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md' : 'text-gray-700 hover:bg-orange-50 hover:text-orange-700'}`}>
+          {item.icon}<span>{item.label}</span>
+        </button>
+      ))}
+    </nav>
+    <div className="p-4 border-t border-orange-100">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="w-9 h-9 rounded-full bg-orange-100 flex items-center justify-center text-orange-700 font-bold text-sm">{user.name.charAt(0)}</div>
+        <div className="flex-1 min-w-0"><p className="text-sm font-semibold text-gray-800 truncate">{user.name}</p><p className="text-xs text-orange-600">{user.roleName}</p></div>
+      </div>
+      <Button variant="outline" size="sm" className="w-full border-orange-200 text-orange-700 hover:bg-orange-50" onClick={onLogout}><LogOut size={16} className="ml-2" />تسجيل الخروج</Button>
+    </div>
+  </>);
+}
+
+// كارت قرض متكامل: البيانات + شريط السداد + سجل الأقساط + السندات في مكان واحد
+function LoanCard({ loan, buildingName, installments, canWrite, buildings, refresh }: {
+  loan: any; buildingName?: string; installments: any[]; canWrite: boolean;
+  buildings: Building[]; refresh: (action: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const principal = Number(loan.principal) || 0;
+  const paidPrincipal = installments.reduce((s, lp) => s + (Number(lp.principal) || 0), 0);
+  const paidInterest = installments.reduce((s, lp) => s + (Number(lp.interest) || 0), 0);
+  const remaining = Math.max(0, principal - paidPrincipal);
+  const pct = principal > 0 ? Math.min(100, Math.round((paidPrincipal / principal) * 100)) : 0;
+  const done = principal > 0 && remaining <= 0;
+  return (
+    <Card className="border-0 shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
+      <div className={`h-1.5 bg-gradient-to-l ${done ? 'from-emerald-500 to-teal-500' : 'from-purple-500 to-violet-500'}`} />
+      <CardContent className="p-4 sm:p-5 space-y-4">
+        {/* رأس الكارت: الاسم + الشارات + الإجراءات */}
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-white shadow-md shrink-0 bg-gradient-to-br ${done ? 'from-emerald-500 to-teal-500' : 'from-purple-500 to-violet-500'}`}>
+              <Briefcase size={20} />
+            </div>
+            <div className="min-w-0">
+              <h3 className="font-bold text-gray-900 truncate">{loan.name}</h3>
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                {buildingName && <Badge className="bg-orange-100 text-orange-800 text-[11px]">{buildingName}</Badge>}
+                <Badge className="bg-purple-100 text-purple-800 text-[11px]">فائدة {loan.rate}%</Badge>
+                <Badge className="bg-blue-100 text-blue-800 text-[11px]">{loan.months} شهر</Badge>
+                <Badge className="bg-gray-100 text-gray-700 text-[11px]">{new Date(loan.date).toLocaleDateString('ar')}</Badge>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند استلام القرض"><Printer size={14} /></Button>} title="سند قبض — استلام قرض" docHtml={loanReceiptHtml(loan, CURRENCY)} />
+            {canWrite && (<>
+              <FormDialog trigger={<Button variant="ghost" size="sm" className="text-emerald-600 hover:bg-emerald-50" title="تسجيل قسط"><DollarSign size={14} /></Button>} title={`تسجيل قسط — ${loan.name}`}>{(close) => <LoanPaymentForm loanName={loan.name} onSave={async (data) => { await api('/api/loan-payments', 'POST', { ...data, loanId: loan.id }); refresh('قسط قرض'); toast.success('تم تسجيل القسط وتوليد القيد المحاسبي'); }} onClose={close} />}</FormDialog>
+              <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل القرض">{(close) => <LoanForm buildings={buildings} initial={loan} onSave={async (data) => { await api(`/api/loans/${loan.id}`, 'PUT', data); refresh('تعديل قرض'); }} onClose={close} />}</FormDialog>
+              <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/loans/${loan.id}`, 'DELETE'); refresh('حذف قرض'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>
+            </>)}
+          </div>
+        </div>
+        {/* شريط نسبة السداد */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-500 font-medium">نسبة سداد الأصل</span>
+            <span className={`font-bold ${done ? 'text-emerald-700' : 'text-purple-700'}`}>{pct}%{done && ' — مُسدد بالكامل ✓'}</span>
+          </div>
+          <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden">
+            <div className={`h-full rounded-full bg-gradient-to-l ${done ? 'from-emerald-500 to-teal-500' : 'from-purple-500 to-violet-500'} transition-all duration-500`} style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+        {/* إحصائيات القرض */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="p-2.5 bg-purple-50 rounded-xl text-center"><p className="text-[11px] text-gray-600">أصل القرض</p><p className="text-sm sm:text-base font-bold text-purple-700">{fmtKWD(principal)}</p></div>
+          <div className="p-2.5 bg-emerald-50 rounded-xl text-center"><p className="text-[11px] text-gray-600">المسدد من الأصل</p><p className="text-sm sm:text-base font-bold text-emerald-700">{fmtKWD(paidPrincipal)}</p></div>
+          <div className="p-2.5 bg-red-50 rounded-xl text-center"><p className="text-[11px] text-gray-600">المتبقي</p><p className="text-sm sm:text-base font-bold text-red-700">{fmtKWD(remaining)}</p></div>
+          <div className="p-2.5 bg-amber-50 rounded-xl text-center"><p className="text-[11px] text-gray-600">فوائد مسددة</p><p className="text-sm sm:text-base font-bold text-amber-700">{fmtKWD(paidInterest)}</p></div>
+        </div>
+        {/* سجل الأقساط + سند صرف لكل قسط */}
+        {installments.length > 0 && (
+          <div className="border-t border-gray-100 pt-3">
+            <button type="button" onClick={() => setOpen(!open)} className="w-full flex items-center justify-between text-sm font-bold text-gray-700 hover:text-purple-700 transition">
+              <span className="flex items-center gap-2"><Clock size={15} className="text-purple-600" />سجل الأقساط ({installments.length})</span>
+              <ChevronDown size={16} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+            </button>
+            {open && (
+              <div className="mt-2.5 space-y-2">
+                {installments.map((lp: any) => (
+                  <div key={lp.id} className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-gray-50 hover:bg-gray-100 transition">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-gray-700">{new Date(lp.date).toLocaleDateString('ar')}</p>
+                      <p className="text-[11px] text-gray-500">أصل {fmtKWD(lp.principal)} • فوائد {fmtKWD(lp.interest)} • إجمالي <b className="text-gray-700">{fmtKWD((Number(lp.principal) || 0) + (Number(lp.interest) || 0))} {CURRENCY}</b></p>
+                    </div>
+                    <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50 shrink-0" title="سند صرف — قسط قرض"><Printer size={14} /></Button>} title="سند صرف — قسط قرض" docHtml={loanPaymentVoucherHtml(lp, loan.name, CURRENCY)} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
