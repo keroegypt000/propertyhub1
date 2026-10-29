@@ -124,3 +124,17 @@ Work Log (Phase 1 inspection findings -> fixes):
 Stage Summary:
 - R2 optional: without env vars system keeps working (DB storage); with R2 configured new uploads go to cloud
 - Tests: build+type-check passed; production e2e needs real login creds (not available here) — documented
+
+## Task: إصلاح أزرار رفع الملفات لا تستجيب (2026-10-29)
+
+Work Log:
+- Symptom: أزرار "رفع صورة العقد / رفع المدنية / رفع مستند / صورة" لا تتفاعل ولا تفتح حوار اختيار الملف
+- Root cause: نمط <label><input hidden/><Button/></label> — spec الـ HTML يمنع تمرير الضغطة من عنصر تفاعلي (button) داخل label إلى input، فلا يُفتح حوار الملفات إطلاقاً
+- Fix: مكوّن FileUploadButton جديد (ref + onClick → input.click()) ويستدعي الحوار مباشرة؛ استُبدل في 5 مواضع (عقود/مستأجرين×2/صيانة/FileAttachments) + تصفير قيمة input بعد الالتقاط للسماح بإعادة اختيار نفس الملف
+- Bonus: اكتشاف حذف عرضي لـ src/app/api/files/upload/route.ts من القرص (خارج أي commit) — استُعيد من HEAD وتحقق تواجده في الشجرة المرفوعة
+- Build: PASS (Compiled successfully + /api/files/upload موجود في الـ routes)
+- Push: 5839cb7 → propertyhub1/main (نشر تلقائي على Vercel)
+
+Stage Summary:
+- أزرار الرفع الآن تعمل في كل الصفحات عبر onClick مباشر بدل نمط label المعطوب
+- لم يتغير أي سلوك رفع خلفي: نفس uploadFile → ضغط المتصفح → /api/files/upload → R2 أو قاعدة البيانات
