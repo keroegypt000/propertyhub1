@@ -124,6 +124,7 @@ export default function PropertyManagerApp() {
   const [journalEntries, setJournalEntries] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [allFiles, setAllFiles] = useState<FileUpload[]>([]);
+  const [contractFilter, setContractFilter] = useState('all');
 
   const checkAuth = useCallback(async () => {
     try {
@@ -670,10 +671,10 @@ export default function PropertyManagerApp() {
                       {canWriteCheck('files') && (
                         <div className="flex gap-2">
                           <FileUploadButton className="border-blue-200 text-blue-700" icon={<Camera size={14} className="ml-1" />} onPick={async (file) => {
-                            try { await uploadFile(file, 'identity', { tenantId: t.id }); toast.success('تم رفع المدنية'); loadData('tenants'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
+                            try { const saved: any = await uploadFile(file, 'identity', { tenantId: t.id }); if (saved?.warning) { toast.warning(saved.warning); } else { toast.success('تم رفع المدنية'); } loadData('tenants'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
                           }}>رفع المدنية</FileUploadButton>
                           <FileUploadButton className="border-orange-200 text-orange-700" icon={<Upload size={14} className="ml-1" />} onPick={async (file) => {
-                            try { await uploadFile(file, 'general', { tenantId: t.id }); toast.success('تم رفع المستند'); loadData('tenants'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
+                            try { const saved: any = await uploadFile(file, 'general', { tenantId: t.id }); if (saved?.warning) { toast.warning(saved.warning); } else { toast.success('تم رفع المستند'); } loadData('tenants'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
                           }}>رفع مستند</FileUploadButton>
                         </div>
                       )}
@@ -695,8 +696,13 @@ export default function PropertyManagerApp() {
                   {canWriteCheck('contracts') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة عقد</Button>} title="إضافة عقد جديد" maxWidth="max-w-lg">{(close) => <ContractForm units={units} tenants={tenants} buildings={buildings} onSave={async (data) => { await api('/api/contracts', 'POST', data); if (data.updateDefaultRent && data.unitId) { await api(`/api/units/${data.unitId}`, 'PUT', { rentAmount: data.rentAmount }); loadData('units'); } autoRestore('إضافة عقد'); loadData('contracts'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
+              <div className="flex gap-2 flex-wrap">
+                {[{ k: 'all', l: 'الكل' }, ...Object.entries(CONTRACT_STATUS_MAP).map(([k, v]) => ({ k, l: v.label }))].map(({ k, l }) => (
+                  <button key={k} type="button" onClick={() => setContractFilter(k)} className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${contractFilter === k ? 'bg-orange-500 text-white border-orange-500 shadow' : 'bg-white text-gray-600 border-orange-200 hover:bg-orange-50'}`}>{l}</button>
+                ))}
+              </div>
               <div className="grid gap-4">
-                {contracts.filter(c => !searchQuery || (c.tenant?.name || '').includes(searchQuery) || (c.unit?.number || '').includes(searchQuery) || (c.unit?.building?.name || '').includes(searchQuery) || c.status.includes(searchQuery)).map(c => (
+                {contracts.filter(c => (contractFilter === 'all' || c.status === contractFilter) && (!searchQuery || (c.tenant?.name || '').includes(searchQuery) || (c.unit?.number || '').includes(searchQuery) || (c.unit?.building?.name || '').includes(searchQuery) || c.status.includes(searchQuery))).map(c => (
                   <Card key={c.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-5">
                     <div className="flex items-start justify-between">
                       <div>
@@ -710,10 +716,11 @@ export default function PropertyManagerApp() {
                         </div>
                       </div>
                       <div className="flex flex-col gap-2 items-end">
+                        {(() => { const list = c.attachments || []; const last = list[list.length - 1]; return last ? <FilePreviewDialog fileId={last.id} fileName={last.originalName} mimeType={last.mimeType} triggerLabel="عرض العقد" /> : null; })()}
                         {canWriteCheck('contracts') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل العقد" maxWidth="max-w-lg">{(close) => <ContractForm units={units} tenants={tenants} buildings={buildings} initial={c} onSave={async (data) => { await api(`/api/contracts/${c.id}`, 'PUT', data); if (data.updateDefaultRent && data.unitId) { await api(`/api/units/${data.unitId}`, 'PUT', { rentAmount: data.rentAmount }); loadData('units'); } autoRestore('تعديل عقد'); loadData('contracts'); }} onClose={close} />}</FormDialog>}
                         {canWriteCheck('files') && (
                           <FileUploadButton className="border-orange-200 text-orange-700" icon={<Camera size={14} className="ml-1" />} onPick={async (file) => {
-                            try { await uploadFile(file, 'contract', { contractId: c.id }); toast.success('تم رفع الملف'); loadData('contracts'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
+                            try { const saved: any = await uploadFile(file, 'contract', { contractId: c.id }); if (saved?.warning) { toast.warning(saved.warning); } else { toast.success('تم رفع الملف'); } loadData('contracts'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
                           }}>رفع صورة العقد</FileUploadButton>
                         )}
                         {canWriteCheck('contracts') && <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/contracts/${c.id}`, 'DELETE'); autoRestore('حذف عقد'); loadData('contracts'); toast.success('تم الحذف'); } }}><Trash2 size={16} /></Button>}
@@ -788,7 +795,7 @@ export default function PropertyManagerApp() {
                       <div className="flex gap-2">
                         {canWriteCheck('maintenance') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل طلب الصيانة">{(close) => <MaintenanceForm buildings={buildings} units={units} initial={m} onSave={async (data) => { await api(`/api/maintenance/${m.id}`, 'PUT', data); autoRestore('تعديل صيانة'); loadData('maintenance'); }} onClose={close} />}</FormDialog>}
                         {canWriteCheck('files') && (
-                          <FileUploadButton className="border-orange-200 text-orange-700" icon={<Camera size={14} className="ml-1" />} onPick={async (file) => { try { await uploadFile(file, 'maintenance', { maintenanceId: m.id }); toast.success('تم رفع الملف'); loadData('maintenance'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); } }}>صورة</FileUploadButton>
+                          <FileUploadButton className="border-orange-200 text-orange-700" icon={<Camera size={14} className="ml-1" />} onPick={async (file) => { try { const saved: any = await uploadFile(file, 'maintenance', { maintenanceId: m.id }); if (saved?.warning) { toast.warning(saved.warning); } else { toast.success('تم رفع الملف'); } loadData('maintenance'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); } }}>صورة</FileUploadButton>
                         )}
                         {canWriteCheck('maintenance') && m.status !== 'completed' && <Button variant="outline" size="sm" className="border-emerald-200 text-emerald-700" onClick={async () => { await api(`/api/maintenance/${m.id}`, 'PUT', { status: 'completed', completedAt: new Date().toISOString() }); autoRestore('إكمال صيانة'); loadData('maintenance'); toast.success('تم إكمال الطلب'); }}><CheckCircle2 size={14} /></Button>}
                         {canWriteCheck('maintenance') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/maintenance/${m.id}`, 'DELETE'); autoRestore('حذف صيانة'); loadData('maintenance'); } }}><Trash2 size={14} /></Button>}
@@ -1025,11 +1032,13 @@ export default function PropertyManagerApp() {
               </div>
               <Card className="border-0 shadow-lg overflow-hidden"><ScrollArea className="h-[600px]">
                 <Table><TableHeader><TableRow className="bg-orange-50 sticky top-0"><TableHead>الملف</TableHead><TableHead>النوع</TableHead><TableHead>الحجم</TableHead><TableHead>التصنيف</TableHead><TableHead>مرتبط بـ</TableHead><TableHead>التاريخ</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
-                <TableBody>{[
-                  ...contracts.flatMap(c => (c.attachments || []).map(a => ({...a, linkedTo: `عقد - ${(c.tenant?.name || c.id.slice(0,8))}`}))),
-                  ...tenants.flatMap(t => (t.uploads || []).map(a => ({...a, linkedTo: `مستأجر - ${t.name}`}))),
-                  ...allFiles.filter(f => !f.contractId && !f.tenantId).map(f => ({...f, linkedTo: '-'}))
-                ].filter(f => !searchQuery || f.originalName.includes(searchQuery) || f.category.includes(searchQuery) || (f.linkedTo || '').includes(searchQuery)).map(f => (<TableRow key={f.id}>
+                <TableBody>{allFiles.map(f => {
+                  let linkedTo = '-';
+                  if (f.contractId) { const c = contracts.find(x => x.id === f.contractId); linkedTo = c ? `عقد - ${c.tenant?.name || c.id.slice(0, 8)}` : 'عقد'; }
+                  else if (f.tenantId) { const t = tenants.find(x => x.id === f.tenantId); linkedTo = t ? `مستأجر - ${t.name}` : 'مستأجر'; }
+                  else if (f.maintenanceId) linkedTo = 'صيانة';
+                  return { ...f, linkedTo };
+                }).filter(f => !searchQuery || f.originalName.includes(searchQuery) || f.category.includes(searchQuery) || (f.linkedTo || '').includes(searchQuery)).map(f => (<TableRow key={f.id}>
                   <TableCell className="flex items-center gap-2"><FilePreviewDialog fileId={f.id} fileName={f.originalName} mimeType={f.mimeType} showThumbnail /><span className="text-sm">{f.originalName}</span></TableCell>
                   <TableCell className="text-xs text-gray-500">{f.mimeType}</TableCell>
                   <TableCell className="text-xs text-gray-500">{(f.size / 1024).toFixed(1)} KB</TableCell>
@@ -1043,7 +1052,7 @@ export default function PropertyManagerApp() {
                   </div></TableCell>
                 </TableRow>))}</TableBody></Table>
               </ScrollArea></Card>
-              {[...contracts.flatMap(c => c.attachments || []), ...tenants.flatMap(t => t.uploads || [])].length === 0 && <EmptyState icon={<FolderOpen size={48} />} text="لا توجد ملفات مرفوعة" />}
+              {allFiles.length === 0 && <EmptyState icon={<FolderOpen size={48} />} text="لا توجد ملفات مرفوعة" />}
             </div>
           )}
 
@@ -1415,7 +1424,7 @@ function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
 }
 
 // File Preview Dialog - with inline thumbnail support
-function FilePreviewDialog({ fileId, fileName, mimeType, showThumbnail }: { fileId: string; fileName: string; mimeType: string; showThumbnail?: boolean }) {
+function FilePreviewDialog({ fileId, fileName, mimeType, showThumbnail, triggerLabel }: { fileId: string; fileName: string; mimeType: string; showThumbnail?: boolean; triggerLabel?: string }) {
   const [open, setOpen] = useState(false);
   const isImage = mimeType.startsWith('image/');
   const isPdf = mimeType === 'application/pdf';
@@ -1423,7 +1432,9 @@ function FilePreviewDialog({ fileId, fileName, mimeType, showThumbnail }: { file
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        {showThumbnail && isImage ? (
+        {triggerLabel ? (
+          <Button variant="outline" size="sm" className="border-orange-200 text-orange-700" title={fileName}><Eye size={14} className="ml-1" />{triggerLabel}</Button>
+        ) : showThumbnail && isImage ? (
           <button type="button" className="relative group cursor-pointer" title={fileName}>
             <img src={url} alt={fileName} className="w-16 h-16 object-cover rounded-lg border border-gray-200 shadow-sm group-hover:shadow-md transition" />
             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 rounded-lg transition flex items-center justify-center"><Eye size={20} className="text-white opacity-0 group-hover:opacity-100 transition" /></div>

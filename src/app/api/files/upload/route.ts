@@ -56,12 +56,20 @@ export async function POST(request: NextRequest) {
     let storageProvider = 'db';
     let storageKey: string | null = null;
     let data: Buffer | null = buffer;
+    let warning: string | null = null;
 
     if (r2Configured()) {
       storageKey = buildStorageKey(id, originalName);
-      await uploadToStorage(buffer, storageKey, mimeType);
-      storageProvider = 'r2';
-      data = null; // الميتاداتا فقط في قاعدة البيانات — لا محتوى ثنائي
+      try {
+        await uploadToStorage(buffer, storageKey, mimeType);
+        storageProvider = 'r2';
+        data = null; // الميتاداتا فقط في قاعدة البيانات — لا محتوى ثنائي
+      } catch (r2Error: any) {
+        // فشل السحابة لا يضيع الملف: يُحفظ في قاعدة البيانات + يُبلغ المستخدم بالسبب الحقيقي
+        console.error('[files/upload] R2 storage failed, DB fallback:', r2Error?.name, '-', r2Error?.message);
+        storageKey = null;
+        warning = `الملف محفوظ في قاعدة البيانات — فشل التخزين السحابي: ${r2Error?.message || 'خطأ غير معروف'}`;
+      }
     }
 
     let fileRecord;
@@ -92,7 +100,7 @@ export async function POST(request: NextRequest) {
     await logAudit(user.id, 'upload', 'file', id, { name: originalName, category, size: buffer.length, provider: storageProvider }, `رفع ملف: ${originalName}`);
 
     const { data: _data, ...fileMeta } = fileRecord;
-    return NextResponse.json(fileMeta, { status: 201 });
+    return NextResponse.json({ ...fileMeta, warning }, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'خطأ في رفع الملف' }, { status: 400 });
   }
