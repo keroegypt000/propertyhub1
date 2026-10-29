@@ -3,9 +3,9 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: "نظام إدارة العقارات - PropertyHub",
-  description: "نظام متكامل لإدارة العقارات والوحدات والمستأجرين والعقود والمدفوعات",
-  icons: { icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg" },
+  title: "PropertyHub — إدارة الأملاك والعقارات",
+  description: "نظام متكامل لإدارة العقارات والوحدات والمستأجرين والعقود والمدفوعات والقيود المحاسبية",
+  applicationName: "PropertyHub",
 };
 
 export default function RootLayout({

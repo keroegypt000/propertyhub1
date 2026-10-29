@@ -5,12 +5,18 @@ import { toast } from 'sonner';
 import { buildingIncomeStats, totalIncomeStats, contractBalance, fmtKWD } from '@/lib/calc';
 import { SOURCE_LABELS } from '@/lib/accounting';
 import {
+  VoucherDialog, printHtmlDoc,
+  paymentReceiptHtml, loanReceiptHtml, loanPaymentVoucherHtml,
+  maintenanceVoucherHtml, transactionVoucherHtml,
+  journalEntryDocHtml, journalBookDocHtml, trialBalanceDocHtml, TBRow,
+} from '@/components/print-docs';
+import {
   Building2, Home, Users, FileText, DollarSign, Wrench, Shield, Clock,
   Upload, Download, Trash2, Edit3, Plus, Search, Eye, Lock, LogOut,
   ChevronDown, ChevronLeft, RefreshCw, AlertTriangle, CheckCircle2,
   XCircle, Calendar, Phone, Mail, MapPin, Hash, Briefcase, Settings,
   Archive, Activity, UserPlus, Key, ToggleLeft, ToggleRight, Info,
-  LayoutDashboard, FolderOpen, Camera, FileImage, CloudUpload
+  LayoutDashboard, FolderOpen, Camera, FileImage, CloudUpload, Printer, Scale
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,7 +43,7 @@ interface RestorePoint { id: string; name: string; description?: string; created
 
 const CURRENCY = 'د.ك'; // Kuwaiti Dinar
 
-type Section = 'dashboard' | 'buildings' | 'units' | 'tenants' | 'contracts' | 'payments' | 'maintenance' | 'files' | 'transactions' | 'loans' | 'loanPayments' | 'accounts' | 'journal' | 'audit' | 'restore' | 'health' | 'users' | 'settings';
+type Section = 'dashboard' | 'buildings' | 'units' | 'tenants' | 'contracts' | 'payments' | 'maintenance' | 'files' | 'transactions' | 'loans' | 'loanPayments' | 'accounts' | 'journal' | 'trialBalance' | 'audit' | 'restore' | 'health' | 'users' | 'settings';
 
 const ROLES_MAP: Record<string, string> = { admin: 'مدير', manager: 'مدير فرعي', accountant: 'محاسب', collector: 'محصّل', viewer: 'مشاهد' };
 const UNIT_STATUS_MAP: Record<string, { label: string; color: string }> = {
@@ -162,7 +168,15 @@ export default function PropertyManagerApp() {
       if (s === 'transactions') setTransactions(await api('/api/transactions'));
       if (s === 'loans') { setLoans(await api('/api/loans')); setLoanPayments(await api('/api/loan-payments')); }
       if (s === 'accounts') setAccounts(await api('/api/accounts'));
-      if (s === 'journal') setJournalEntries(await api('/api/journal'));
+      if (s === 'journal') {
+        setJournalEntries(await api('/api/journal'));
+        setAccounts(await api('/api/accounts'));
+        setBuildings(await api('/api/buildings'));
+      }
+      if (s === 'trialBalance') {
+        setJournalEntries(await api('/api/journal'));
+        setAccounts(await api('/api/accounts'));
+      }
       if (s === 'dashboard') {
         // Use allSettled so one failing API doesn't break everything
         const results = await Promise.allSettled([
@@ -282,6 +296,7 @@ export default function PropertyManagerApp() {
     { key: 'loans', icon: <Briefcase size={20} />, label: 'القروض' },
     { key: 'accounts', icon: <Hash size={20} />, label: 'شجرة الحسابات', admin: true },
     { key: 'journal', icon: <FileText size={20} />, label: 'القيود اليومية', admin: true },
+    { key: 'trialBalance', icon: <Scale size={20} />, label: 'ميزان المراجعة', admin: true },
     { key: 'audit', icon: <Activity size={20} />, label: 'سجل التدقيق', admin: true },
     { key: 'restore', icon: <Archive size={20} />, label: 'نقاط الاستعادة', admin: true },
     { key: 'health', icon: <Activity size={20} />, label: 'صحة النظام', admin: true },
@@ -754,6 +769,7 @@ export default function PropertyManagerApp() {
                   <TableCell>{p.method || '-'}</TableCell>
                   <TableCell className="text-xs text-gray-500">{p.contractId?.slice(0, 8)}</TableCell>
                   <TableCell><div className="flex gap-1">
+                    {(p.status === 'paid' || p.status === 'partial') && <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند قبض"><Printer size={14} /></Button>} title="سند قبض — إيجار" docHtml={paymentReceiptHtml(p, CURRENCY)} />}
                     {canWriteCheck('payments') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الدفعة">{(close) => <PaymentForm contracts={contracts} payments={payments} buildings={buildings} initial={p} onSave={async (data) => { await api(`/api/payments/${p.id}`, 'PUT', data); autoRestore('تعديل دفعة'); loadData('payments'); }} onClose={close} />}</FormDialog>}
                     {canWriteCheck('payments') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/payments/${p.id}`, 'DELETE'); autoRestore('حذف دفعة'); loadData('payments'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>}
                   </div></TableCell>
@@ -794,6 +810,7 @@ export default function PropertyManagerApp() {
                         )}
                       </div>
                       <div className="flex gap-2">
+                        {m.status === 'completed' && m.cost > 0 && <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند صرف — تكلفة الصيانة"><Printer size={14} /></Button>} title="سند صرف — صيانة" docHtml={maintenanceVoucherHtml(m, CURRENCY)} />}
                         {canWriteCheck('maintenance') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل طلب الصيانة">{(close) => <MaintenanceForm buildings={buildings} units={units} initial={m} onSave={async (data) => { await api(`/api/maintenance/${m.id}`, 'PUT', data); autoRestore('تعديل صيانة'); loadData('maintenance'); }} onClose={close} />}</FormDialog>}
                         {canWriteCheck('files') && (
                           <FileUploadButton className="border-orange-200 text-orange-700" icon={<Camera size={14} className="ml-1" />} onPick={async (file) => { try { const saved: any = await uploadFile(file, 'maintenance', { maintenanceId: m.id }); if (saved?.warning) { toast.warning(saved.warning); } else { toast.success('تم رفع الملف'); } loadData('maintenance'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); } }}>صورة</FileUploadButton>
@@ -898,6 +915,7 @@ export default function PropertyManagerApp() {
                   <TableCell className="text-sm">{t.category || '-'}</TableCell>
                   <TableCell className="font-semibold">{t.amount?.toLocaleString('ar')} {CURRENCY}</TableCell>
                   <TableCell><div className="flex gap-1">
+                    <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند"><Printer size={14} /></Button>} title="سند — حركة مالية" docHtml={transactionVoucherHtml(t, CURRENCY)} />
                     {canWriteCheck('transactions') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الحركة">{(close) => <TransactionForm buildings={buildings} initial={t} onSave={async (data) => { await api(`/api/transactions/${t.id}`, 'PUT', data); autoRestore('تعديل حركة مالية'); loadData('transactions'); }} onClose={close} />}</FormDialog>}
                     {canWriteCheck('transactions') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/transactions/${t.id}`, 'DELETE'); autoRestore('حذف حركة مالية'); loadData('transactions'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>}
                   </div></TableCell>
@@ -930,6 +948,7 @@ export default function PropertyManagerApp() {
                     <TableCell className="text-emerald-700">{paid.toLocaleString('ar')} {CURRENCY}</TableCell>
                     <TableCell className="text-red-700">{remaining.toLocaleString('ar')} {CURRENCY}</TableCell>
                     <TableCell><div className="flex gap-1">
+                      <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند استلام القرض"><Printer size={14} /></Button>} title="سند قبض — استلام قرض" docHtml={loanReceiptHtml(l, CURRENCY)} />
                       {canWriteCheck('loans') && (<>
                         <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل القرض">{(close) => <LoanForm buildings={buildings} initial={l} onSave={async (data) => { await api(`/api/loans/${l.id}`, 'PUT', data); autoRestore('تعديل قرض'); loadData('loans'); }} onClose={close} />}</FormDialog>
                         <FormDialog trigger={<Button variant="ghost" size="sm" className="text-emerald-600 hover:bg-emerald-50" title="تسجيل قسط"><DollarSign size={14} /></Button>} title={`تسجيل قسط — ${l.name}`}>{(close) => <LoanPaymentForm loanName={l.name} onSave={async (data) => { await api('/api/loan-payments', 'POST', { ...data, loanId: l.id }); autoRestore('قسط قرض'); loadData('loans'); toast.success('تم تسجيل القسط وتوليد القيد المحاسبي'); }} onClose={close} />}</FormDialog>
@@ -942,7 +961,7 @@ export default function PropertyManagerApp() {
               {loans.length > 0 && (<>
                 <h3 className="text-lg font-bold text-gray-900 mt-6">أقساط القروض</h3>
                 <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
-                  <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>القرض</TableHead><TableHead>الأصل المسدد</TableHead><TableHead>الفائدة</TableHead><TableHead>الإجمالي</TableHead><TableHead>التاريخ</TableHead></TableRow></TableHeader>
+                  <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>القرض</TableHead><TableHead>الأصل المسدد</TableHead><TableHead>الفائدة</TableHead><TableHead>الإجمالي</TableHead><TableHead>التاريخ</TableHead><TableHead>سند صرف</TableHead></TableRow></TableHeader>
                   <TableBody>{loanPayments.map((lp: any) => {
                     const total = (Number(lp.principal) || 0) + (Number(lp.interest) || 0);
                     return (<TableRow key={lp.id}>
@@ -951,6 +970,7 @@ export default function PropertyManagerApp() {
                       <TableCell className="text-amber-700">{(Number(lp.interest) || 0).toLocaleString('ar')} {CURRENCY}</TableCell>
                       <TableCell className="font-bold">{total.toLocaleString('ar')} {CURRENCY}</TableCell>
                       <TableCell className="text-sm">{new Date(lp.date).toLocaleDateString('ar')}</TableCell>
+                      <TableCell><VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند صرف — قسط قرض"><Printer size={14} /></Button>} title="سند صرف — قسط قرض" docHtml={loanPaymentVoucherHtml(lp, loans.find((l: any) => l.id === lp.loanId)?.name || lp.loan?.name || '-', CURRENCY)} /></TableCell>
                     </TableRow>);
                   })}</TableBody></Table>
                 </div></Card>
@@ -992,11 +1012,12 @@ export default function PropertyManagerApp() {
               <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-gray-900">القيود اليومية</h2>
                 <div className="flex items-center gap-2">
                   <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+                  <Button variant="outline" className="border-orange-200 text-orange-700" onClick={() => printHtmlDoc(journalBookDocHtml(journalEntries.filter((j: any) => !searchQuery || (j.description || '').includes(searchQuery) || (j.building?.name || '').includes(searchQuery) || (j.date || '').includes(searchQuery)), CURRENCY), 'دفتر اليومية')}><Printer size={16} className="ml-1" />طباعة دفتر اليومية</Button>
                   {canWriteCheck('journal') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة قيد</Button>} title="إضافة قيد يومي" maxWidth="max-w-lg">{(close) => <JournalForm accounts={accounts} buildings={buildings} onSave={async (data) => { await api('/api/journal', 'POST', data); loadData('journal'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
               <Card className="border-0 shadow-lg overflow-hidden"><ScrollArea className="h-[600px]">
-                <Table><TableHeader><TableRow className="bg-orange-50 sticky top-0"><TableHead>التاريخ</TableHead><TableHead>البيان</TableHead><TableHead>العمارة</TableHead><TableHead>القيود</TableHead></TableRow></TableHeader>
+                <Table><TableHeader><TableRow className="bg-orange-50 sticky top-0"><TableHead>التاريخ</TableHead><TableHead>البيان</TableHead><TableHead>العمارة</TableHead><TableHead>القيود</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
                 <TableBody>{journalEntries.filter((j: any) => !searchQuery || (j.description || '').includes(searchQuery) || (j.building?.name || '').includes(searchQuery) || (j.date || '').includes(searchQuery)).map((j: any) => (<TableRow key={j.id}>
                   <TableCell className="text-sm whitespace-nowrap">{new Date(j.date).toLocaleDateString('ar')}</TableCell>
                   <TableCell className="text-sm">
@@ -1017,11 +1038,68 @@ export default function PropertyManagerApp() {
                       ))}
                     </div>
                   </TableCell>
+                  <TableCell><div className="flex gap-1">
+                    <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="عرض وطباعة إذن القيد"><Printer size={14} /></Button>} title="إذن قيد محاسبي" docHtml={journalEntryDocHtml(j, CURRENCY)} />
+                    {canWriteCheck('journal') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل القيد"><Edit3 size={14} /></Button>} title="تعديل قيد يومي" maxWidth="max-w-lg">{(close) => <JournalForm accounts={accounts} buildings={buildings} initial={j} onSave={async (data) => { await api(`/api/journal/${j.id}`, 'PUT', data); loadData('journal'); toast.success('تم تعديل القيد'); }} onClose={close} />}</FormDialog>}
+                    {canWriteCheck('journal') && j.source === 'manual' && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف القيد نهائيًا؟')) { await api(`/api/journal/${j.id}`, 'DELETE'); loadData('journal'); toast.success('تم حذف القيد'); } }}><Trash2 size={14} /></Button>}
+                  </div></TableCell>
                 </TableRow>))}</TableBody></Table>
               </ScrollArea></Card>
               {journalEntries.length === 0 && <EmptyState icon={<FileText size={48} />} text="لا توجد قيود يومية" />}
             </div>
           )}
+
+          {/* Trial Balance — ميزان المراجعة */}
+          {section === 'trialBalance' && (() => {
+            const map = new Map<string, { code: string; name: string; debit: number; credit: number }>();
+            for (const e of journalEntries as any[]) {
+              for (const l of (e.lines || [])) {
+                const code = String(l.accountCode || '?');
+                const cur = map.get(code) || { code, name: l.accountName || code, debit: 0, credit: 0 };
+                cur.debit += Number(l.debit) || 0;
+                cur.credit += Number(l.credit) || 0;
+                map.set(code, cur);
+              }
+            }
+            const rows: TBRow[] = [...map.values()].sort((a, b) => a.code.localeCompare(b.code)).map(r => {
+              const bal = Math.round((r.debit - r.credit) * 1000) / 1000;
+              return { ...r, bd: bal > 0 ? bal : 0, bc: bal < 0 ? -bal : 0 };
+            });
+            const totals = rows.reduce((s, r) => ({ debit: s.debit + r.debit, credit: s.credit + r.credit, bd: s.bd + r.bd, bc: s.bc + r.bc }), { debit: 0, credit: 0, bd: 0, bc: 0 });
+            const balanced = Math.round(totals.debit * 1000) === Math.round(totals.credit * 1000);
+            const filtered = rows.filter(r => !searchQuery || r.code.includes(searchQuery) || r.name.includes(searchQuery));
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-2"><h2 className="text-2xl font-bold text-gray-900">ميزان المراجعة</h2>
+                  <div className="flex items-center gap-2">
+                    <div className="relative"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-48 border-orange-200 focus:border-orange-500" /></div>
+                    <Badge className={balanced ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}>{balanced ? 'متوازن ✓' : 'غير متوازن'}</Badge>
+                    <Button variant="outline" className="border-orange-200 text-orange-700" onClick={() => printHtmlDoc(trialBalanceDocHtml(filtered, CURRENCY), 'ميزان المراجعة')}><Printer size={16} className="ml-1" />طباعة</Button>
+                  </div>
+                </div>
+                <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
+                  <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>الكود</TableHead><TableHead>الحساب</TableHead><TableHead>مدين</TableHead><TableHead>دائن</TableHead><TableHead>رصيد مدين</TableHead><TableHead>رصيد دائن</TableHead></TableRow></TableHeader>
+                  <TableBody>{filtered.map(r => (<TableRow key={r.code}>
+                    <TableCell className="font-mono text-sm">{r.code}</TableCell>
+                    <TableCell className="font-medium">{r.name}</TableCell>
+                    <TableCell className="font-semibold text-emerald-700">{r.debit ? r.debit.toLocaleString('ar') : '-'}</TableCell>
+                    <TableCell className="text-red-700">{r.credit ? r.credit.toLocaleString('ar') : '-'}</TableCell>
+                    <TableCell>{r.bd ? r.bd.toLocaleString('ar') : '-'}</TableCell>
+                    <TableCell>{r.bc ? r.bc.toLocaleString('ar') : '-'}</TableCell>
+                  </TableRow>))}</TableBody>
+                  </Table>
+                </div>
+                <div className="px-4 py-3 bg-amber-50 border-t border-amber-100 flex flex-wrap gap-x-6 gap-y-1 text-sm font-bold text-amber-900">
+                  <span>إجمالي مدين: {totals.debit.toLocaleString('ar')} {CURRENCY}</span>
+                  <span>إجمالي دائن: {totals.credit.toLocaleString('ar')} {CURRENCY}</span>
+                  <span>أرصدة مدينة: {totals.bd.toLocaleString('ar')}</span>
+                  <span>أرصدة دائنة: {totals.bc.toLocaleString('ar')}</span>
+                </div>
+                </Card>
+                {rows.length === 0 && <EmptyState icon={<Scale size={48} />} text="لا توجد حركات محاسبية بعد — سجّل مدفوعات أو قيودًا أولًا" />}
+              </div>
+            );
+          })()}
 
           {/* Settings */}
           {section === 'settings' && (
@@ -1452,10 +1530,19 @@ function AccountForm({ accounts, onSave, initial, onClose }: { accounts: any[]; 
   </form>);
 }
 
-function JournalForm({ accounts, buildings, onSave, onClose }: { accounts: any[]; onSave: (data: any) => Promise<void>; buildings: Building[]; onClose?: () => void }) {
+function JournalForm({ accounts, buildings, onSave, onClose, initial }: { accounts: any[]; onSave: (data: any) => Promise<void>; buildings: Building[]; onClose?: () => void; initial?: any }) {
   const [saving, setSaving] = useState(false);
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10)); const [description, setDescription] = useState(''); const [buildingId, setBuildingId] = useState('');
-  const [lines, setLines] = useState<{ accountId: string; debit: string; credit: string }[]>([{ accountId: '', debit: '', credit: '' }]);
+  const [date, setDate] = useState(initial?.date || new Date().toISOString().slice(0, 10)); const [description, setDescription] = useState(initial?.description || ''); const [buildingId, setBuildingId] = useState(initial?.buildingId || '');
+  const [lines, setLines] = useState<{ accountId: string; debit: string; credit: string }[]>(() => {
+    if (initial?.lines?.length) {
+      return initial.lines.map((l: any) => ({
+        accountId: accounts.find((a: any) => a.id === l.accountId)?.id || accounts.find((a: any) => a.code === l.accountCode)?.id || '',
+        debit: l.debit ? String(l.debit) : '',
+        credit: l.credit ? String(l.credit) : '',
+      }));
+    }
+    return [{ accountId: '', debit: '', credit: '' }];
+  });
   const postAccounts = accounts.filter((a: any) => a.kind === 'post');
   const addLine = () => setLines([...lines, { accountId: '', debit: '', credit: '' }]);
   const removeLine = (i: number) => { if (lines.length > 1) setLines(lines.filter((_, idx) => idx !== i)); };
@@ -1465,9 +1552,10 @@ function JournalForm({ accounts, buildings, onSave, onClose }: { accounts: any[]
   const totalCredit = lines.reduce((s, l) => s + (+l.credit || 0), 0);
   const balanced = totalDebit > 0 && Math.round(totalDebit * 1000) === Math.round(totalCredit * 1000);
   const allAccountsChosen = lines.every(l => l.accountId);
-  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ date, description, buildingId: buildingId || null, lines: lines.map(l => ({ accountId: l.accountId, debit: l.debit ? +l.debit : 0, credit: l.credit ? +l.credit : 0 })) }); toast.success('تم إنشاء القيد اليومي'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ date, description, buildingId: buildingId || null, lines: lines.map(l => ({ accountId: l.accountId, debit: l.debit ? +l.debit : 0, credit: l.credit ? +l.credit : 0 })) }); toast.success(initial ? 'تم تعديل القيد' : 'تم إنشاء القيد اليومي'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
     <div><Label>التاريخ</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
     <div><Label>البيان</Label><Input value={description} onChange={e => setDescription(e.target.value)} required /></div>
+    {initial?.source && initial.source !== 'manual' && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5">هذا قيد تلقائي مرتبط بعملية مالية ({SOURCE_LABELS[initial.source] || 'تلقائي'}) — التعديل يدويًا ممكن، لكن سيعاد توليده تلقائيًا عند أي تعديل مستقبلي على العملية الأصلية</p>}
     <div><Label>العمارة (اختياري)</Label><Select value={buildingId} onValueChange={setBuildingId}><SelectTrigger><SelectValue placeholder="اختر العمارة" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
     <div className="space-y-2">
       <div className="flex items-center justify-between"><Label>القيود</Label><Button type="button" variant="outline" size="sm" onClick={addLine} className="border-orange-200 text-orange-700"><Plus size={14} className="ml-1" />إضافة سطر</Button></div>
