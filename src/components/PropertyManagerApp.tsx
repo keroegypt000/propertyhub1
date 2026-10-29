@@ -669,20 +669,12 @@ export default function PropertyManagerApp() {
                       </div>
                       {canWriteCheck('files') && (
                         <div className="flex gap-2">
-                          <label className="cursor-pointer">
-                            <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => {
-                              const file = e.target.files?.[0]; if (!file) return;
-                              try { await uploadFile(file, 'identity', { tenantId: t.id }); toast.success('تم رفع المدنية'); loadData('tenants'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
-                            }} />
-                            <Button variant="outline" size="sm" className="border-blue-200 text-blue-700"><Camera size={14} className="ml-1" />رفع المدنية</Button>
-                          </label>
-                          <label className="cursor-pointer">
-                            <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => {
-                              const file = e.target.files?.[0]; if (!file) return;
-                              try { await uploadFile(file, 'general', { tenantId: t.id }); toast.success('تم رفع المستند'); loadData('tenants'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
-                            }} />
-                            <Button variant="outline" size="sm" className="border-orange-200 text-orange-700"><Upload size={14} className="ml-1" />رفع مستند</Button>
-                          </label>
+                          <FileUploadButton className="border-blue-200 text-blue-700" icon={<Camera size={14} className="ml-1" />} onPick={async (file) => {
+                            try { await uploadFile(file, 'identity', { tenantId: t.id }); toast.success('تم رفع المدنية'); loadData('tenants'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
+                          }}>رفع المدنية</FileUploadButton>
+                          <FileUploadButton className="border-orange-200 text-orange-700" icon={<Upload size={14} className="ml-1" />} onPick={async (file) => {
+                            try { await uploadFile(file, 'general', { tenantId: t.id }); toast.success('تم رفع المستند'); loadData('tenants'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
+                          }}>رفع مستند</FileUploadButton>
                         </div>
                       )}
                     </div>
@@ -720,13 +712,9 @@ export default function PropertyManagerApp() {
                       <div className="flex flex-col gap-2 items-end">
                         {canWriteCheck('contracts') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل العقد" maxWidth="max-w-lg">{(close) => <ContractForm units={units} tenants={tenants} buildings={buildings} initial={c} onSave={async (data) => { await api(`/api/contracts/${c.id}`, 'PUT', data); if (data.updateDefaultRent && data.unitId) { await api(`/api/units/${data.unitId}`, 'PUT', { rentAmount: data.rentAmount }); loadData('units'); } autoRestore('تعديل عقد'); loadData('contracts'); }} onClose={close} />}</FormDialog>}
                         {canWriteCheck('files') && (
-                          <label className="cursor-pointer">
-                            <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => {
-                              const file = e.target.files?.[0]; if (!file) return;
-                              try { await uploadFile(file, 'contract', { contractId: c.id }); toast.success('تم رفع الملف'); loadData('contracts'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
-                            }} />
-                            <Button variant="outline" size="sm" className="border-orange-200 text-orange-700"><Camera size={14} className="ml-1" />رفع صورة العقد</Button>
-                          </label>
+                          <FileUploadButton className="border-orange-200 text-orange-700" icon={<Camera size={14} className="ml-1" />} onPick={async (file) => {
+                            try { await uploadFile(file, 'contract', { contractId: c.id }); toast.success('تم رفع الملف'); loadData('contracts'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
+                          }}>رفع صورة العقد</FileUploadButton>
                         )}
                         {canWriteCheck('contracts') && <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/contracts/${c.id}`, 'DELETE'); autoRestore('حذف عقد'); loadData('contracts'); toast.success('تم الحذف'); } }}><Trash2 size={16} /></Button>}
                       </div>
@@ -800,10 +788,7 @@ export default function PropertyManagerApp() {
                       <div className="flex gap-2">
                         {canWriteCheck('maintenance') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل طلب الصيانة">{(close) => <MaintenanceForm buildings={buildings} units={units} initial={m} onSave={async (data) => { await api(`/api/maintenance/${m.id}`, 'PUT', data); autoRestore('تعديل صيانة'); loadData('maintenance'); }} onClose={close} />}</FormDialog>}
                         {canWriteCheck('files') && (
-                          <label className="cursor-pointer">
-                            <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { await uploadFile(file, 'maintenance', { maintenanceId: m.id }); toast.success('تم رفع الملف'); loadData('maintenance'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); } }} />
-                            <Button variant="outline" size="sm" className="border-orange-200 text-orange-700"><Camera size={14} className="ml-1" />صورة</Button>
-                          </label>
+                          <FileUploadButton className="border-orange-200 text-orange-700" icon={<Camera size={14} className="ml-1" />} onPick={async (file) => { try { await uploadFile(file, 'maintenance', { maintenanceId: m.id }); toast.success('تم رفع الملف'); loadData('maintenance'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); } }}>صورة</FileUploadButton>
                         )}
                         {canWriteCheck('maintenance') && m.status !== 'completed' && <Button variant="outline" size="sm" className="border-emerald-200 text-emerald-700" onClick={async () => { await api(`/api/maintenance/${m.id}`, 'PUT', { status: 'completed', completedAt: new Date().toISOString() }); autoRestore('إكمال صيانة'); loadData('maintenance'); toast.success('تم إكمال الطلب'); }}><CheckCircle2 size={14} /></Button>}
                         {canWriteCheck('maintenance') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/maintenance/${m.id}`, 'DELETE'); autoRestore('حذف صيانة'); loadData('maintenance'); } }}><Trash2 size={14} /></Button>}
@@ -1459,6 +1444,36 @@ function FilePreviewDialog({ fileId, fileName, mimeType, showThumbnail }: { file
   );
 }
 
+// زر رفع ملفات — يشغّل حوار اختيار الملف مباشرة عبر ref
+// (نمط <label> المحتوي <Button> معطّل في المتصفحات: الزر يبتلع الضغطة ولا يفتح قائمة الملفات)
+function FileUploadButton({ onPick, icon, className, children }: {
+  onPick: (file: File) => void;
+  icon?: React.ReactNode;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*,.pdf"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onPick(file);
+          e.target.value = ''; // السماح بإعادة اختيار نفس الملف بعد فشل محتمل
+        }}
+      />
+      <Button type="button" variant="outline" size="sm" className={className} onClick={() => inputRef.current?.click()}>
+        {icon}
+        {children}
+      </Button>
+    </>
+  );
+}
+
 // Inline file attachments display with thumbnails
 function FileAttachments({ files, onUpload, canUpload }: { files: FileUpload[]; onUpload?: (file: File) => void; canUpload?: boolean }) {
   if (files.length === 0 && !canUpload) return null;
@@ -1471,10 +1486,7 @@ function FileAttachments({ files, onUpload, canUpload }: { files: FileUpload[]; 
         </span>
       ))}
       {canUpload && onUpload && (
-        <label className="cursor-pointer">
-          <input type="file" accept="image/*,.pdf" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; if (file) onUpload(file); }} />
-          <Button variant="outline" size="sm" className="border-orange-200 text-orange-700 text-xs h-7"><Upload size={12} className="ml-1" />رفع</Button>
-        </label>
+        <FileUploadButton className="border-orange-200 text-orange-700 text-xs h-7" icon={<Upload size={12} className="ml-1" />} onPick={(file) => onUpload(file)}>رفع</FileUploadButton>
       )}
     </div>
   );
