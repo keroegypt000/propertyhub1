@@ -86,7 +86,9 @@ export async function downloadFromStorage(key: string): Promise<Buffer | null> {
     const res = await client.send(new GetObjectCommand({ Bucket: R2_BUCKET!, Key: key }));
     const bytes = await res.Body?.transformToByteArray();
     return bytes ? Buffer.from(bytes) : null;
-  } catch {
+  } catch (error: any) {
+    // تسجيل سبب فشل القراءة بدل ابتلاعه بصمت — يظهر في سجلات Vercel
+    console.error('[storage] downloadFromStorage failed:', error?.name, '-', error?.message, 'key:', key);
     return null;
   }
 }

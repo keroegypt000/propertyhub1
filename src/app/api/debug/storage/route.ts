@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authMiddleware } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { r2Configured } from '@/lib/storage';
-import { S3Client, ListObjectsV2Command, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, ListObjectsV2Command, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 
 // =============================================================
 // أداة تشخيص التخزين السحابي — للمدير فقط (GET)
@@ -97,6 +97,21 @@ export async function GET(request: NextRequest) {
     steps.push({ step: 'PutObject', ok: true, detail: `رُفع ملف اختباري: ${testKey}` });
   } catch (e: any) {
     steps.push({ step: 'PutObject', ok: false, error: `${e?.name || 'Error'}: ${e?.message || e}` });
+  }
+
+  // اختبار القراءة (نفس مسار معاينة الملفات في التطبيق: Put ثم Get ومطابقة المحتوى)
+  try {
+    const get = await client.send(new GetObjectCommand({ Bucket: bucket, Key: testKey }));
+    const bytes = await get.Body?.transformToByteArray();
+    const contentOk = Boolean(bytes && Buffer.from(bytes).toString('utf8') === 'PH');
+    steps.push({
+      step: 'GetObject',
+      ok: contentOk,
+      detail: contentOk ? 'القراءة تعمل والمحتوى مطابق — نفس مسار معاينة الملفات' : undefined,
+      error: contentOk ? undefined : 'القراءة رجّعت محتوى فارغاً أو غير مطابق',
+    });
+  } catch (e: any) {
+    steps.push({ step: 'GetObject', ok: false, error: `${e?.name || 'Error'}: ${e?.message || e}` });
   }
 
   try {
