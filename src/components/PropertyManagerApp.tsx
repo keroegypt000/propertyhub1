@@ -17,8 +17,11 @@ import {
   XCircle, Calendar, Phone, Mail, MapPin, Hash, Briefcase, Settings,
   Archive, Activity, UserPlus, Key, ToggleLeft, ToggleRight, Info,
   LayoutDashboard, FolderOpen, Camera, FileImage, CloudUpload, Printer, Scale,
-  Menu, X, Percent
+  Menu, X, Percent, TrendingUp
 } from 'lucide-react';
+import { ExcelToolbar } from '@/components/ExcelToolbar';
+import { ResetDemoDataCard } from '@/components/ResetDemoDataCard';
+import { AnimatedNumber, LiveBadge, UnitsDonutChart, BuildingsBarChart, MonthlyTrendChart } from '@/components/DashboardLive';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -133,6 +136,7 @@ export default function PropertyManagerApp() {
   const [allFiles, setAllFiles] = useState<FileUpload[]>([]);
   const [contractFilter, setContractFilter] = useState('all');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const go = (s: Section) => { setSection(s); setMobileNavOpen(false); };
 
   const checkAuth = useCallback(async () => {
@@ -192,6 +196,7 @@ export default function PropertyManagerApp() {
           return [];
         });
         setBuildings(b); setUnits(u); setTenants(t); setContracts(c); setPayments(p); setMaintenance(m); setTransactions(tr); setAccounts(ac); setLoans(lo); setLoanPayments(lp);
+        setLastUpdated(new Date());
       }
     } catch (e: any) {
       // Re-check auth before logging out - don't immediately logout on data errors
@@ -206,6 +211,20 @@ export default function PropertyManagerApp() {
 
   useEffect(() => { if (user) loadData(section); }, [user, section, loadData]);
   useEffect(() => { setSearchQuery(''); }, [section]);
+
+  // البث الحي: تحديث لوحة التحكم تلقائيًا كل 60 ثانية
+  useEffect(() => {
+    if (user && section === 'dashboard') {
+      const t = setInterval(() => { loadData('dashboard'); }, 60000);
+      return () => clearInterval(t);
+    }
+  }, [user, section, loadData]);
+
+  // تفريغ البيانات من الذاكرة بعد مسح البيانات التجريبية
+  const clearAllData = () => {
+    setBuildings([]); setUnits([]); setTenants([]); setContracts([]); setPayments([]); setMaintenance([]);
+    setTransactions([]); setLoans([]); setLoanPayments([]); setAccounts([]); setJournalEntries([]); setAllFiles([]);
+  };
 
   const handleLogout = async () => { await api('/api/auth/logout', 'POST'); clearStoredToken(); setUser(null); };
 
@@ -388,33 +407,52 @@ export default function PropertyManagerApp() {
 
             return (
             <div className="space-y-6">
-              <div className="flex items-center gap-3 mb-2 flex-wrap"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">لوحة التحكم</h2><Badge className="bg-orange-100 text-orange-800">{new Date().toLocaleDateString('ar')}</Badge></div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between flex-wrap">
+                <div className="flex items-center gap-3 flex-wrap"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">لوحة التحكم</h2><Badge className="bg-orange-100 text-orange-800">{new Date().toLocaleDateString('ar')}</Badge></div>
+                <LiveBadge lastUpdated={lastUpdated} onRefresh={() => loadData('dashboard')} />
+              </div>
 
-              {/* KPI Cards - لوحة المؤشرات المجمعة */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+              {/* KPI Cards - لوحة المؤشرات المجمعة — عدادات متحركة حية */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
                 {[
-                  { icon: <Building2 size={22} />, label: 'عدد العمارات', value: buildingCount, color: 'from-orange-500 to-amber-500' },
-                  { icon: <Home size={22} />, label: 'عدد الوحدات', value: unitCount, color: 'from-blue-500 to-indigo-500' },
-                  { icon: <Home size={22} />, label: 'وحدات شاغرة', value: vacantUnits, color: 'from-teal-500 to-cyan-500' },
-                  { icon: <Activity size={22} />, label: 'نسبة الإشغال', value: `${occupancyRate}%`, color: 'from-emerald-500 to-green-500' },
-                  { icon: <AlertTriangle size={22} />, label: 'المتأخرات', value: `${fmt(arrearsAmount)}`, color: 'from-red-500 to-rose-500' },
-                  { icon: <Briefcase size={22} />, label: 'رصيد القروض', value: `${fmt(loanBalance)}`, color: 'from-purple-500 to-violet-500' },
-                  { icon: <Wrench size={22} />, label: 'صيانة مفتوحة', value: openMaintCount, color: 'from-amber-500 to-yellow-500' },
-                  { icon: <DollarSign size={22} />, label: 'الإيرادات', value: `${fmt(totalRevenue)}`, color: 'from-emerald-500 to-teal-500' },
-                  { icon: <DollarSign size={22} />, label: 'المصروفات', value: `${fmt(totalExpenses)}`, color: 'from-red-500 to-pink-500' },
-                  { icon: <DollarSign size={22} />, label: 'صافي الحركة', value: `${fmt(netMovement)}`, color: netMovement >= 0 ? 'from-emerald-500 to-green-500' : 'from-red-500 to-rose-500' },
+                  { icon: <Building2 size={22} />, label: 'عدد العمارات', num: buildingCount, decimals: 0, color: 'from-orange-500 to-amber-500' },
+                  { icon: <Home size={22} />, label: 'عدد الوحدات', num: unitCount, decimals: 0, color: 'from-blue-500 to-indigo-500' },
+                  { icon: <Home size={22} />, label: 'وحدات شاغرة', num: vacantUnits, decimals: 0, color: 'from-teal-500 to-cyan-500' },
+                  { icon: <Activity size={22} />, label: 'نسبة الإشغال', num: occupancyRate, decimals: 0, suffix: '%', color: 'from-emerald-500 to-green-500' },
+                  { icon: <AlertTriangle size={22} />, label: 'المتأخرات', num: arrearsAmount, decimals: 2, suffix: ' د.ك', color: 'from-red-500 to-rose-500' },
+                  { icon: <Briefcase size={22} />, label: 'رصيد القروض', num: loanBalance, decimals: 2, suffix: ' د.ك', color: 'from-purple-500 to-violet-500' },
+                  { icon: <Wrench size={22} />, label: 'صيانة مفتوحة', num: openMaintCount, decimals: 0, color: 'from-amber-500 to-yellow-500' },
+                  { icon: <DollarSign size={22} />, label: 'الإيرادات', num: totalRevenue, decimals: 2, suffix: ' د.ك', color: 'from-emerald-500 to-teal-500' },
+                  { icon: <DollarSign size={22} />, label: 'المصروفات', num: totalExpenses, decimals: 2, suffix: ' د.ك', color: 'from-red-500 to-pink-500' },
+                  { icon: <DollarSign size={22} />, label: 'صافي الحركة', num: netMovement, decimals: 2, suffix: ' د.ك', color: netMovement >= 0 ? 'from-emerald-500 to-green-500' : 'from-red-500 to-rose-500' },
                 ].map((stat, i) => (
-                  <Card key={i} className="border-0 shadow-lg overflow-hidden">
+                  <Card key={i} className="border-0 shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
                     <div className={`h-1 bg-gradient-to-l ${stat.color}`} />
                     <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div><p className="text-xs text-gray-500 mb-1">{stat.label}</p><p className="text-2xl font-bold text-gray-900">{stat.value}</p></div>
-                        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center text-white shadow-md`}>{stat.icon}</div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0"><p className="text-xs text-gray-500 mb-1 whitespace-nowrap">{stat.label}</p><p className="text-lg sm:text-xl font-bold text-gray-900 truncate"><AnimatedNumber value={stat.num} decimals={stat.decimals} suffix={stat.suffix || ''} /></p></div>
+                        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center text-white shadow-md shrink-0`}>{stat.icon}</div>
                       </div>
                     </CardContent>
                   </Card>
                 ))}
               </div>
+
+              {/* الرسوم التفاعلية الحية — Recharts */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <Card className="border-0 shadow-lg lg:col-span-2">
+                  <CardHeader className="pb-0"><CardTitle className="text-lg flex items-center gap-2"><TrendingUp size={20} className="text-emerald-600" />حركة الإيرادات والمصروفات — آخر 6 أشهر</CardTitle></CardHeader>
+                  <CardContent><MonthlyTrendChart transactions={transactions} /></CardContent>
+                </Card>
+                <Card className="border-0 shadow-lg">
+                  <CardHeader className="pb-0"><CardTitle className="text-lg flex items-center gap-2"><Home size={20} className="text-blue-600" />حالات الوحدات</CardTitle></CardHeader>
+                  <CardContent><UnitsDonutChart units={units} /></CardContent>
+                </Card>
+              </div>
+              <Card className="border-0 shadow-lg">
+                <CardHeader className="pb-0"><CardTitle className="text-lg flex items-center gap-2"><Building2 size={20} className="text-orange-600" />الإيرادات والمصروفات لكل عمارة</CardTitle></CardHeader>
+                <CardContent><BuildingsBarChart data={buildingComparison.map(b => ({ name: b.name, إيرادات: b.income, مصروفات: b.expense }))} /></CardContent>
+              </Card>
 
               {/* ملخص العمارات - Building Summary */}
               <Card className="border-0 shadow-lg">
@@ -557,6 +595,7 @@ export default function PropertyManagerApp() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المباني</h2>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
+                  <ExcelToolbar entity="buildings" rows={buildings} canWrite={canWriteCheck('buildings')} onImported={() => { loadData('buildings'); toast.success('تم تحديث قائمة العمارات'); }} />
                   {canWriteCheck('buildings') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة مبنى</Button>} title="إضافة مبنى جديد">{(close) => <BuildingForm onSave={async (data) => { await api('/api/buildings', 'POST', data); autoRestore('إضافة مبنى'); loadData('buildings'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
@@ -617,6 +656,7 @@ export default function PropertyManagerApp() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الوحدات</h2>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
+                  <ExcelToolbar entity="units" rows={units} canWrite={canWriteCheck('units')} onImported={() => { loadData('units'); toast.success('تم تحديث قائمة الوحدات'); }} />
                   {canWriteCheck('units') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة وحدة</Button>} title="إضافة وحدة جديدة">{(close) => <UnitForm buildings={buildings} onSave={async (data) => { await api('/api/units', 'POST', data); autoRestore('إضافة وحدة'); loadData('units'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
@@ -644,6 +684,7 @@ export default function PropertyManagerApp() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المستأجرين</h2>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
+                  <ExcelToolbar entity="tenants" rows={tenants} canWrite={canWriteCheck('tenants')} onImported={() => { loadData('tenants'); toast.success('تم تحديث قائمة المستأجرين'); }} />
                   {canWriteCheck('tenants') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة مستأجر</Button>} title="إضافة مستأجر جديد">{(close) => <TenantForm onSave={async (data) => { await api('/api/tenants', 'POST', data); autoRestore('إضافة مستأجر'); loadData('tenants'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
@@ -693,6 +734,7 @@ export default function PropertyManagerApp() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">العقود</h2>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
+                  <ExcelToolbar entity="contracts" rows={contracts} canWrite={canWriteCheck('contracts')} onImported={() => { loadData('contracts'); toast.success('تم تحديث قائمة العقود'); }} />
                   {canWriteCheck('contracts') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة عقد</Button>} title="إضافة عقد جديد" maxWidth="max-w-lg">{(close) => <ContractForm units={units} tenants={tenants} buildings={buildings} onSave={async (data) => { await api('/api/contracts', 'POST', data); if (data.updateDefaultRent && data.unitId) { await api(`/api/units/${data.unitId}`, 'PUT', { rentAmount: data.rentAmount }); loadData('units'); } autoRestore('إضافة عقد'); loadData('contracts'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
@@ -742,6 +784,7 @@ export default function PropertyManagerApp() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المدفوعات</h2>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
+                  <ExcelToolbar entity="payments" rows={payments} canWrite={canWriteCheck('payments')} onImported={() => { loadData('payments'); toast.success('تم تحديث المدفوعات'); }} />
                   {canWriteCheck('payments') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />تسجيل دفعة</Button>} title="تسجيل دفعة جديدة">{(close) => <PaymentForm contracts={contracts} payments={payments} buildings={buildings} onSave={async (data) => { await api('/api/payments', 'POST', data); autoRestore('تسجيل دفعة'); loadData('payments'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
@@ -796,6 +839,7 @@ export default function PropertyManagerApp() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">طلبات الصيانة</h2>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
+                  <ExcelToolbar entity="maintenance" rows={maintenance} canWrite={canWriteCheck('maintenance')} onImported={() => { loadData('maintenance'); toast.success('تم تحديث طلبات الصيانة'); }} />
                   {canWriteCheck('maintenance') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />طلب صيانة</Button>} title="طلب صيانة جديد">{(close) => <MaintenanceForm buildings={buildings} units={units} onSave={async (data) => { await api('/api/maintenance', 'POST', data); autoRestore('طلب صيانة'); loadData('maintenance'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
@@ -917,6 +961,7 @@ export default function PropertyManagerApp() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الإيرادات والمصروفات</h2>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
+                  <ExcelToolbar entity="transactions" rows={transactions} canWrite={canWriteCheck('transactions')} onImported={() => { loadData('transactions'); toast.success('تم تحديث الحركات المالية'); }} />
                   {canWriteCheck('transactions') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة حركة</Button>} title="إضافة حركة مالية">{(close) => <TransactionForm buildings={buildings} onSave={async (data) => { await api('/api/transactions', 'POST', data); autoRestore('إضافة حركة مالية'); loadData('transactions'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
@@ -980,6 +1025,7 @@ export default function PropertyManagerApp() {
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
+                  <ExcelToolbar entity="loans" rows={loans} canWrite={canWriteCheck('loans')} onImported={() => { loadData('loans'); toast.success('تم تحديث قائمة القروض'); }} />
                   {canWriteCheck('loans') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة قرض</Button>} title="إضافة قرض جديد">{(close) => <LoanForm buildings={buildings} onSave={async (data) => { await api('/api/loans', 'POST', data); refresh('إضافة قرض'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
@@ -1013,6 +1059,7 @@ export default function PropertyManagerApp() {
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   {isAdmin && <Button variant="outline" className="border-orange-200 text-orange-700" onClick={async () => { if (!confirm('سيتم إنشاء الحسابات الافتراضية غير الموجودة فقط — لن يتم تعديل أو حذف أي حساب قائم. متابعة؟')) return; try { const r = await api<any>('/api/accounts/seed', 'POST'); toast.success(`تم الاستيراد: ${r.created} حساب جديد — ${r.skipped.length} موجود مسبقاً (من إجمالي ${r.total})`); loadData('accounts'); } catch (e: any) { toast.error(e.message); } }}>إنشاء الشجرة الافتراضية</Button>}
+                  <ExcelToolbar entity="accounts" rows={accounts} canWrite={canWriteCheck('accounts')} onImported={() => { loadData('accounts'); toast.success('تم تحديث شجرة الحسابات'); }} />
                   {canWriteCheck('accounts') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة حساب</Button>} title="إضافة حساب جديد">{(close) => <AccountForm accounts={accounts} onSave={async (data) => { await api('/api/accounts', 'POST', data); loadData('accounts'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
@@ -1039,6 +1086,7 @@ export default function PropertyManagerApp() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">القيود اليومية</h2>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
+                  <ExcelToolbar entity="journal" rows={journalEntries} canWrite={false} importEnabled={false} onImported={() => {}} />
                   <Button variant="outline" className="border-orange-200 text-orange-700" onClick={() => printHtmlDoc(journalBookDocHtml(journalEntries.filter((j: any) => !searchQuery || (j.description || '').includes(searchQuery) || (j.building?.name || '').includes(searchQuery) || (j.date || '').includes(searchQuery)), CURRENCY), 'دفتر اليومية')}><Printer size={16} className="ml-1" />طباعة دفتر اليومية</Button>
                   {canWriteCheck('journal') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة قيد</Button>} title="إضافة قيد يومي" maxWidth="max-w-lg">{(close) => <JournalForm accounts={accounts} buildings={buildings} onSave={async (data) => { await api('/api/journal', 'POST', data); loadData('journal'); }} onClose={close} />}</FormDialog>)}
                 </div>
@@ -1138,6 +1186,7 @@ export default function PropertyManagerApp() {
                 <CardContent className="space-y-2"><p><strong>الاسم:</strong> {user.name}</p><p><strong>اسم المستخدم:</strong> {user.username}</p><p><strong>الدور:</strong> {user.roleName}</p></CardContent>
               </Card>
               {user.role === 'admin' && <StorageMaintenanceCard />}
+              {user.role === 'admin' && <ResetDemoDataCard onDone={clearAllData} />}
             </div>
           )}
 
