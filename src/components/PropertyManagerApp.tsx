@@ -393,8 +393,11 @@ export default function PropertyManagerApp() {
             const rentedUnits = units.filter(u => u.status === 'rented').length;
             const occupancyRate = unitCount > 0 ? Math.round((rentedUnits / unitCount) * 100) : 0;
 
-            // Arrears: sum of pending/overdue payment amounts
-            const arrearsAmount = payments.filter(p => p.status === 'pending' || p.status === 'overdue').reduce((sum, p) => sum + (p.amount || 0), 0);
+            // Arrears: مجموع الأرصدة المستحقة فعليًا على العقود النشطة (المستحق حتى اليوم − المدفوع)
+            // = نفس منطق contractBalance المعروض في صفحة العقود — يشمل العقود المدفوعة جزئيًا وغير المدفوعة
+            const arrearsAmount = contracts
+              .filter(c => c.status === 'active' || c.status === 'renewed')
+              .reduce((s, c) => s + contractBalance(c as any, (c.payments || []) as any).outstanding, 0);
 
             // Loan balance: total principal - total paid (الأصل المسدد فقط — الفوائد مصروف لا يخصم من أصل القرض)
             const loanTotalPrincipal = loans.reduce((s: number, l: any) => s + (l.principal || 0), 0);
@@ -417,24 +420,20 @@ export default function PropertyManagerApp() {
               return { ...b, unitCount: bUnits.length, income: bIncome, expense: bExpense, net: bIncome - bExpense };
             });
 
-            // Arrears by tenant: for each active contract with pending/overdue payments
-            const arrearsByTenant = contracts.filter(c => c.status === 'active').map(c => {
-              const contractPayments = payments.filter(p => p.contractId === c.id);
-              const pendingOrOverdue = contractPayments.filter(p => p.status === 'pending' || p.status === 'overdue');
-              const totalDue = pendingOrOverdue.reduce((s, p) => s + (p.amount || 0), 0);
-              const totalPaid = contractPayments.filter(p => p.status === 'paid').reduce((s, p) => s + (p.amount || 0), 0);
-              const dueMonths = pendingOrOverdue.length;
+            // Arrears by tenant: لكل عقد نشط — الرصيد المستحق من contractBalance (المستحق حتى اليوم − المدفوع)
+            const arrearsByTenant = contracts.filter(c => c.status === 'active' || c.status === 'renewed').map(c => {
+              const bal = contractBalance(c as any, (c.payments || []) as any);
               return {
                 tenantName: c.tenant?.name || '-',
                 unitNumber: c.unit?.number || '-',
                 buildingName: c.unit?.building?.name || '-',
                 rentAmount: c.rentAmount,
-                dueMonths,
-                totalDue,
-                totalPaid,
-                arrears: totalDue,
+                dueMonths: c.rentAmount > 0 ? Math.round((bal.outstanding / c.rentAmount) * 10) / 10 : 0,
+                totalDue: bal.totalDue,
+                totalPaid: bal.totalPaid,
+                arrears: bal.outstanding,
               };
-            }).filter(a => a.arrears > 0);
+            }).filter(a => a.arrears > 0).sort((a, b) => b.arrears - a.arrears);
 
             // Expiring contracts: within 30 days or already expired
             const now = new Date();
@@ -827,7 +826,7 @@ export default function PropertyManagerApp() {
                   <Card key={c.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-5">
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       <div>
-                        <div className="flex items-center gap-2 mb-2"><Badge className={CONTRACT_STATUS_MAP[c.status]?.color || 'bg-gray-100'}>{CONTRACT_STATUS_MAP[c.status]?.label || c.status}</Badge><span className="text-sm text-gray-500">العقد #{c.id.slice(0, 8)}</span></div>
+                        <div className="flex items-center gap-2 mb-2"><Badge className={CONTRACT_STATUS_MAP[c.status]?.color || 'bg-gray-100'}>{CONTRACT_STATUS_MAP[c.status]?.label || c.status}</Badge><span className="text-sm text-gray-500">عقد بدأ في {c.startDate ? new Date(c.startDate).toLocaleDateString('ar-EG') : '-'}</span></div>
                         <div className="space-y-1 text-sm">
                           {c.unit && <p className="flex items-center gap-1"><Home size={14} className="text-gray-400" />وحدة {c.unit.number} - {c.unit.building?.name}</p>}
                           {c.tenant && <p className="flex items-center gap-1"><Users size={14} className="text-gray-400" />{c.tenant.name}</p>}
@@ -1561,7 +1560,7 @@ function PaymentForm({ contracts, payments, buildings, onSave, initial, onClose 
   const balance = selected ? contractBalance(selected as any, (selected.payments || []) as any) : null;
   return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ contractId, amount: +amount, dueDate, month, method, reference, notes, status: initial?.status || 'paid', paidDate: initial?.paidDate || new Date().toISOString() }); toast.success(initial ? 'تم تعديل الدفعة' : 'تم تسجيل الدفعة'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
     <div><Label>المبنى (فلتر)</Label><Select value={buildingId} onValueChange={setBuildingId}><SelectTrigger><SelectValue placeholder="كل المباني" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
-    <div><Label>العقد</Label><Select value={contractId} onValueChange={setContractId}><SelectTrigger><SelectValue placeholder="اختر العقد" /></SelectTrigger><SelectContent>{filteredContracts.map(c => <SelectItem key={c.id} value={c.id}>عقد #{c.id.slice(0, 8)} — {c.tenant?.name || 'بدون مستأجر'} — وحدة {c.unit?.number || '?'}</SelectItem>)}</SelectContent></Select></div>
+    <div><Label>العقد</Label><Select value={contractId} onValueChange={setContractId}><SelectTrigger><SelectValue placeholder="اختر العقد" /></SelectTrigger><SelectContent>{filteredContracts.map(c => <SelectItem key={c.id} value={c.id}>{c.startDate ? new Date(c.startDate).toLocaleDateString('ar-EG') : 'عقد'} — {c.tenant?.name || 'بدون مستأجر'} — وحدة {c.unit?.number || '?'}</SelectItem>)}</SelectContent></Select></div>
     {selected?.tenant?.tenantType === 'company' && (
       <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-sm text-indigo-900">
         <p className="font-bold flex items-center gap-2"><Landmark size={15} />هذا مستأجر شركة</p>

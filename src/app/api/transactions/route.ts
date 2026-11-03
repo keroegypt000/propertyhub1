@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     // distribute: { mode: 'equal' | 'rent' } — يُنشئ حركة مستقلة لكل عمارة بحصتها
     // كل حصة تولّد قيدًا مزدوجًا مرتبطًا بالعمارة فيظهر في تقريرها المحاسبي
     if (body.distribute && body.type === 'expense') {
-      const mode = body.distribute?.mode === 'rent' ? 'rent' : 'equal';
+      const mode = (body.distribute?.mode || body.mode) === 'rent' ? 'rent' : 'equal';
       const buildings = await db.building.findMany({ include: { units: true } });
       if (!buildings.length) return NextResponse.json({ error: 'لا توجد عمارات للتوزيع' }, { status: 400 });
 
