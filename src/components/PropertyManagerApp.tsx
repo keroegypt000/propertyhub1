@@ -40,7 +40,7 @@ interface Unit { id: string; buildingId: string; number: string; floor?: number;
 interface Tenant { id: string; name: string; tenantType?: string; commercialReg?: string; phone?: string; email?: string; idNumber?: string; idType?: string; address?: string; notes?: string; uploads?: FileUpload[]; createdAt: string; }
 interface Contract { id: string; unitId: string; tenantId: string; startDate: string; endDate: string; rentAmount: number; deposit?: number; paymentDay?: number; status: string; terms?: string; notes?: string; unit?: Unit; tenant?: Tenant; payments?: Payment[]; attachments?: FileUpload[]; createdAt: string; }
 interface Payment { id: string; contractId: string; amount: number; dueDate: string; paidDate?: string; month?: string; status: string; method?: string; reference?: string; notes?: string; contract?: Contract; createdAt: string; }
-interface MaintenanceItem { id: string; title: string; description?: string; priority: string; status: string; cost?: number; estimatedCost?: number; category?: string; assignedTo?: string; unitId?: string; unit?: Unit; buildingId?: string; building?: Building; attachments?: FileUpload[]; createdAt: string; }
+interface MaintenanceItem { id: string; title: string; description?: string; priority: string; status: string; cost?: number; estimatedCost?: number; category?: string; assignedTo?: string; unitId?: string; unit?: Unit; buildingId?: string; building?: Building; attachments?: FileUpload[]; completedAt?: string | null; createdAt: string; }
 interface FileUpload { id: string; filename: string; originalName: string; mimeType: string; size: number; category: string; docType?: string; contractId?: string; tenantId?: string; maintenanceId?: string; buildingId?: string; legalCaseId?: string; createdAt: string; }
 interface LegalCase { id: string; title: string; type: string; reference?: string; buildingId?: string; building?: Building; unitId?: string; unit?: Unit; tenantId?: string; tenant?: Tenant; status: string; filedDate?: string; hearingDate?: string; amount?: number; description?: string; notes?: string; attachments?: FileUpload[]; createdAt: string; }
 interface AuditEntry { id: string; userId: string; action: string; entity: string; entityId?: string; changes?: string; details?: string; createdAt: string; user?: { id: string; name: string; username: string }; }
@@ -159,6 +159,7 @@ export default function PropertyManagerApp() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [journalEntries, setJournalEntries] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [txType, setTxType] = useState<'all' | 'income' | 'expense'>('all');
   const [allFiles, setAllFiles] = useState<FileUpload[]>([]);
   const [legalCases, setLegalCases] = useState<LegalCase[]>([]);
   const [detailBuildingId, setDetailBuildingId] = useState<string | null>(null);
@@ -240,13 +241,14 @@ export default function PropertyManagerApp() {
           api<Building[]>('/api/buildings'), api<Unit[]>('/api/units'), api<Tenant[]>('/api/tenants'),
           api<Contract[]>('/api/contracts'), api<Payment[]>('/api/payments'), api<MaintenanceItem[]>('/api/maintenance'),
           api('/api/transactions'), api('/api/accounts'), api('/api/loans'), api('/api/loan-payments'),
+          api('/api/journal').catch(() => []),
         ]);
-        const [b, u, t, c, p, m, tr, ac, lo, lp] = results.map((r, i) => {
+        const [b, u, t, c, p, m, tr, ac, lo, lp, jr] = results.map((r, i) => {
           if (r.status === 'fulfilled') return r.value;
           console.warn(`Dashboard API ${i} failed:`, r.reason);
           return [];
         });
-        setBuildings(b); setUnits(u); setTenants(t); setContracts(c); setPayments(p); setMaintenance(m); setTransactions(tr); setAccounts(ac); setLoans(lo); setLoanPayments(lp);
+        setBuildings(b); setUnits(u); setTenants(t); setContracts(c); setPayments(p); setMaintenance(m); setTransactions(tr); setAccounts(ac); setLoans(lo); setLoanPayments(lp); setJournalEntries(jr);
         setLastUpdated(new Date());
       }
     } catch (e: any) {
@@ -421,12 +423,26 @@ export default function PropertyManagerApp() {
             const totalExpenses = transactions.filter((t: any) => t.type === 'expense').reduce((s: number, t: any) => s + (t.amount || 0), 0);
             const netMovement = totalRevenue - totalExpenses;
 
-            // Building comparison data: for each building, count its units, revenue, expenses
+            // Building comparison data: نفس نظام لوحة الإيرادات الجديد لكل عمارة (متوقع/محصل/متأخرات/مصروفات/صافي) + الحركات المسجلة للرسم البياني
             const buildingComparison = buildings.map(b => {
               const bUnits = units.filter(u => u.buildingId === b.id);
+              const buIds = new Set(bUnits.map(u => u.id));
+              const bc = contracts.filter(c => buIds.has(c.unitId));
+              const bcIds = new Set(bc.map(c => c.id));
+              const bp = payments.filter(p => bcIds.has(p.contractId));
+              const coll = collectedStats(bp as any);
               const bIncome = transactions.filter((t: any) => t.buildingId === b.id && t.type === 'income').reduce((s: number, t: any) => s + (t.amount || 0), 0);
               const bExpense = transactions.filter((t: any) => t.buildingId === b.id && t.type === 'expense').reduce((s: number, t: any) => s + (t.amount || 0), 0);
-              return { ...b, unitCount: bUnits.length, income: bIncome, expense: bExpense, net: bIncome - bExpense };
+              const bExpJournal = journalEntries.filter((e: any) => e.buildingId === b.id).reduce((s2: number, e: any) => s2 + (e.lines || []).filter((l: any) => String(l.accountCode).startsWith('5')).reduce((s3: number, l: any) => s3 + (Number(l.debit) || 0), 0), 0);
+              return {
+                ...b, unitCount: bUnits.length,
+                expectedMonthly: buildingIncomeStats(units as any, contracts as any, b.id).expectedMonthly,
+                collectedAnnual: coll.annual,
+                arrears: arrearsOfContracts(bc as any),
+                expenses: bExpJournal,
+                netRent: coll.total - bExpJournal,
+                income: bIncome, expense: bExpense,
+              };
             });
 
             // Arrears by tenant: لكل عقد نشط — الرصيد المستحق من contractBalance (المستحق حتى اليوم − المدفوع)
@@ -465,19 +481,15 @@ export default function PropertyManagerApp() {
                 <LiveBadge lastUpdated={lastUpdated} onRefresh={() => loadData('dashboard')} />
               </div>
 
-              {/* KPI Cards - لوحة المؤشرات المجمعة — عدادات متحركة حية */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+              {/* KPI Cards — المؤشرات التشغيلية (المالي في لوحة الإيرادات تحته) */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
                 {[
                   { icon: <Building2 size={22} />, label: 'عدد العمارات', num: buildingCount, decimals: 0, color: 'from-orange-500 to-amber-500' },
                   { icon: <Home size={22} />, label: 'عدد الوحدات', num: unitCount, decimals: 0, color: 'from-blue-500 to-indigo-500' },
                   { icon: <Home size={22} />, label: 'وحدات شاغرة', num: vacantUnits, decimals: 0, color: 'from-teal-500 to-cyan-500' },
                   { icon: <Activity size={22} />, label: 'نسبة الإشغال', num: occupancyRate, decimals: 0, suffix: '%', color: 'from-emerald-500 to-green-500' },
-                  { icon: <AlertTriangle size={22} />, label: 'المتأخرات', num: arrearsAmount, decimals: 2, suffix: ' د.ك', color: 'from-red-500 to-rose-500' },
-                  { icon: <Briefcase size={22} />, label: 'رصيد القروض', num: loanBalance, decimals: 2, suffix: ' د.ك', color: 'from-purple-500 to-violet-500' },
                   { icon: <Wrench size={22} />, label: 'صيانة مفتوحة', num: openMaintCount, decimals: 0, color: 'from-amber-500 to-yellow-500' },
-                  { icon: <DollarSign size={22} />, label: 'الإيرادات', num: totalRevenue, decimals: 2, suffix: ' د.ك', color: 'from-emerald-500 to-teal-500' },
-                  { icon: <DollarSign size={22} />, label: 'المصروفات', num: totalExpenses, decimals: 2, suffix: ' د.ك', color: 'from-red-500 to-pink-500' },
-                  { icon: <DollarSign size={22} />, label: 'صافي الحركة', num: netMovement, decimals: 2, suffix: ' د.ك', color: netMovement >= 0 ? 'from-emerald-500 to-green-500' : 'from-red-500 to-rose-500' },
+                  { icon: <Briefcase size={22} />, label: 'رصيد القروض', num: loanBalance, decimals: 2, suffix: ' د.ك', color: 'from-purple-500 to-violet-500' },
                 ].map((stat, i) => (
                   <Card key={i} className="border-0 shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
                     <div className={`h-1 bg-gradient-to-l ${stat.color}`} />
@@ -491,10 +503,41 @@ export default function PropertyManagerApp() {
                 ))}
               </div>
 
-              {/* الرسوم التفاعلية الحية — Recharts */}
+              {/* لوحة الإيرادات — نفس نظام صفحة المباني: المتوقع فوق والفعلي والمصروفات والمتأخرات وصافي الإيجار تحته */}
+              {(() => {
+                const coll = collectedStats(payments as any);
+                const dArrears = arrearsAmount;
+                const dExpenses = journalEntries.reduce((s2: number, e: any) => s2 + (e.lines || []).filter((l: any) => String(l.accountCode).startsWith('5')).reduce((s3: number, l: any) => s3 + (Number(l.debit) || 0), 0), 0);
+                const dNet = coll.total - dExpenses;
+                const dExpected = totalIncomeStats(units as any, contracts as any, buildings.map(b => b.id));
+                return (
+                <Card className="border-0 shadow-lg"><CardContent className="p-5">
+                  <div className="flex items-center gap-2 mb-3"><DollarSign size={20} className="text-emerald-600" /><h3 className="font-bold text-gray-900">لوحة الإيرادات — كل العمارات مجتمعة</h3></div>
+                  <p className="text-[11px] font-bold text-emerald-700 mb-2 flex items-center gap-1"><TrendingUp size={13} />الإيرادات المتوقعة</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                    <div className="p-3 bg-emerald-50 rounded-xl text-center border border-emerald-100"><p className="text-[11px] text-gray-600">المتوقع شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(dExpected.expectedMonthly)} {CURRENCY}</p></div>
+                    <div className="p-3 bg-emerald-50 rounded-xl text-center border border-emerald-100"><p className="text-[11px] text-gray-600">المتوقع سنوياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(dExpected.expectedAnnual)} {CURRENCY}</p></div>
+                    <div className="p-3 bg-blue-50 rounded-xl text-center border border-blue-100"><p className="text-[11px] text-gray-600">جميع الوحدات</p><p className="text-lg font-bold text-blue-700">{unitCount}</p></div>
+                    <div className="p-3 bg-teal-50 rounded-xl text-center border border-teal-100"><p className="text-[11px] text-gray-600">الوحدات المؤجرة</p><p className="text-lg font-bold text-teal-700">{rentedUnits}</p></div>
+                    <div className="p-3 bg-amber-50 rounded-xl text-center border border-amber-100"><p className="text-[11px] text-gray-600">وحدات تحت الصيانة</p><p className="text-lg font-bold text-amber-700">{units.filter(u => u.status === 'maintenance').length}</p></div>
+                  </div>
+                  <p className="text-[11px] font-bold text-indigo-700 mt-4 mb-2 flex items-center gap-1"><ReceiptText size={13} />الإيرادات الفعلية والمصروفات</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                    <div className="p-3 bg-indigo-50 rounded-xl text-center border border-indigo-100"><p className="text-[11px] text-gray-600">المحصل شهرياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.monthly)} {CURRENCY}</p></div>
+                    <div className="p-3 bg-indigo-50 rounded-xl text-center border border-indigo-100"><p className="text-[11px] text-gray-600">المحصل سنوياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.annual)} {CURRENCY}</p></div>
+                    <div className="p-3 bg-amber-50 rounded-xl text-center border border-amber-100"><p className="text-[11px] text-gray-600">المتأخرات (متبقي مستحق)</p><p className={`text-lg font-bold ${dArrears > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(dArrears)} {CURRENCY}</p></div>
+                    <div className="p-3 bg-red-50 rounded-xl text-center border border-red-100"><p className="text-[11px] text-gray-600">المصروفات (قيود)</p><p className="text-lg font-bold text-red-700">{fmtKWD(dExpenses)} {CURRENCY}</p></div>
+                    <div className="p-3 bg-teal-50 rounded-xl text-center border border-teal-100"><p className="text-[11px] text-gray-600">صافي الإيجار (محصل − مصروفات)</p><p className={`text-lg font-bold ${dNet >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtKWD(dNet)} {CURRENCY}</p></div>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-2">المتوقع = مجموع الإيجار الافتراضي للوحدات القابلة للتأجير • المحصل = الدفعات الفعلية المسددة حسب تاريخ الدفع • المتأخرات = المتبقي المستحق غير المحصل على العقود النشطة • المصروفات = مصروفات مسجلة بالقيود المحاسبية • صافي الإيجار = المحصل الكلي − المصروفات — العملة {CURRENCY}</p>
+                </CardContent></Card>
+                );
+              })()}
+
+              {/* الرسوم التفاعلية الحية — Recharts (الحركات المالية المسجلة) */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <Card className="border-0 shadow-lg lg:col-span-2">
-                  <CardHeader className="pb-0"><CardTitle className="text-lg flex items-center gap-2"><TrendingUp size={20} className="text-emerald-600" />حركة الإيرادات والمصروفات — آخر 6 أشهر</CardTitle></CardHeader>
+                  <CardHeader className="pb-0"><CardTitle className="text-lg flex items-center gap-2"><TrendingUp size={20} className="text-emerald-600" />حركة الحركات المالية المسجلة — آخر 6 أشهر</CardTitle></CardHeader>
                   <CardContent><MonthlyTrendChart transactions={transactions} /></CardContent>
                 </Card>
                 <Card className="border-0 shadow-lg">
@@ -503,32 +546,13 @@ export default function PropertyManagerApp() {
                 </Card>
               </div>
               <Card className="border-0 shadow-lg">
-                <CardHeader className="pb-0"><CardTitle className="text-lg flex items-center gap-2"><Building2 size={20} className="text-orange-600" />الإيرادات والمصروفات لكل عمارة</CardTitle></CardHeader>
+                <CardHeader className="pb-0"><CardTitle className="text-lg flex items-center gap-2"><Building2 size={20} className="text-orange-600" />الحركات المالية المسجلة لكل عمارة</CardTitle></CardHeader>
                 <CardContent><BuildingsBarChart data={buildingComparison.map(b => ({ name: b.name, إيرادات: b.income, مصروفات: b.expense }))} /></CardContent>
               </Card>
 
-              {/* ملخص العمارات - Building Summary */}
-              <Card className="border-0 shadow-lg">
-                <CardHeader className="pb-2"><CardTitle className="text-lg flex items-center gap-2"><Building2 size={20} className="text-orange-600" />ملخص العمارات</CardTitle></CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="p-3 bg-orange-50 rounded-xl text-center"><p className="text-xs text-gray-600">العمارات</p><p className="text-xl font-bold text-orange-700">{buildingCount}</p></div>
-                    <div className="p-3 bg-blue-50 rounded-xl text-center"><p className="text-xs text-gray-600">الوحدات</p><p className="text-xl font-bold text-blue-700">{unitCount}</p></div>
-                    <div className="p-3 bg-emerald-50 rounded-xl text-center"><p className="text-xs text-gray-600">مؤجرة</p><p className="text-xl font-bold text-emerald-700">{rentedUnits}</p></div>
-                    <div className="p-3 bg-teal-50 rounded-xl text-center"><p className="text-xs text-gray-600">شاغرة</p><p className="text-xl font-bold text-teal-700">{vacantUnits}</p></div>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="p-3 bg-emerald-50 rounded-xl text-center"><p className="text-xs text-gray-600">الإيرادات</p><p className="text-xl font-bold text-emerald-700">{fmt(totalRevenue)}</p></div>
-                    <div className="p-3 bg-red-50 rounded-xl text-center"><p className="text-xs text-gray-600">المصروفات</p><p className="text-xl font-bold text-red-700">{fmt(totalExpenses)}</p></div>
-                    <div className="p-3 bg-amber-50 rounded-xl text-center"><p className="text-xs text-gray-600">المتأخرات</p><p className="text-xl font-bold text-amber-700">{fmt(arrearsAmount)}</p></div>
-                    <div className="p-3 bg-purple-50 rounded-xl text-center"><p className="text-xs text-gray-600">رصيد القروض</p><p className="text-xl font-bold text-purple-700">{fmt(loanBalance)}</p></div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* مقارنة العمارات - Building Comparison Table */}
+              {/* مقارنة العمارات - نفس نظام لوحة الإيرادات */}
               <Card className="border-0 shadow-lg overflow-hidden">
-                <CardHeader className="pb-2"><CardTitle className="text-lg flex items-center gap-2"><Building2 size={20} className="text-blue-600" />مقارنة العمارات</CardTitle></CardHeader>
+                <CardHeader className="pb-2"><CardTitle className="text-lg flex items-center gap-2"><Building2 size={20} className="text-blue-600" />مقارنة العمارات — متوقع / محصل / متأخرات / مصروفات / صافي</CardTitle></CardHeader>
                 <CardContent>
                   {buildingComparison.length > 0 ? (
                     <div className="overflow-x-auto">
@@ -537,18 +561,22 @@ export default function PropertyManagerApp() {
                           <TableHead>الكود</TableHead>
                           <TableHead>العمارة</TableHead>
                           <TableHead>الوحدات</TableHead>
-                          <TableHead>الإيرادات</TableHead>
+                          <TableHead>المتوقع شهرياً</TableHead>
+                          <TableHead>المحصل سنوياً</TableHead>
+                          <TableHead>المتأخرات</TableHead>
                           <TableHead>المصروفات</TableHead>
-                          <TableHead>الصافي</TableHead>
+                          <TableHead>صافي الإيجار</TableHead>
                         </TableRow></TableHeader>
                         <TableBody>{buildingComparison.map(b => (
                           <TableRow key={b.id}>
                             <TableCell className="font-mono text-sm">{b.code || b.id.slice(0, 8)}</TableCell>
                             <TableCell className="font-medium">{b.name}</TableCell>
                             <TableCell>{b.unitCount}</TableCell>
-                            <TableCell className="text-emerald-700 font-semibold">{fmt(b.income)}</TableCell>
-                            <TableCell className="text-red-700 font-semibold">{fmt(b.expense)}</TableCell>
-                            <TableCell className={b.net >= 0 ? 'text-emerald-700 font-bold' : 'text-red-700 font-bold'}>{fmt(b.net)}</TableCell>
+                            <TableCell className="text-emerald-700 font-semibold">{fmt(b.expectedMonthly)}</TableCell>
+                            <TableCell className="text-indigo-700 font-semibold">{fmt(b.collectedAnnual)}</TableCell>
+                            <TableCell className={b.arrears > 0 ? 'text-red-700 font-semibold' : 'text-emerald-700'}>{fmt(b.arrears)}</TableCell>
+                            <TableCell className="text-red-700 font-semibold">{fmt(b.expenses)}</TableCell>
+                            <TableCell className={b.netRent >= 0 ? 'text-emerald-700 font-bold' : 'text-red-700 font-bold'}>{fmt(b.netRent)}</TableCell>
                           </TableRow>
                         ))}</TableBody>
                       </Table>
@@ -1089,7 +1117,10 @@ export default function PropertyManagerApp() {
 
           {/* Transactions */}
           {section === 'transactions' && (() => {
-            const filteredTransactions = transactions.filter((t: any) => !searchQuery || (t.category || '').includes(searchQuery) || (t.type || '').includes(searchQuery) || (t.building?.name || '').includes(searchQuery) || String(t.amount).includes(searchQuery));
+            const txIncome = transactions.filter((t: any) => t.type === 'income').reduce((s: number, t: any) => s + (t.amount || 0), 0);
+            const txExpense = transactions.filter((t: any) => t.type === 'expense').reduce((s: number, t: any) => s + (t.amount || 0), 0);
+            const txNet = txIncome - txExpense;
+            const filteredTransactions = transactions.filter((t: any) => (txType === 'all' || t.type === txType) && (!searchQuery || (t.category || '').includes(searchQuery) || (t.type || '').includes(searchQuery) || (t.building?.name || '').includes(searchQuery) || String(t.amount).includes(searchQuery)));
             return (
             <div className="space-y-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الإيرادات والمصروفات</h2>
@@ -1099,6 +1130,27 @@ export default function PropertyManagerApp() {
                   {canWriteCheck('transactions') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة حركة</Button>} title="إضافة حركة مالية">{(close) => <TransactionForm buildings={buildings} accounts={accounts as any} onSave={async (data) => { const r: any = await api('/api/transactions', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); else if (r?.distributed) toast.success(`تم توزيع المصروف على ${r.count} عمارة وتوليد قيد لكل عمارة`); else toast.success('تم الحفظ وتوليد القيد المزدوج (مدين ودائن)'); autoRestore('إضافة حركة مالية'); loadData('transactions'); }} onClose={close} />}</FormDialog>)}
                   {isAdmin && <Button variant="outline" className="border-emerald-300 text-emerald-700 bg-emerald-50" title="توليد القيود المزدوجة للحركات القديمة المسجلة قبل ربط الحركات بالمحاسبة — تشغيل واحد يكفي" onClick={async () => { if (!confirm('سيتم توليد قيد محاسبي لكل حركة مالية لا قيد لها (لن يتكرر أي قيد قائم). متابعة؟')) return; try { const r: any = await api('/api/transactions/sync-journal', 'POST', {}); toast.success(`تمت المزامنة: ${r.synced} قيد جديد من أصل ${r.total} حركة${r.failedCount ? ` — تعذر على ${r.failedCount}` : ''}`); } catch (e: any) { toast.error(e.message); } }}><RefreshCw size={15} className="ml-1" />مزامنة قيود الحركات القديمة</Button>}
                 </div>
+              </div>
+              {/* ملخص الحركات المالية — الإيرادات والمصروفات والصافي */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center gap-3 shadow-sm"><div className="w-9 h-9 rounded-xl bg-white/70 flex items-center justify-center shrink-0 text-emerald-600"><TrendingUp size={18} /></div><div className="min-w-0"><p className="text-[11px] text-gray-600">إجمالي الإيرادات المسجلة</p><p className="font-bold text-sm sm:text-lg text-emerald-700 truncate">{fmtKWD(txIncome)} {CURRENCY}</p></div></div>
+                <div className="p-3.5 rounded-2xl bg-red-50 border border-red-100 flex items-center gap-3 shadow-sm"><div className="w-9 h-9 rounded-xl bg-white/70 flex items-center justify-center shrink-0 text-red-600"><ReceiptText size={18} /></div><div className="min-w-0"><p className="text-[11px] text-gray-600">إجمالي المصروفات المسجلة</p><p className="font-bold text-sm sm:text-lg text-red-700 truncate">{fmtKWD(txExpense)} {CURRENCY}</p></div></div>
+                <div className={`p-3.5 rounded-2xl border flex items-center gap-3 shadow-sm ${txNet >= 0 ? 'bg-teal-50 border-teal-100' : 'bg-orange-50 border-orange-100'}`}><div className="w-9 h-9 rounded-xl bg-white/70 flex items-center justify-center shrink-0 text-teal-600"><DollarSign size={18} /></div><div className="min-w-0"><p className="text-[11px] text-gray-600">الصافي (إيرادات − مصروفات)</p><p className={`font-bold text-sm sm:text-lg truncate ${txNet >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtKWD(txNet)} {CURRENCY}</p></div></div>
+                <div className="p-3.5 rounded-2xl bg-blue-50 border border-blue-100 flex items-center gap-3 shadow-sm"><div className="w-9 h-9 rounded-xl bg-white/70 flex items-center justify-center shrink-0 text-blue-600"><Hash size={18} /></div><div className="min-w-0"><p className="text-[11px] text-gray-600">عدد الحركات</p><p className="font-bold text-sm sm:text-lg text-blue-700">{transactions.length}</p></div></div>
+              </div>
+              <p className="text-[11px] text-gray-400 -mt-2">هذه الصفحة للحركات المالية المسجلة (مصروفات تشغيل، إيرادات أخرى، حصص إدارية) — أما إيجارات التحصيل من المستأجرين فتجدها في صفحة «المدفوعات» وفي لوحة الإيرادات</p>
+              {/* فلتر النوع */}
+              <div className="flex gap-1.5 flex-wrap">
+                {([
+                  { k: 'all', l: `الكل (${transactions.length})` },
+                  { k: 'income', l: `إيرادات (${transactions.filter((t: any) => t.type === 'income').length})` },
+                  { k: 'expense', l: `مصروفات (${transactions.filter((t: any) => t.type === 'expense').length})` },
+                ] as const).map(f => (
+                  <button key={f.k} onClick={() => setTxType(f.k as any)}
+                    className={`px-3.5 py-1.5 rounded-xl text-sm font-medium transition ${txType === f.k ? 'bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md' : 'bg-white text-gray-600 border border-orange-100 hover:bg-orange-50'}`}>
+                    {f.l}
+                  </button>
+                ))}
               </div>
               {/* Desktop table */}
               <div className="hidden md:block">
@@ -1165,16 +1217,18 @@ export default function PropertyManagerApp() {
                 </div>
               </div>
               {/* ملخص القروض */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
                 {[
-                  { label: 'إجمالي القروض', value: fmtKWD(totalPrincipal), icon: <Briefcase size={16} />, cls: 'bg-purple-50 text-purple-700' },
-                  { label: 'المسدد من الأصل', value: fmtKWD(totalPaidPrincipal), icon: <CheckCircle2 size={16} />, cls: 'bg-emerald-50 text-emerald-700' },
-                  { label: 'المتبقي', value: fmtKWD(totalRemaining), icon: <AlertTriangle size={16} />, cls: 'bg-red-50 text-red-700' },
-                  { label: 'الفوائد المسددة', value: fmtKWD(totalInterestPaid), icon: <Percent size={16} />, cls: 'bg-amber-50 text-amber-700' },
+                  { label: 'إجمالي القروض (الأصل)', value: `${fmtKWD(totalPrincipal)} ${CURRENCY}`, icon: <Briefcase size={16} />, cls: 'bg-purple-50 text-purple-700' },
+                  { label: 'المسدد من الأصل', value: `${fmtKWD(totalPaidPrincipal)} ${CURRENCY}`, icon: <CheckCircle2 size={16} />, cls: 'bg-emerald-50 text-emerald-700' },
+                  { label: 'المتبقي (رصيد القروض)', value: `${fmtKWD(totalRemaining)} ${CURRENCY}`, icon: <AlertTriangle size={16} />, cls: 'bg-red-50 text-red-700' },
+                  { label: 'الفوائد المسددة', value: `${fmtKWD(totalInterestPaid)} ${CURRENCY}`, icon: <Percent size={16} />, cls: 'bg-amber-50 text-amber-700' },
+                  { label: 'إجمالي المسدد (أصل + فوائد)', value: `${fmtKWD(totalPaidPrincipal + totalInterestPaid)} ${CURRENCY}`, icon: <DollarSign size={16} />, cls: 'bg-teal-50 text-teal-700' },
+                  { label: 'نسبة سداد الأصل', value: `${totalPrincipal > 0 ? Math.min(100, Math.round((totalPaidPrincipal / totalPrincipal) * 100)) : 0}%`, icon: <Activity size={16} />, cls: 'bg-blue-50 text-blue-700' },
                 ].map((s, i) => (
                   <div key={i} className={`p-3.5 rounded-2xl ${s.cls} flex items-center gap-3 shadow-sm`}>
                     <div className="w-9 h-9 rounded-xl bg-white/70 flex items-center justify-center shrink-0">{s.icon}</div>
-                    <div className="min-w-0"><p className="text-[11px] text-gray-600">{s.label}</p><p className="font-bold text-sm sm:text-lg truncate">{s.value} {CURRENCY}</p></div>
+                    <div className="min-w-0"><p className="text-[11px] text-gray-600">{s.label}</p><p className="font-bold text-sm sm:text-lg truncate">{s.value}</p></div>
                   </div>
                 ))}
               </div>
@@ -1628,10 +1682,10 @@ const MAINT_CATEGORIES: Record<string, string> = {
 
 function MaintenanceForm({ buildings, units, onSave, initial, onClose }: { buildings: Building[]; units: Unit[]; onSave: (data: any) => Promise<void>; initial?: MaintenanceItem; onClose?: () => void }) {
   const [saving, setSaving] = useState(false);
-  const [buildingId, setBuildingId] = useState(initial?.unit?.buildingId || initial?.buildingId || ''); const [unitId, setUnitId] = useState(initial?.unitId || ''); const [title, setTitle] = useState(initial?.title || ''); const [description, setDescription] = useState(initial?.description || ''); const [category, setCategory] = useState(initial?.category || 'other'); const [priority, setPriority] = useState(initial?.priority || 'medium'); const [estimatedCost, setEstimatedCost] = useState(String(initial?.estimatedCost ?? '')); const [cost, setCost] = useState(String(initial?.cost || ''));
+  const [buildingId, setBuildingId] = useState(initial?.unit?.buildingId || initial?.buildingId || ''); const [unitId, setUnitId] = useState(initial?.unitId || ''); const [title, setTitle] = useState(initial?.title || ''); const [description, setDescription] = useState(initial?.description || ''); const [category, setCategory] = useState(initial?.category || 'other'); const [priority, setPriority] = useState(initial?.priority || 'medium'); const [estimatedCost, setEstimatedCost] = useState(String(initial?.estimatedCost ?? '')); const [cost, setCost] = useState(String(initial?.cost || '')); const [status, setStatus] = useState(initial?.status || 'open');
   // اختيار متسلسل: مبنى ← وحداته فقط — وتصفير الوحدة عند تغيير المبنى
   const filteredUnits = buildingId ? units.filter(u => u.buildingId === buildingId) : units;
-  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ title, description, unitId: unitId || null, buildingId: buildingId || null, category, priority, estimatedCost: estimatedCost ? +estimatedCost : null, cost: cost ? +cost : null }); toast.success(initial ? 'تم تعديل طلب الصيانة' : 'تم إنشاء طلب الصيانة'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ title, description, unitId: unitId || null, buildingId: buildingId || null, category, priority, estimatedCost: estimatedCost ? +estimatedCost : null, cost: cost ? +cost : null, status: initial ? status : 'open', completedAt: status === 'completed' ? (initial?.completedAt || new Date().toISOString()) : null }); toast.success(initial ? 'تم تعديل طلب الصيانة' : 'تم إنشاء طلب الصيانة'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
     <div className="grid grid-cols-2 gap-3">
       <div><Label>المبنى</Label><Select value={buildingId} onValueChange={(v) => { setBuildingId(v); setUnitId(''); }}><SelectTrigger><SelectValue placeholder="اختر المبنى" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
       <div><Label>الوحدة (اتركها فارغة للعقار كامله)</Label><Select value={unitId || 'no-unit'} onValueChange={(v) => setUnitId(v === 'no-unit' ? '' : v)}><SelectTrigger><SelectValue placeholder={buildingId ? 'صيانة العمارة بكاملها' : 'اختر المبنى أولاً'} /></SelectTrigger><SelectContent><SelectItem value="no-unit">🏢 صيانة العمارة بكاملها</SelectItem>{filteredUnits.map(u => <SelectItem key={u.id} value={u.id}>وحدة {u.number}</SelectItem>)}</SelectContent></Select></div>
@@ -1641,6 +1695,7 @@ function MaintenanceForm({ buildings, units, onSave, initial, onClose }: { build
     <div><Label>التصنيف</Label><Select value={category} onValueChange={setCategory}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(MAINT_CATEGORIES).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent></Select></div>
     <div><Label>الوصف</Label><Textarea value={description} onChange={e => setDescription(e.target.value)} /></div>
     <div><Label>الأولوية</Label><Select value={priority} onValueChange={setPriority}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="low">منخفض</SelectItem><SelectItem value="medium">متوسط</SelectItem><SelectItem value="high">عالي</SelectItem><SelectItem value="urgent">عاجل</SelectItem></SelectContent></Select></div>
+    {initial && (<div><Label>حالة الطلب</Label><Select value={status} onValueChange={setStatus}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="open">مفتوح</SelectItem><SelectItem value="in_progress">جاري التنفيذ</SelectItem><SelectItem value="completed">مكتمل (يُسجل المصروف)</SelectItem><SelectItem value="cancelled">ملغي</SelectItem></SelectContent></Select>{status === 'completed' && !cost && <p className="text-[11px] text-amber-700 bg-amber-50 rounded-lg p-2 mt-1">الطلب مكتمل — تأكد من إدخال «التكلفة الفعلية» حتى يظهر المصروف في القيود وتقارير العمارة</p>}</div>)}
     <div className="grid grid-cols-2 gap-3"><div><Label>التكلفة التقديرية ({CURRENCY})</Label><Input type="number" value={estimatedCost} onChange={e => setEstimatedCost(e.target.value)} /></div><div><Label>التكلفة الفعلية ({CURRENCY})</Label><Input type="number" value={cost} onChange={e => setCost(e.target.value)} /></div></div>
     <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
   </form>);
@@ -2574,6 +2629,7 @@ function LoanCard({ loan, buildingName, installments, canWrite, buildings, refre
                 {buildingName && <Badge className="bg-orange-100 text-orange-800 text-[11px]">{buildingName}</Badge>}
                 <Badge className="bg-purple-100 text-purple-800 text-[11px]">فائدة {loan.rate}%</Badge>
                 <Badge className="bg-blue-100 text-blue-800 text-[11px]">{loan.months} شهر</Badge>
+                <Badge className="bg-teal-100 text-teal-800 text-[11px]">قسط شهري ≈ {fmtKWD(principal / Math.max(1, Number(loan.months) || 1) + principal * (Number(loan.rate) || 0) / 100 / 12)} {CURRENCY}</Badge>
                 <Badge className="bg-gray-100 text-gray-700 text-[11px]">{new Date(loan.date).toLocaleDateString('ar')}</Badge>
               </div>
             </div>
