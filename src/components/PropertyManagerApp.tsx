@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
-import { buildingIncomeStats, totalIncomeStats, contractBalance, collectedStats, fmtKWD } from '@/lib/calc';
+import { buildingIncomeStats, totalIncomeStats, contractBalance, collectedStats, arrearsOfContracts, fmtKWD } from '@/lib/calc';
 import { SOURCE_LABELS } from '@/lib/accounting';
 import {
   VoucherDialog, printHtmlDoc,
@@ -193,12 +193,13 @@ export default function PropertyManagerApp() {
   const loadData = useCallback(async (s: Section) => {
     try {
       if (s === 'buildings') {
-        // تحميل كامل للبيانات التي تعتمد عليها لوحة الإيرادات (متوقع + محصل)
-        const [b, u, c, p] = await Promise.all([
+        // تحميل كامل للبيانات التي تعتمد عليها لوحة الإيرادات (متوقع + محصل + مصروفات القيود)
+        const [b, u, c, p, j] = await Promise.all([
           api<Building[]>('/api/buildings'), api<Unit[]>('/api/units'),
           api<Contract[]>('/api/contracts'), api<Payment[]>('/api/payments').catch(() => []),
+          api('/api/journal').catch(() => []),
         ]);
-        setBuildings(b); setUnits(u); setContracts(c); setPayments(p);
+        setBuildings(b); setUnits(u); setContracts(c); setPayments(p); setJournalEntries(j as any);
       }
       if (s === 'units') setUnits(await api<Unit[]>('/api/units'));
       if (s === 'tenants') { const data = await api<Tenant[]>('/api/tenants'); setTenants(data); }
@@ -651,10 +652,13 @@ export default function PropertyManagerApp() {
                   {canWriteCheck('buildings') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة مبنى</Button>} title="إضافة مبنى جديد">{(close) => <BuildingForm onSave={async (data) => { await api('/api/buildings', 'POST', data); autoRestore('إضافة مبنى'); loadData('buildings'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
-              {/* لوحة الإيرادات — السطر الأول المتوقع وتحته الإيرادات الفعلية (المحصل) — مجموع كل العمارات مجتمعة */}
+              {/* لوحة الإيرادات — السطر الأول المتوقع وتحته الإيرادات الفعلية والمصروفات والمتأخرات وصافي الإيجار — كل العمارات مجتمعة */}
               {buildings.length > 0 && (() => {
                 const t = totalIncomeStats(units as any, contracts as any, buildings.map(b => b.id));
                 const coll = collectedStats(payments as any);
+                const arrears = arrearsOfContracts(contracts as any);
+                const expenses = (journalEntries as any[]).reduce((s2, e) => s2 + (e.lines || []).filter((l: any) => String(l.accountCode).startsWith('5')).reduce((s3: number, l: any) => s3 + (Number(l.debit) || 0), 0), 0);
+                const netRent = coll.total - expenses;
                 const allUnitsCount = units.length;
                 const rentedCount = units.filter(u => u.status === 'rented').length;
                 const maintCount = units.filter(u => u.status === 'maintenance').length;
@@ -669,12 +673,15 @@ export default function PropertyManagerApp() {
                     <div className="p-3 bg-teal-50 rounded-xl text-center border border-teal-100"><p className="text-[11px] text-gray-600">الوحدات المؤجرة</p><p className="text-lg font-bold text-teal-700">{rentedCount}</p></div>
                     <div className="p-3 bg-amber-50 rounded-xl text-center border border-amber-100"><p className="text-[11px] text-gray-600">وحدات تحت الصيانة</p><p className="text-lg font-bold text-amber-700">{maintCount}</p></div>
                   </div>
-                  <p className="text-[11px] font-bold text-indigo-700 mt-4 mb-2 flex items-center gap-1"><ReceiptText size={13} />الإيرادات الفعلية (المحصل)</p>
-                  <div className="grid grid-cols-2 gap-3">
+                  <p className="text-[11px] font-bold text-indigo-700 mt-4 mb-2 flex items-center gap-1"><ReceiptText size={13} />الإيرادات الفعلية والمصروفات</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                     <div className="p-3 bg-indigo-50 rounded-xl text-center border border-indigo-100"><p className="text-[11px] text-gray-600">المحصل شهرياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.monthly)} {CURRENCY}</p></div>
                     <div className="p-3 bg-indigo-50 rounded-xl text-center border border-indigo-100"><p className="text-[11px] text-gray-600">المحصل سنوياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.annual)} {CURRENCY}</p></div>
+                    <div className="p-3 bg-amber-50 rounded-xl text-center border border-amber-100"><p className="text-[11px] text-gray-600">المتأخرات (متبقي مستحق)</p><p className={`text-lg font-bold ${arrears > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(arrears)} {CURRENCY}</p></div>
+                    <div className="p-3 bg-red-50 rounded-xl text-center border border-red-100"><p className="text-[11px] text-gray-600">المصروفات (قيود)</p><p className="text-lg font-bold text-red-700">{fmtKWD(expenses)} {CURRENCY}</p></div>
+                    <div className="p-3 bg-teal-50 rounded-xl text-center border border-teal-100"><p className="text-[11px] text-gray-600">صافي الإيجار (محصل − مصروفات)</p><p className={`text-lg font-bold ${netRent >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtKWD(netRent)} {CURRENCY}</p></div>
                   </div>
-                  <p className="text-[11px] text-gray-400 mt-2">المتوقع = مجموع الإيجار الافتراضي للوحدات القابلة للتأجير (متاحة + مؤجرة) لجميع العمارات • المحصل = الدفعات الفعلية المسددة (نقدية + شيكات شركات مجمّعة) حسب تاريخ الدفع خلال الشهر والسنة الحالية — العملة {CURRENCY}</p>
+                  <p className="text-[11px] text-gray-400 mt-2">المتوقع = مجموع الإيجار الافتراضي للوحدات القابلة للتأجير (متاحة + مؤجرة) لجميع العمارات • المحصل = الدفعات الفعلية المسددة (نقدية + شيكات شركات مجمّعة) حسب تاريخ الدفع • المتأخرات = المتبقي المستحق غير المحصل على العقود النشطة • المصروفات = مصروفات مسجلة بالقيود المحاسبية • صافي الإيجار = المحصل الكلي − المصروفات — العملة {CURRENCY}</p>
                 </CardContent></Card>
                 ); })()}
               <div className="grid gap-4">
@@ -693,21 +700,36 @@ export default function PropertyManagerApp() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Badge className="bg-orange-100 text-orange-800">{(b.units || []).length} وحدة</Badge>
+                        <Badge className="bg-orange-100 text-orange-800">{units.filter(u => u.buildingId === b.id).length} وحدة</Badge>
+                        <Badge className="bg-teal-100 text-teal-800">{units.filter(u => u.buildingId === b.id && u.status === 'rented').length} مؤجرة</Badge>
+                        {units.filter(u => u.buildingId === b.id && u.status === 'maintenance').length > 0 && <Badge className="bg-amber-100 text-amber-800">{units.filter(u => u.buildingId === b.id && u.status === 'maintenance').length} صيانة</Badge>}
                         <Button variant="outline" size="sm" className="border-orange-300 text-orange-700 hover:bg-orange-50" onClick={(e) => { e.stopPropagation(); goBuildingDetail(b.id); }}><Eye size={14} className="ml-1" />التفاصيل الكاملة</Button>
                         {canWriteCheck('buildings') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل" onClick={(e) => e.stopPropagation()}><Edit3 size={16} /></Button>} title="تعديل المبنى">{(close) => <BuildingForm initial={b} onSave={async (data) => { await api(`/api/buildings/${b.id}`, 'PUT', data); autoRestore('تعديل مبنى'); loadData('buildings'); }} onClose={close} />}</FormDialog>}
                         {canWriteCheck('buildings') && <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async (e) => { e.stopPropagation(); if (confirm('هل تريد حذف هذا المبنى؟')) { await api(`/api/buildings/${b.id}`, 'DELETE'); autoRestore('حذف مبنى'); loadData('buildings'); toast.success('تم حذف المبنى'); } }}><Trash2 size={16} /></Button>}
                       </div>
                     </div>
-                    {(() => { const s = buildingIncomeStats(units as any, contracts as any, b.id); const maintCost = maintenance.filter(m => m.unit?.buildingId === b.id || m.buildingId === b.id).reduce((sum, m) => sum + (m.cost || 0), 0); return (
-                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-4 pt-4 border-t border-gray-100">
-                        <div className="p-2 bg-emerald-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">إيجار متوقع/شهر</p><p className="font-bold text-emerald-700 text-sm">{fmtKWD(s.expectedMonthly)} {CURRENCY}</p></div>
-                        <div className="p-2 bg-blue-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">تعاقدي/شهر</p><p className="font-bold text-blue-700 text-sm">{fmtKWD(s.contractedMonthly)} {CURRENCY}</p></div>
-                        <div className="p-2 bg-teal-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">إمكانات الشواغر</p><p className="font-bold text-teal-700 text-sm">{fmtKWD(s.vacantPotentialMonthly)} {CURRENCY}</p></div>
-                        <div className="p-2 bg-amber-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">سنوياً (متوقع)</p><p className="font-bold text-amber-700 text-sm">{fmtKWD(s.expectedAnnual)} {CURRENCY}</p></div>
-                        <div className="p-2 bg-red-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">مصروف صيانة تراكمي</p><p className="font-bold text-red-700 text-sm">{fmtKWD(maintCost)} {CURRENCY}</p></div>
+                    {(() => {
+                      const s = buildingIncomeStats(units as any, contracts as any, b.id);
+                      const buIds = new Set(units.filter(u => u.buildingId === b.id).map(u => u.id));
+                      const bc = contracts.filter(c => buIds.has(c.unitId));
+                      const bcIds = new Set(bc.map(c => c.id));
+                      const bp = payments.filter(p => bcIds.has(p.contractId));
+                      const coll = collectedStats(bp as any);
+                      const arr = arrearsOfContracts(bc as any);
+                      const exp = (journalEntries as any[]).filter(e => e.buildingId === b.id).reduce((s2, e) => s2 + (e.lines || []).filter((l: any) => String(l.accountCode).startsWith('5')).reduce((s3: number, l: any) => s3 + (Number(l.debit) || 0), 0), 0);
+                      const netRent = coll.total - exp;
+                      return (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mt-4 pt-4 border-t border-gray-100">
+                        <div className="p-2 bg-emerald-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">المتوقع شهرياً</p><p className="font-bold text-emerald-700 text-sm">{fmtKWD(s.expectedMonthly)} {CURRENCY}</p></div>
+                        <div className="p-2 bg-emerald-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">المتوقع سنوياً</p><p className="font-bold text-emerald-700 text-sm">{fmtKWD(s.expectedAnnual)} {CURRENCY}</p></div>
+                        <div className="p-2 bg-indigo-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">المحصل شهرياً</p><p className="font-bold text-indigo-700 text-sm">{fmtKWD(coll.monthly)} {CURRENCY}</p></div>
+                        <div className="p-2 bg-indigo-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">المحصل سنوياً</p><p className="font-bold text-indigo-700 text-sm">{fmtKWD(coll.annual)} {CURRENCY}</p></div>
+                        <div className="p-2 bg-amber-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">المتأخرات</p><p className={`font-bold text-sm ${arr > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(arr)} {CURRENCY}</p></div>
+                        <div className="p-2 bg-red-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">المصروفات</p><p className="font-bold text-red-700 text-sm">{fmtKWD(exp)} {CURRENCY}</p></div>
+                        <div className="p-2 bg-teal-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">صافي الإيجار</p><p className={`font-bold text-sm ${netRent >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtKWD(netRent)} {CURRENCY}</p></div>
                       </div>
-                    ); })()}
+                      );
+                    })()}
                     <p className="text-[11px] text-orange-500 mt-3 flex items-center gap-1"><ArrowRight size={12} className="rotate-180" />اضغط على كارت العمارة لفتح صفحتها الكاملة: الوحدات والمستأجرين، العقود، المستندات القانونية، المالية، والقضايا</p>
                   </CardContent></Card>
                 ))}
@@ -2029,10 +2051,13 @@ function BuildingDetailSection({ user, building, buildings, units, tenants, cont
       {/* ===== نظرة عامة ===== */}
       {tab === 'overview' && (
         <div className="space-y-4">
-          {/* لوحة إيرادات العمارة — السطر الأول المتوقع وتحته الفعلي المحصل (نفس تخطيط صفحة المباني) */}
+          {/* لوحة إيرادات العمارة — السطر الأول المتوقع وتحته الفعلي والمصروفات والمتأخرات وصافي الإيجار (نفس تخطيط صفحة المباني) */}
           {(() => {
             const coll = collectedStats(bPayments as any);
             const maintCount = bUnits.filter(u => u.status === 'maintenance').length;
+            const arrears = arrearsOfContracts(bContracts as any);
+            const expenses = bEntries.reduce((s2: number, e: any) => s2 + (e.lines || []).filter((l: any) => String(l.accountCode).startsWith('5')).reduce((s3: number, l: any) => s3 + (Number(l.debit) || 0), 0), 0);
+            const netRent = coll.total - expenses;
             return (
             <Card className="border-0 shadow-lg"><CardContent className="p-5">
               <div className="flex items-center gap-2 mb-3"><DollarSign size={20} className="text-emerald-600" /><h3 className="font-bold text-gray-900">لوحة الإيرادات — {building.name}</h3></div>
@@ -2044,12 +2069,15 @@ function BuildingDetailSection({ user, building, buildings, units, tenants, cont
                 <div className="p-3 bg-teal-50 rounded-xl text-center border border-teal-100"><p className="text-[11px] text-gray-600">الوحدات المؤجرة</p><p className="text-lg font-bold text-teal-700">{bUnits.filter(u => u.status === 'rented').length}</p></div>
                 <div className="p-3 bg-amber-50 rounded-xl text-center border border-amber-100"><p className="text-[11px] text-gray-600">وحدات تحت الصيانة</p><p className="text-lg font-bold text-amber-700">{maintCount}</p></div>
               </div>
-              <p className="text-[11px] font-bold text-indigo-700 mt-4 mb-2 flex items-center gap-1"><ReceiptText size={13} />الإيرادات الفعلية (المحصل)</p>
-              <div className="grid grid-cols-2 gap-3">
+              <p className="text-[11px] font-bold text-indigo-700 mt-4 mb-2 flex items-center gap-1"><ReceiptText size={13} />الإيرادات الفعلية والمصروفات</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 <div className="p-3 bg-indigo-50 rounded-xl text-center border border-indigo-100"><p className="text-[11px] text-gray-600">المحصل شهرياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.monthly)} {CURRENCY}</p></div>
                 <div className="p-3 bg-indigo-50 rounded-xl text-center border border-indigo-100"><p className="text-[11px] text-gray-600">المحصل سنوياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.annual)} {CURRENCY}</p></div>
+                <div className="p-3 bg-amber-50 rounded-xl text-center border border-amber-100"><p className="text-[11px] text-gray-600">المتأخرات (متبقي مستحق)</p><p className={`text-lg font-bold ${arrears > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(arrears)} {CURRENCY}</p></div>
+                <div className="p-3 bg-red-50 rounded-xl text-center border border-red-100"><p className="text-[11px] text-gray-600">المصروفات (قيود)</p><p className="text-lg font-bold text-red-700">{fmtKWD(expenses)} {CURRENCY}</p></div>
+                <div className="p-3 bg-teal-50 rounded-xl text-center border border-teal-100"><p className="text-[11px] text-gray-600">صافي الإيجار (محصل − مصروفات)</p><p className={`text-lg font-bold ${netRent >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtKWD(netRent)} {CURRENCY}</p></div>
               </div>
-              <p className="text-[11px] text-gray-400 mt-2">المتوقع = مجموع الإيجار الافتراضي للوحدات القابلة للتأجير (متاحة + مؤجرة) في هذه العمارة • المحصل = دفعات هذه العمارة المسددة فعلاً (نقدية + شيكات شركات) حسب تاريخ الدفع خلال الشهر والسنة الحالية — العملة {CURRENCY}</p>
+              <p className="text-[11px] text-gray-400 mt-2">المتوقع = مجموع الإيجار الافتراضي للوحدات القابلة للتأجير (متاحة + مؤجرة) في هذه العمارة • المحصل = دفعات هذه العمارة المسددة فعلاً حسب تاريخ الدفع • المتأخرات = المتبقي المستحق غير المحصل على عقودها النشطة • المصروفات = مصروفاتها المسجلة بالقيود المحاسبية • صافي الإيجار = المحصل الكلي − المصروفات — العملة {CURRENCY}</p>
             </CardContent></Card>
             );
           })()}

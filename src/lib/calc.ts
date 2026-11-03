@@ -122,6 +122,7 @@ export function totalIncomeStats(units: CalcUnit[], contracts: CalcContract[], b
 export interface CollectedStats {
   monthly: number;  // المحصل في الشهر الحالي (حسب تاريخ الدفع)
   annual: number;   // المحصل في السنة الحالية (حسب تاريخ الدفع)
+  total: number;    // المحصل الكلي (كل الفترات — غير الملغاة المسددة)
 }
 
 /**
@@ -137,16 +138,27 @@ export function collectedStats(
   const y = asOf.getFullYear();
   const m = asOf.getMonth();
   const COLLECTED_STATUSES = ['paid', 'partial'];
-  let monthly = 0, annual = 0;
+  let monthly = 0, annual = 0, total = 0;
   for (const p of payments) {
     if (!COLLECTED_STATUSES.includes(p.status)) continue;
+    total += p.amount || 0;
     const d = p.paidDate ? new Date(p.paidDate) : (p.dueDate ? new Date(p.dueDate) : null);
     if (!d || isNaN(d.getTime())) continue;
     if (d.getFullYear() !== y) continue;
     annual += p.amount || 0;
     if (d.getMonth() === m) monthly += p.amount || 0;
   }
-  return { monthly, annual };
+  return { monthly, annual, total };
+}
+
+/** المتأخرات = مجموع المتبقي المستحق غير المحصل على العقود النشطة فقط (نفس منطق contractBalance في لوحة التحكم) */
+export function arrearsOfContracts(
+  contracts: (CalcContract & { payments?: { amount: number; status: string }[] })[],
+  asOf: Date = new Date(),
+): number {
+  return contracts
+    .filter(c => ACTIVE_CONTRACT_STATUSES.includes(c.status))
+    .reduce((s, c) => s + contractBalance(c, (c.payments || []) as any, asOf).outstanding, 0);
 }
 
 /** المديونية لكل عقد: المستحق حتى الآن مقابل المدفوع فعلياً */
