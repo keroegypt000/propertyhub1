@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     // التخزين السحابي عند توفر الإعداد — وإلا الوضع القديم (المحتوى في قاعدة البيانات)
     let storageProvider = 'db';
     let storageKey: string | null = null;
-    let data: Buffer | null = buffer;
+    let data: Uint8Array<ArrayBuffer> | null = Uint8Array.from(buffer);
     let warning: string | null = null;
 
     if (r2Configured()) {

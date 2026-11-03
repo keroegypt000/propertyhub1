@@ -196,7 +196,7 @@ export default function PropertyManagerApp() {
       if (s === 'units') setUnits(await api<Unit[]>('/api/units'));
       if (s === 'tenants') { const data = await api<Tenant[]>('/api/tenants'); setTenants(data); }
       if (s === 'contracts') setContracts(await api<Contract[]>('/api/contracts'));
-      if (s === 'payments') setPayments(await api<Payment[]>('/api/payments'));
+      if (s === 'payments') { setPayments(await api<Payment[]>('/api/payments')); setContracts(await api<Contract[]>('/api/contracts')); }
       if (s === 'maintenance') setMaintenance(await api<MaintenanceItem[]>('/api/maintenance'));
       if (s === 'files') { setAllFiles(await api<FileUpload[]>('/api/files/all')); setContracts(await api<Contract[]>('/api/contracts')); setTenants(await api<Tenant[]>('/api/tenants')); }
       if (s === 'audit') { const data = await api<{ logs: AuditEntry[] }>('/api/audit?limit=100'); setAuditLogs(data.logs || []); }
@@ -2387,7 +2387,8 @@ function CompanyCheckForm({ buildings, contracts, onSave, onClose }: {
     return { c, pay, outstanding: bal.outstanding };
   }).filter(p => p.pay > 0);
   const totalOutstanding = companyContracts.reduce((s, c) => s + contractBalance(c as any, (c.payments || []) as any, new Date(date)).outstanding, 0);
-  const surplus = Math.round(((+amount || 0) - preview.reduce((s, p) => s + p.pay, 0)) * 1000) / 1000;
+  // الفائض = المبلغ فوق إجمالي المستحق — يُسجل دفعة مقدمة على آخر عقد (نفس منطق السيرفر)
+  const surplus = Math.round(((+amount || 0) - totalOutstanding) * 1000) / 1000;
   return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ buildingId, amount: +amount, method, reference, date, notes }); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ'); } finally { setSaving(false); } }} className="space-y-3">
     <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-sm text-indigo-900">
       <p className="font-bold flex items-center gap-2"><Landmark size={15} />تحصيل شركات — شيك/تحويل واحد للعمارة كاملة</p>
@@ -2419,14 +2420,14 @@ function CompanyCheckForm({ buildings, contracts, onSave, onClose }: {
       {amount && +amount > 0 && (
         <div className="border border-emerald-100 bg-emerald-50 rounded-xl p-3 space-y-1.5">
           <p className="text-xs font-bold text-emerald-900">معاينة التوزيع:</p>
-          {preview.map(p => (<div key={p.c.id} className="text-xs flex justify-between text-emerald-900"><span>{p.c.tenant?.name} — وحدة {p.c.unit?.number}</span><b>{fmtKWD(p.pay)} {CURRENCY}</b></div>))}
-          {surplus > 0 && <p className="text-xs text-amber-800">فائض {fmtKWD(surplus)} {CURRENCY} سيُسجل دفعة مقدمة على آخر عقد</p>}
-          {surplus < 0 && <p className="text-xs text-red-700">تنبيه: المبلغ أكبر من إجمالي المستحق — سيُرفض الحفظ، قلّل المبلغ أو سجّل الفائض كدفعة عادية</p>}
+          {preview.map(p => { const settle = Math.min(p.outstanding, p.pay); const advance = Math.round((p.pay - settle) * 1000) / 1000; return (<div key={p.c.id} className="text-xs flex justify-between text-emerald-900"><span>{p.c.tenant?.name} — وحدة {p.c.unit?.number}</span><b>{fmtKWD(p.pay)} {CURRENCY}{advance > 0 ? <span className="font-normal text-amber-700"> (تسديد {fmtKWD(settle)} + مقدمة {fmtKWD(advance)})</span> : ''}</b></div>); })}
+          {surplus > 0 && <p className="text-xs text-amber-800">فائض {fmtKWD(surplus)} {CURRENCY} فوق إجمالي المستحق — سيُسجل دفعة مقدمة على آخر عقد وتوثّق في الملاحظات</p>}
+          {surplus < 0 && <p className="text-xs text-gray-600">لم يُغطَّ كامل المستحق — سيتبقى {fmtKWD(-surplus)} {CURRENCY} مستحقة بعد هذا الشيك</p>}
         </div>
       )}
       <div><Label>ملاحظات</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
     </>)}
-    <Button type="submit" disabled={saving || !buildingId || !amount || +amount <= 0 || companyContracts.length === 0 || surplus < 0} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري التوزيع والحفظ...' : 'توزيع الشيك وتسجيل الدفعات'}</Button>
+    <Button type="submit" disabled={saving || !buildingId || !amount || +amount <= 0 || companyContracts.length === 0} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري التوزيع والحفظ...' : 'توزيع الشيك وتسجيل الدفعات'}</Button>
   </form>);
 }
 
