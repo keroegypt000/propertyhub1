@@ -18,7 +18,8 @@ import {
   XCircle, Calendar, Phone, Mail, MapPin, Hash, Briefcase, Settings,
   Archive, Activity, UserPlus, Key, ToggleLeft, ToggleRight, Info,
   LayoutDashboard, FolderOpen, Camera, FileImage, CloudUpload, Printer, Scale,
-  Menu, X, Percent, TrendingUp, Gavel, ArrowRight, Landmark, ReceiptText
+  Menu, X, Percent, TrendingUp, Gavel, ArrowRight, Landmark, ReceiptText,
+  MousePointerClick, ArrowLeft
 } from 'lucide-react';
 import { ExcelToolbar } from '@/components/ExcelToolbar';
 import { ResetDemoDataCard } from '@/components/ResetDemoDataCard';
@@ -452,6 +453,7 @@ export default function PropertyManagerApp() {
                 tenantName: c.tenant?.name || '-',
                 unitNumber: c.unit?.number || '-',
                 buildingName: c.unit?.building?.name || '-',
+                buildingId: c.unit?.buildingId || (c.unit?.building as any)?.id || null,
                 rentAmount: c.rentAmount,
                 dueMonths: c.rentAmount > 0 ? Math.round((bal.outstanding / c.rentAmount) * 10) / 10 : 0,
                 totalDue: bal.totalDue,
@@ -469,6 +471,7 @@ export default function PropertyManagerApp() {
               return end <= thirtyDaysFromNow;
             }).map(c => ({
               ...c,
+              buildingId: c.unit?.buildingId || (c.unit?.building as any)?.id || null,
               isExpired: new Date(c.endDate) < now,
             }));
 
@@ -481,22 +484,31 @@ export default function PropertyManagerApp() {
                 <LiveBadge lastUpdated={lastUpdated} onRefresh={() => loadData('dashboard')} />
               </div>
 
-              {/* KPI Cards — المؤشرات التشغيلية (المالي في لوحة الإيرادات تحته) */}
+              {/* وصول سريع — إرشاد */}
+              <div className="flex items-center gap-2 text-xs text-gray-600 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2">
+                <MousePointerClick size={15} className="text-orange-500 shrink-0" />
+                <span><b className="text-orange-700">وصول سريع:</b> اضغط على أي مربع أو رقم أو صف في اللوحة للانتقال مباشرة إلى الشاشة التي يُحسب منها الرقم</span>
+              </div>
+
+              {/* KPI Cards — المؤشرات التشغيلية (المالي في لوحة الإيرادات تحته) — كل بطاقة تنقل إلى مصدرها */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
                 {[
-                  { icon: <Building2 size={22} />, label: 'عدد العمارات', num: buildingCount, decimals: 0, color: 'from-orange-500 to-amber-500' },
-                  { icon: <Home size={22} />, label: 'عدد الوحدات', num: unitCount, decimals: 0, color: 'from-blue-500 to-indigo-500' },
-                  { icon: <Home size={22} />, label: 'وحدات شاغرة', num: vacantUnits, decimals: 0, color: 'from-teal-500 to-cyan-500' },
-                  { icon: <Activity size={22} />, label: 'نسبة الإشغال', num: occupancyRate, decimals: 0, suffix: '%', color: 'from-emerald-500 to-green-500' },
-                  { icon: <Wrench size={22} />, label: 'صيانة مفتوحة', num: openMaintCount, decimals: 0, color: 'from-amber-500 to-yellow-500' },
-                  { icon: <Briefcase size={22} />, label: 'رصيد القروض', num: loanBalance, decimals: 2, suffix: ' د.ك', color: 'from-purple-500 to-violet-500' },
+                  { icon: <Building2 size={22} />, label: 'عدد العمارات', num: buildingCount, decimals: 0, color: 'from-orange-500 to-amber-500', dest: 'المباني', onClick: () => go('buildings') },
+                  { icon: <Home size={22} />, label: 'عدد الوحدات', num: unitCount, decimals: 0, color: 'from-blue-500 to-indigo-500', dest: 'الوحدات', onClick: () => go('units') },
+                  { icon: <Home size={22} />, label: 'وحدات شاغرة', num: vacantUnits, decimals: 0, color: 'from-teal-500 to-cyan-500', dest: 'الوحدات', onClick: () => go('units') },
+                  { icon: <Activity size={22} />, label: 'نسبة الإشغال', num: occupancyRate, decimals: 0, suffix: '%', color: 'from-emerald-500 to-green-500', dest: 'الوحدات', onClick: () => go('units') },
+                  { icon: <Wrench size={22} />, label: 'صيانة مفتوحة', num: openMaintCount, decimals: 0, color: 'from-amber-500 to-yellow-500', dest: 'طلبات الصيانة', onClick: () => go('maintenance') },
+                  { icon: <Briefcase size={22} />, label: 'رصيد القروض', num: loanBalance, decimals: 2, suffix: ' د.ك', color: 'from-purple-500 to-violet-500', dest: 'القروض', onClick: () => go('loans') },
                 ].map((stat, i) => (
-                  <Card key={i} className="border-0 shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
+                  <Card key={i} onClick={stat.onClick} title={`اضغط للانتقال إلى ${stat.dest}`} className="border-0 shadow-lg overflow-hidden hover:shadow-xl hover:-translate-y-0.5 active:scale-[0.98] transition-all cursor-pointer group">
                     <div className={`h-1 bg-gradient-to-l ${stat.color}`} />
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0"><p className="text-xs text-gray-500 mb-1 whitespace-nowrap">{stat.label}</p><p className="text-lg sm:text-xl font-bold text-gray-900 truncate"><AnimatedNumber value={stat.num} decimals={stat.decimals} suffix={stat.suffix || ''} /></p></div>
-                        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center text-white shadow-md shrink-0`}>{stat.icon}</div>
+                        <div className="relative">
+                          <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center text-white shadow-md shrink-0`}>{stat.icon}</div>
+                          <ArrowLeft size={12} className="absolute -top-1 -left-1 w-4 h-4 rounded-full bg-white shadow text-orange-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -515,38 +527,38 @@ export default function PropertyManagerApp() {
                   <div className="flex items-center gap-2 mb-3"><DollarSign size={20} className="text-emerald-600" /><h3 className="font-bold text-gray-900">لوحة الإيرادات — كل العمارات مجتمعة</h3></div>
                   <p className="text-[11px] font-bold text-emerald-700 mb-2 flex items-center gap-1"><TrendingUp size={13} />الإيرادات المتوقعة</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                    <div className="p-3 bg-emerald-50 rounded-xl text-center border border-emerald-100"><p className="text-[11px] text-gray-600">المتوقع شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(dExpected.expectedMonthly)} {CURRENCY}</p></div>
-                    <div className="p-3 bg-emerald-50 rounded-xl text-center border border-emerald-100"><p className="text-[11px] text-gray-600">المتوقع سنوياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(dExpected.expectedAnnual)} {CURRENCY}</p></div>
-                    <div className="p-3 bg-blue-50 rounded-xl text-center border border-blue-100"><p className="text-[11px] text-gray-600">جميع الوحدات</p><p className="text-lg font-bold text-blue-700">{unitCount}</p></div>
-                    <div className="p-3 bg-teal-50 rounded-xl text-center border border-teal-100"><p className="text-[11px] text-gray-600">الوحدات المؤجرة</p><p className="text-lg font-bold text-teal-700">{rentedUnits}</p></div>
-                    <div className="p-3 bg-amber-50 rounded-xl text-center border border-amber-100"><p className="text-[11px] text-gray-600">وحدات تحت الصيانة</p><p className="text-lg font-bold text-amber-700">{units.filter(u => u.status === 'maintenance').length}</p></div>
+                    <button type="button" onClick={() => go('buildings')} title="الانتقال إلى المباني — لوحة الإيرادات التفصيلية" className="p-3 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-center border border-emerald-100 hover:border-emerald-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">المتوقع شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(dExpected.expectedMonthly)} {CURRENCY}</p><p className="text-[10px] text-emerald-600 mt-1 opacity-70">عرض حسب العمارة ↩</p></button>
+                    <button type="button" onClick={() => go('buildings')} title="الانتقال إلى المباني — لوحة الإيرادات التفصيلية" className="p-3 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-center border border-emerald-100 hover:border-emerald-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">المتوقع سنوياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(dExpected.expectedAnnual)} {CURRENCY}</p><p className="text-[10px] text-emerald-600 mt-1 opacity-70">عرض حسب العمارة ↩</p></button>
+                    <button type="button" onClick={() => go('units')} title="الانتقال إلى قائمة الوحدات" className="p-3 bg-blue-50 hover:bg-blue-100 rounded-xl text-center border border-blue-100 hover:border-blue-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">جميع الوحدات</p><p className="text-lg font-bold text-blue-700">{unitCount}</p><p className="text-[10px] text-blue-600 mt-1 opacity-70">قائمة الوحدات ↩</p></button>
+                    <button type="button" onClick={() => go('units')} title="الانتقال إلى قائمة الوحدات (المؤجرة)" className="p-3 bg-teal-50 hover:bg-teal-100 rounded-xl text-center border border-teal-100 hover:border-teal-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">الوحدات المؤجرة</p><p className="text-lg font-bold text-teal-700">{rentedUnits}</p><p className="text-[10px] text-teal-600 mt-1 opacity-70">قائمة الوحدات ↩</p></button>
+                    <button type="button" onClick={() => go('units')} title="الانتقال إلى قائمة الوحدات (تحت الصيانة)" className="p-3 bg-amber-50 hover:bg-amber-100 rounded-xl text-center border border-amber-100 hover:border-amber-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">وحدات تحت الصيانة</p><p className="text-lg font-bold text-amber-700">{units.filter(u => u.status === 'maintenance').length}</p><p className="text-[10px] text-amber-600 mt-1 opacity-70">قائمة الوحدات ↩</p></button>
                   </div>
                   <p className="text-[11px] font-bold text-indigo-700 mt-4 mb-2 flex items-center gap-1"><ReceiptText size={13} />الإيرادات الفعلية والمصروفات</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                    <div className="p-3 bg-indigo-50 rounded-xl text-center border border-indigo-100"><p className="text-[11px] text-gray-600">المحصل شهرياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.monthly)} {CURRENCY}</p></div>
-                    <div className="p-3 bg-indigo-50 rounded-xl text-center border border-indigo-100"><p className="text-[11px] text-gray-600">المحصل سنوياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.annual)} {CURRENCY}</p></div>
-                    <div className="p-3 bg-amber-50 rounded-xl text-center border border-amber-100"><p className="text-[11px] text-gray-600">المتأخرات (متبقي مستحق)</p><p className={`text-lg font-bold ${dArrears > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(dArrears)} {CURRENCY}</p></div>
-                    <div className="p-3 bg-red-50 rounded-xl text-center border border-red-100"><p className="text-[11px] text-gray-600">المصروفات (قيود)</p><p className="text-lg font-bold text-red-700">{fmtKWD(dExpenses)} {CURRENCY}</p></div>
-                    <div className="p-3 bg-teal-50 rounded-xl text-center border border-teal-100"><p className="text-[11px] text-gray-600">صافي الإيجار (محصل − مصروفات)</p><p className={`text-lg font-bold ${dNet >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtKWD(dNet)} {CURRENCY}</p></div>
+                    <button type="button" onClick={() => go('payments')} title="الانتقال إلى المدفوعات — مصدر المحصل" className="p-3 bg-indigo-50 hover:bg-indigo-100 rounded-xl text-center border border-indigo-100 hover:border-indigo-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">المحصل شهرياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.monthly)} {CURRENCY}</p><p className="text-[10px] text-indigo-600 mt-1 opacity-70">سجل المدفوعات ↩</p></button>
+                    <button type="button" onClick={() => go('payments')} title="الانتقال إلى المدفوعات — مصدر المحصل" className="p-3 bg-indigo-50 hover:bg-indigo-100 rounded-xl text-center border border-indigo-100 hover:border-indigo-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">المحصل سنوياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.annual)} {CURRENCY}</p><p className="text-[10px] text-indigo-600 mt-1 opacity-70">سجل المدفوعات ↩</p></button>
+                    <button type="button" onClick={() => { setContractFilter('active'); go('contracts'); }} title="الانتقال إلى العقود النشطة — مصدر المتأخرات (رصيد كل عقد)" className="p-3 bg-amber-50 hover:bg-amber-100 rounded-xl text-center border border-amber-100 hover:border-amber-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">المتأخرات (متبقي مستحق)</p><p className={`text-lg font-bold ${dArrears > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(dArrears)} {CURRENCY}</p><p className="text-[10px] text-amber-600 mt-1 opacity-70">أرصدة العقود النشطة ↩</p></button>
+                    <button type="button" onClick={() => go('journal')} title="الانتقال إلى قيود اليومية — مصدر المصروفات (حسابات 5xxx)" className="p-3 bg-red-50 hover:bg-red-100 rounded-xl text-center border border-red-100 hover:border-red-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">المصروفات (قيود)</p><p className="text-lg font-bold text-red-700">{fmtKWD(dExpenses)} {CURRENCY}</p><p className="text-[10px] text-red-600 mt-1 opacity-70">قيود اليومية ↩</p></button>
+                    <button type="button" onClick={() => go('trialBalance')} title="الانتقال إلى ميزان المراجعة — تجميع الإيرادات والمصروفات" className="p-3 bg-teal-50 hover:bg-teal-100 rounded-xl text-center border border-teal-100 hover:border-teal-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">صافي الإيجار (محصل − مصروفات)</p><p className={`text-lg font-bold ${dNet >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtKWD(dNet)} {CURRENCY}</p><p className="text-[10px] text-teal-600 mt-1 opacity-70">ميزان المراجعة ↩</p></button>
                   </div>
                   <p className="text-[11px] text-gray-400 mt-2">المتوقع = مجموع الإيجار الافتراضي للوحدات القابلة للتأجير • المحصل = الدفعات الفعلية المسددة حسب تاريخ الدفع • المتأخرات = المتبقي المستحق غير المحصل على العقود النشطة • المصروفات = مصروفات مسجلة بالقيود المحاسبية • صافي الإيجار = المحصل الكلي − المصروفات — العملة {CURRENCY}</p>
                 </CardContent></Card>
                 );
               })()}
 
-              {/* الرسوم التفاعلية الحية — Recharts (الحركات المالية المسجلة) */}
+              {/* الرسوم التفاعلية الحية — Recharts (الحركات المالية المسجلة) — عناوين قابلة للضغط */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <Card className="border-0 shadow-lg lg:col-span-2">
-                  <CardHeader className="pb-0"><CardTitle className="text-lg flex items-center gap-2"><TrendingUp size={20} className="text-emerald-600" />حركة الحركات المالية المسجلة — آخر 6 أشهر</CardTitle></CardHeader>
+                <Card className="border-0 shadow-lg lg:col-span-2 cursor-pointer hover:shadow-xl transition-shadow" onClick={() => go('transactions')} title="اضغط للانتقال إلى الحركات المالية">
+                  <CardHeader className="pb-0"><CardTitle className="text-lg flex items-center gap-2"><TrendingUp size={20} className="text-emerald-600" />حركة الحركات المالية المسجلة — آخر 6 أشهر<span className="text-[11px] font-normal text-emerald-600 mr-auto">فتح الحركات ↩</span></CardTitle></CardHeader>
                   <CardContent><MonthlyTrendChart transactions={transactions} /></CardContent>
                 </Card>
-                <Card className="border-0 shadow-lg">
-                  <CardHeader className="pb-0"><CardTitle className="text-lg flex items-center gap-2"><Home size={20} className="text-blue-600" />حالات الوحدات</CardTitle></CardHeader>
+                <Card className="border-0 shadow-lg cursor-pointer hover:shadow-xl transition-shadow" onClick={() => go('units')} title="اضغط للانتقال إلى الوحدات">
+                  <CardHeader className="pb-0"><CardTitle className="text-lg flex items-center gap-2"><Home size={20} className="text-blue-600" />حالات الوحدات<span className="text-[11px] font-normal text-blue-600 mr-auto">فتح الوحدات ↩</span></CardTitle></CardHeader>
                   <CardContent><UnitsDonutChart units={units} /></CardContent>
                 </Card>
               </div>
-              <Card className="border-0 shadow-lg">
-                <CardHeader className="pb-0"><CardTitle className="text-lg flex items-center gap-2"><Building2 size={20} className="text-orange-600" />الحركات المالية المسجلة لكل عمارة</CardTitle></CardHeader>
+              <Card className="border-0 shadow-lg cursor-pointer hover:shadow-xl transition-shadow" onClick={() => go('transactions')} title="اضغط للانتقال إلى الحركات المالية">
+                <CardHeader className="pb-0"><CardTitle className="text-lg flex items-center gap-2"><Building2 size={20} className="text-orange-600" />الحركات المالية المسجلة لكل عمارة<span className="text-[11px] font-normal text-orange-600 mr-auto">فتح الحركات ↩</span></CardTitle></CardHeader>
                 <CardContent><BuildingsBarChart data={buildingComparison.map(b => ({ name: b.name, إيرادات: b.income, مصروفات: b.expense }))} /></CardContent>
               </Card>
 
@@ -568,7 +580,7 @@ export default function PropertyManagerApp() {
                           <TableHead>صافي الإيجار</TableHead>
                         </TableRow></TableHeader>
                         <TableBody>{buildingComparison.map(b => (
-                          <TableRow key={b.id}>
+                          <TableRow key={b.id} onClick={() => goBuildingDetail(b.id)} title="اضغط لفتح صفحة العمارة بالتفاصيل الكاملة" className="cursor-pointer hover:bg-orange-50 transition-colors">
                             <TableCell className="font-mono text-sm">{b.code || b.id.slice(0, 8)}</TableCell>
                             <TableCell className="font-medium">{b.name}</TableCell>
                             <TableCell>{b.unitCount}</TableCell>
@@ -605,7 +617,7 @@ export default function PropertyManagerApp() {
                             <TableHead>المتأخر</TableHead>
                           </TableRow></TableHeader>
                           <TableBody>{arrearsByTenant.map((a, i) => (
-                            <TableRow key={i}>
+                            <TableRow key={i} onClick={() => a.buildingId ? goBuildingDetail(a.buildingId, 'contracts') : go('contracts')} title="اضغط لفتح عقود هذه العمارة — مصدر المتأخرات" className="cursor-pointer hover:bg-red-50 transition-colors">
                               <TableCell className="font-medium text-sm">{a.tenantName}</TableCell>
                               <TableCell className="text-sm">{a.unitNumber}</TableCell>
                               <TableCell className="text-sm">{fmt(a.rentAmount)}</TableCell>
@@ -637,7 +649,7 @@ export default function PropertyManagerApp() {
                             <TableHead>الحالة</TableHead>
                           </TableRow></TableHeader>
                           <TableBody>{expiringContracts.map(c => (
-                            <TableRow key={c.id}>
+                            <TableRow key={c.id} onClick={() => c.buildingId ? goBuildingDetail(c.buildingId, 'contracts') : go('contracts')} title="اضغط لفتح عقود هذه العمارة" className="cursor-pointer hover:bg-amber-50 transition-colors">
                               <TableCell className="font-medium text-sm">{c.tenant?.name || '-'}</TableCell>
                               <TableCell className="text-sm">{c.unit?.number || '-'}{c.unit?.building ? ` - ${c.unit.building.name}` : ''}</TableCell>
                               <TableCell className="text-sm">{new Date(c.endDate).toLocaleDateString('ar')}</TableCell>
@@ -655,10 +667,10 @@ export default function PropertyManagerApp() {
 
               {/* Latest Maintenance Requests */}
               <Card className="border-0 shadow-lg">
-                <CardHeader className="pb-2"><CardTitle className="text-lg flex items-center gap-2"><Wrench size={20} className="text-orange-600" />آخر طلبات الصيانة</CardTitle></CardHeader>
+                <CardHeader className="pb-2"><CardTitle className="text-lg flex items-center justify-between gap-2"><span className="flex items-center gap-2"><Wrench size={20} className="text-orange-600" />آخر طلبات الصيانة</span><button type="button" onClick={() => go('maintenance')} className="text-xs font-semibold text-orange-600 hover:text-orange-800 hover:underline">عرض الكل ↩</button></CardTitle></CardHeader>
                 <CardContent><div className="space-y-2">
                   {maintenance.slice(0, 5).map(m => (
-                    <div key={m.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50">
+                    <div key={m.id} onClick={() => m.buildingId ? goBuildingDetail(m.buildingId, 'units') : go('maintenance')} title="اضغط لفتح وحدات هذه العمارة" className="flex items-center justify-between p-2 rounded-lg hover:bg-orange-50 cursor-pointer transition-colors">
                       <div className="flex items-center gap-2"><Badge className={MAINT_STATUS_MAP[m.status]?.color || 'bg-gray-100'}>{MAINT_STATUS_MAP[m.status]?.label || m.status}</Badge><span className="text-sm">{m.title}</span></div>
                       <Badge className={PRIORITY_MAP[m.priority]?.color || 'bg-gray-100'}>{PRIORITY_MAP[m.priority]?.label || m.priority}</Badge>
                     </div>
