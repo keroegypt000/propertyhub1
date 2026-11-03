@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
-import { buildingIncomeStats, totalIncomeStats, contractBalance, fmtKWD } from '@/lib/calc';
+import { buildingIncomeStats, totalIncomeStats, contractBalance, collectedStats, fmtKWD } from '@/lib/calc';
 import { SOURCE_LABELS } from '@/lib/accounting';
 import {
   VoucherDialog, printHtmlDoc,
@@ -192,7 +192,14 @@ export default function PropertyManagerApp() {
 
   const loadData = useCallback(async (s: Section) => {
     try {
-      if (s === 'buildings') setBuildings(await api<Building[]>('/api/buildings'));
+      if (s === 'buildings') {
+        // تحميل كامل للبيانات التي تعتمد عليها لوحة الإيرادات (متوقع + محصل)
+        const [b, u, c, p] = await Promise.all([
+          api<Building[]>('/api/buildings'), api<Unit[]>('/api/units'),
+          api<Contract[]>('/api/contracts'), api<Payment[]>('/api/payments').catch(() => []),
+        ]);
+        setBuildings(b); setUnits(u); setContracts(c); setPayments(p);
+      }
       if (s === 'units') setUnits(await api<Unit[]>('/api/units'));
       if (s === 'tenants') { const data = await api<Tenant[]>('/api/tenants'); setTenants(data); }
       if (s === 'contracts') setContracts(await api<Contract[]>('/api/contracts'));
@@ -205,13 +212,14 @@ export default function PropertyManagerApp() {
       if (s === 'transactions') { setTransactions(await api('/api/transactions')); setBuildings(await api('/api/buildings')); setAccounts(await api('/api/accounts')); }
       if (s === 'legalCases') setLegalCases(await api('/api/legal-cases'));
       if (s === 'buildingDetail') {
-        const [b, u, c, t, m, tr, jr, ac, fl] = await Promise.all([
+        const [b, u, c, t, m, tr, jr, ac, fl, p] = await Promise.all([
           api<Building[]>('/api/buildings'), api<Unit[]>('/api/units'), api<Contract[]>('/api/contracts'),
           api<Tenant[]>('/api/tenants'), api<MaintenanceItem[]>('/api/maintenance'), api('/api/transactions'),
           api('/api/journal').catch(() => []), api('/api/accounts').catch(() => []), api<FileUpload[]>('/api/files/all').catch(() => []),
+          api<Payment[]>('/api/payments').catch(() => []),
         ]);
         setBuildings(b); setUnits(u); setContracts(c); setTenants(t); setMaintenance(m); setTransactions(tr);
-        setJournalEntries(jr); setAccounts(ac); setAllFiles(fl);
+        setJournalEntries(jr); setAccounts(ac); setAllFiles(fl); setPayments(p);
         try { setLegalCases(await api('/api/legal-cases')); } catch {}
       }
       if (s === 'loans') { setLoans(await api('/api/loans')); setLoanPayments(await api('/api/loan-payments')); }
@@ -643,21 +651,32 @@ export default function PropertyManagerApp() {
                   {canWriteCheck('buildings') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة مبنى</Button>} title="إضافة مبنى جديد">{(close) => <BuildingForm onSave={async (data) => { await api('/api/buildings', 'POST', data); autoRestore('إضافة مبنى'); loadData('buildings'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
-              {/* لوحة الإيرادات المتوقعة — Expected Rental Income */}
-              {buildings.length > 0 && (() => { const t = totalIncomeStats(units as any, contracts as any, buildings.map(b => b.id)); return (
+              {/* لوحة الإيرادات — السطر الأول المتوقع وتحته الإيرادات الفعلية (المحصل) — مجموع كل العمارات مجتمعة */}
+              {buildings.length > 0 && (() => {
+                const t = totalIncomeStats(units as any, contracts as any, buildings.map(b => b.id));
+                const coll = collectedStats(payments as any);
+                const allUnitsCount = units.length;
+                const rentedCount = units.filter(u => u.status === 'rented').length;
+                const maintCount = units.filter(u => u.status === 'maintenance').length;
+                return (
                 <Card className="border-0 shadow-lg"><CardContent className="p-5">
-                  <div className="flex items-center gap-2 mb-3"><DollarSign size={20} className="text-emerald-600" /><h3 className="font-bold text-gray-900">لوحة الإيرادات المتوقعة — كل العمارات</h3></div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                    <div className="p-3 bg-emerald-50 rounded-xl text-center"><p className="text-[11px] text-gray-600">المتوقع شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(t.expectedMonthly)}</p></div>
-                    <div className="p-3 bg-emerald-50 rounded-xl text-center"><p className="text-[11px] text-gray-600">المتوقع سنوياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(t.expectedAnnual)}</p></div>
-                    <div className="p-3 bg-blue-50 rounded-xl text-center"><p className="text-[11px] text-gray-600">التعاقدي شهرياً</p><p className="text-lg font-bold text-blue-700">{fmtKWD(t.contractedMonthly)}</p></div>
-                    <div className="p-3 bg-teal-50 rounded-xl text-center"><p className="text-[11px] text-gray-600">إمكانات الشواغر</p><p className="text-lg font-bold text-teal-700">{fmtKWD(t.vacantPotentialMonthly)}</p></div>
-                    <div className="p-3 bg-amber-50 rounded-xl text-center"><p className="text-[11px] text-gray-600">فرق التعاقدي عن المتوقع</p><p className={`text-lg font-bold ${t.difference >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtKWD(t.difference)}</p></div>
-                    <div className="p-3 bg-purple-50 rounded-xl text-center"><p className="text-[11px] text-gray-600">مؤجرة / شاغرة / غير قابلة</p><p className="text-lg font-bold text-purple-700">{t.occupiedUnits} / {t.vacantUnits} / {t.nonRentableUnits}</p></div>
+                  <div className="flex items-center gap-2 mb-3"><DollarSign size={20} className="text-emerald-600" /><h3 className="font-bold text-gray-900">لوحة الإيرادات — كل العمارات مجتمعة</h3></div>
+                  <p className="text-[11px] font-bold text-emerald-700 mb-2 flex items-center gap-1"><TrendingUp size={13} />الإيرادات المتوقعة</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                    <div className="p-3 bg-emerald-50 rounded-xl text-center border border-emerald-100"><p className="text-[11px] text-gray-600">المتوقع شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(t.expectedMonthly)} {CURRENCY}</p></div>
+                    <div className="p-3 bg-emerald-50 rounded-xl text-center border border-emerald-100"><p className="text-[11px] text-gray-600">المتوقع سنوياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(t.expectedAnnual)} {CURRENCY}</p></div>
+                    <div className="p-3 bg-blue-50 rounded-xl text-center border border-blue-100"><p className="text-[11px] text-gray-600">جميع الوحدات</p><p className="text-lg font-bold text-blue-700">{allUnitsCount}</p></div>
+                    <div className="p-3 bg-teal-50 rounded-xl text-center border border-teal-100"><p className="text-[11px] text-gray-600">الوحدات المؤجرة</p><p className="text-lg font-bold text-teal-700">{rentedCount}</p></div>
+                    <div className="p-3 bg-amber-50 rounded-xl text-center border border-amber-100"><p className="text-[11px] text-gray-600">وحدات تحت الصيانة</p><p className="text-lg font-bold text-amber-700">{maintCount}</p></div>
                   </div>
-                  <p className="text-[11px] text-gray-400 mt-2">المتوقع = مجموع الإيجار الافتراضي للوحدات القابلة للتأجير (متاحة + مؤجرة) • التعاقدي = عقود نشطة فعلية • الدفعات المحصلة تظهر في لوحة التحكم — العملة {CURRENCY}</p>
+                  <p className="text-[11px] font-bold text-indigo-700 mt-4 mb-2 flex items-center gap-1"><ReceiptText size={13} />الإيرادات الفعلية (المحصل)</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 bg-indigo-50 rounded-xl text-center border border-indigo-100"><p className="text-[11px] text-gray-600">المحصل شهرياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.monthly)} {CURRENCY}</p></div>
+                    <div className="p-3 bg-indigo-50 rounded-xl text-center border border-indigo-100"><p className="text-[11px] text-gray-600">المحصل سنوياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.annual)} {CURRENCY}</p></div>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-2">المتوقع = مجموع الإيجار الافتراضي للوحدات القابلة للتأجير (متاحة + مؤجرة) لجميع العمارات • المحصل = الدفعات الفعلية المسددة (نقدية + شيكات شركات مجمّعة) حسب تاريخ الدفع خلال الشهر والسنة الحالية — العملة {CURRENCY}</p>
                 </CardContent></Card>
-              ); })()}
+                ); })()}
               <div className="grid gap-4">
                 {buildings.filter(b => !searchQuery || b.name.includes(searchQuery) || (b.code || '').includes(searchQuery) || (b.city || '').includes(searchQuery) || (b.address || '').includes(searchQuery)).map(b => (
                   <Card key={b.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow cursor-pointer group" onClick={() => goBuildingDetail(b.id)} role="button" aria-label={`فتح صفحة العمارة ${b.name}`}>
@@ -1941,6 +1960,8 @@ function BuildingDetailSection({ user, building, buildings, units, tenants, cont
   const bUnits = units.filter(u => u.buildingId === building.id);
   const bUnitIds = new Set(bUnits.map(u => u.id));
   const bContracts = contracts.filter(c => bUnitIds.has(c.unitId));
+  const bContractIds = new Set(bContracts.map(c => c.id));
+  const bPayments = payments.filter(p => bContractIds.has(p.contractId));
   const activeContracts = bContracts.filter(c => c.status === 'active' || c.status === 'renewed');
   const bMaintenance = maintenance.filter(m => m.unit?.buildingId === building.id || m.buildingId === building.id);
   const bTransactions = transactions.filter((t: any) => t.buildingId === building.id);
@@ -2008,16 +2029,30 @@ function BuildingDetailSection({ user, building, buildings, units, tenants, cont
       {/* ===== نظرة عامة ===== */}
       {tab === 'overview' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            {[
-              { label: 'الإيجار المتوقع / شهر', value: fmtKWD(stats.expectedMonthly), cls: 'bg-emerald-50 text-emerald-700' },
-              { label: 'الإيجار التعاقدي / شهر', value: fmtKWD(stats.contractedMonthly), cls: 'bg-blue-50 text-blue-700' },
-              { label: 'إيرادات محصلة (قيود)', value: fmtKWD(incomeTotal), cls: 'bg-teal-50 text-teal-700' },
-              { label: 'مصروفات (قيود)', value: fmtKWD(expenseTotal), cls: 'bg-red-50 text-red-700' },
-            ].map((s, i) => (
-              <div key={i} className={`p-3.5 rounded-2xl ${s.cls} shadow-sm`}><p className="text-[11px] text-gray-600">{s.label}</p><p className="font-bold text-lg">{s.value} {CURRENCY}</p></div>
-            ))}
-          </div>
+          {/* لوحة إيرادات العمارة — السطر الأول المتوقع وتحته الفعلي المحصل (نفس تخطيط صفحة المباني) */}
+          {(() => {
+            const coll = collectedStats(bPayments as any);
+            const maintCount = bUnits.filter(u => u.status === 'maintenance').length;
+            return (
+            <Card className="border-0 shadow-lg"><CardContent className="p-5">
+              <div className="flex items-center gap-2 mb-3"><DollarSign size={20} className="text-emerald-600" /><h3 className="font-bold text-gray-900">لوحة الإيرادات — {building.name}</h3></div>
+              <p className="text-[11px] font-bold text-emerald-700 mb-2 flex items-center gap-1"><TrendingUp size={13} />الإيرادات المتوقعة</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                <div className="p-3 bg-emerald-50 rounded-xl text-center border border-emerald-100"><p className="text-[11px] text-gray-600">المتوقع شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(stats.expectedMonthly)} {CURRENCY}</p></div>
+                <div className="p-3 bg-emerald-50 rounded-xl text-center border border-emerald-100"><p className="text-[11px] text-gray-600">المتوقع سنوياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(stats.expectedAnnual)} {CURRENCY}</p></div>
+                <div className="p-3 bg-blue-50 rounded-xl text-center border border-blue-100"><p className="text-[11px] text-gray-600">جميع الوحدات</p><p className="text-lg font-bold text-blue-700">{bUnits.length}</p></div>
+                <div className="p-3 bg-teal-50 rounded-xl text-center border border-teal-100"><p className="text-[11px] text-gray-600">الوحدات المؤجرة</p><p className="text-lg font-bold text-teal-700">{bUnits.filter(u => u.status === 'rented').length}</p></div>
+                <div className="p-3 bg-amber-50 rounded-xl text-center border border-amber-100"><p className="text-[11px] text-gray-600">وحدات تحت الصيانة</p><p className="text-lg font-bold text-amber-700">{maintCount}</p></div>
+              </div>
+              <p className="text-[11px] font-bold text-indigo-700 mt-4 mb-2 flex items-center gap-1"><ReceiptText size={13} />الإيرادات الفعلية (المحصل)</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-indigo-50 rounded-xl text-center border border-indigo-100"><p className="text-[11px] text-gray-600">المحصل شهرياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.monthly)} {CURRENCY}</p></div>
+                <div className="p-3 bg-indigo-50 rounded-xl text-center border border-indigo-100"><p className="text-[11px] text-gray-600">المحصل سنوياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.annual)} {CURRENCY}</p></div>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-2">المتوقع = مجموع الإيجار الافتراضي للوحدات القابلة للتأجير (متاحة + مؤجرة) في هذه العمارة • المحصل = دفعات هذه العمارة المسددة فعلاً (نقدية + شيكات شركات) حسب تاريخ الدفع خلال الشهر والسنة الحالية — العملة {CURRENCY}</p>
+            </CardContent></Card>
+            );
+          })()}
           <Card className="border-0 shadow-lg"><CardContent className="p-5">
             <h3 className="font-bold text-gray-900 mb-3">بيانات العمارة</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">

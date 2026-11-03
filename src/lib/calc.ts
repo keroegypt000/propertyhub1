@@ -118,6 +118,37 @@ export function totalIncomeStats(units: CalcUnit[], contracts: CalcContract[], b
   }, { ...empty });
 }
 
+/** المحصل الفعلي (الإيرادات الحقيقية) من الدفعات المسجلة خلال الفترة */
+export interface CollectedStats {
+  monthly: number;  // المحصل في الشهر الحالي (حسب تاريخ الدفع)
+  annual: number;   // المحصل في السنة الحالية (حسب تاريخ الدفع)
+}
+
+/**
+ * المحصل الفعلي = مجموع مبالغ الدفعات المسجلة (المسددة فعلاً) خلال الفترة.
+ * - يُستثنى: cancelled (ملغاة) و pending/overdue (لم تُسدد بعد).
+ * - partial تُعد محصلة بمبلغها المسجل (المدفوع فعلاً).
+ * - المرجع الزمني: paidDate، وإن غابت يُستخدم dueDate.
+ */
+export function collectedStats(
+  payments: { amount: number; status: string; paidDate?: string | Date | null; dueDate?: string | Date | null }[],
+  asOf: Date = new Date(),
+): CollectedStats {
+  const y = asOf.getFullYear();
+  const m = asOf.getMonth();
+  const COLLECTED_STATUSES = ['paid', 'partial'];
+  let monthly = 0, annual = 0;
+  for (const p of payments) {
+    if (!COLLECTED_STATUSES.includes(p.status)) continue;
+    const d = p.paidDate ? new Date(p.paidDate) : (p.dueDate ? new Date(p.dueDate) : null);
+    if (!d || isNaN(d.getTime())) continue;
+    if (d.getFullYear() !== y) continue;
+    annual += p.amount || 0;
+    if (d.getMonth() === m) monthly += p.amount || 0;
+  }
+  return { monthly, annual };
+}
+
 /** المديونية لكل عقد: المستحق حتى الآن مقابل المدفوع فعلياً */
 export interface ContractBalance {
   monthsElapsed: number;   // عدد الأشهر المستحقة حتى الآن (بحدود مدة العقد)
