@@ -15,6 +15,8 @@ export const ACC = {
   MAINTENANCE: '5101', // صيانة وإصلاحات
   LOAN: '2201',        // قروض بنكية — أصل مطلوب السداد
   INTEREST: '5207',    // فوائد ومصاريف قروض
+  MISC_EXPENSE: '5206', // مصروفات متنوعة — الافتراضي للحركات بلا حساب محدد
+  PENALTIES: '5208',   // غرامات ومخالفات بلدية وقضايا
 };
 
 export interface RawLine {
@@ -140,7 +142,76 @@ export const SOURCE_LABELS: Record<string, string> = {
   maintenance: 'صيانة',
   loan: 'استلام قرض',
   loanPayment: 'سداد قرض',
+  transaction: 'حركة مالية',
+  legalCase: 'مخالفة/قضية',
 };
+
+/**
+ * صندوق الاستلام/الدفع للحركات المالية حسب حقل cashAccount:
+ * cash → الصندوق | bank → البنك | checks → شيكات برسم التحصيل
+ */
+function resolveTransactionCashCode(cashAccount?: string | null): string {
+  if (cashAccount === 'bank') return ACC.BANK;
+  if (cashAccount === 'checks') return ACC.CHECKS;
+  return ACC.CASH;
+}
+
+/**
+ * مزامنة قيد الحركة المالية (إيراد/مصروف) — قيد مزدوج كامل:
+ * إيراد: مدين صندوق الاستلام / دائن حساب الإيراد من شجرة الحسابات
+ * مصروف: مدين حساب المصروف من شجرة الحسابات / دائن صندوق الدفع
+ * القيد يرتبط دائماً بعمارة الحركة (buildingId) فيظهر في تقريرها وريس ميزان المراجعة
+ */
+export async function syncTransactionEntry(db: DB, tx: any): Promise<void> {
+  const amount = Number(tx.amount) || 0;
+  if (amount <= 0) { await removeAutoEntry(db, 'transaction', tx.id); return; }
+  const cashCode = resolveTransactionCashCode(tx.cashAccount);
+  const isIncome = tx.type === 'income';
+  const accCode = (tx.account && String(tx.account).trim()) ? String(tx.account).trim() : (isIncome ? ACC.RENT_INCOME : ACC.MISC_EXPENSE);
+  const lines: RawLine[] = isIncome
+    ? [{ accountCode: cashCode, debit: amount }, { accountCode: accCode, credit: amount }]
+    : [{ accountCode: accCode, debit: amount }, { accountCode: cashCode, credit: amount }];
+  const desc = `${isIncome ? 'إيراد' : 'مصروف'}: ${tx.category || (isIncome ? 'بدون بيان' : 'بدون بيان')}${tx.notes ? ` — ${tx.notes}` : ''}`;
+  await upsertAutoEntry(db, {
+    source: 'transaction',
+    sourceId: tx.id,
+    date: tx.date || new Date().toISOString().slice(0, 10),
+    description: desc,
+    buildingId: tx.buildingId || null,
+    lines,
+  });
+}
+
+/**
+ * مزامنة قيد غرامة المخالفة/القضية:
+ * عند تحويل الحالة إلى "مسددة" (paid) بمبلغ > 0 → مدين 5208 غرامات / دائن الصندوق
+ * أي حالة أخرى → لا قيد (الغرامة لم تُدفع بعد)
+ * legalCase يجب أن يحتوي building (include) لمعرفة العمارة
+ */
+export async function syncLegalCaseEntry(db: DB, legalCase: any): Promise<void> {
+  const amount = Number(legalCase.amount) || 0;
+  if (legalCase.status !== 'paid' || amount <= 0) {
+    await removeAutoEntry(db, 'legalCase', legalCase.id);
+    return;
+  }
+  const parts = [
+    legalCase.type === 'lawsuit' ? 'مصروف قضية' : 'غرامة مخالفة',
+    legalCase.reference ? `— مرجع ${legalCase.reference}` : '',
+    `— ${legalCase.title}`,
+    legalCase.building?.name ? `— ${legalCase.building.name}` : '',
+  ].filter(Boolean);
+  await upsertAutoEntry(db, {
+    source: 'legalCase',
+    sourceId: legalCase.id,
+    date: legalCase.filedDate || new Date().toISOString().slice(0, 10),
+    description: parts.join(' '),
+    buildingId: legalCase.buildingId || null,
+    lines: [
+      { accountCode: ACC.PENALTIES, debit: amount },
+      { accountCode: ACC.CASH, credit: amount },
+    ],
+  });
+}
 
 // =============================================================
 // دوال مزامنة القيود مع العمليات الأصلية — تُستدعى من مسارات الـ API
@@ -186,7 +257,8 @@ export async function syncPaymentEntry(db: DB, payment: any): Promise<void> {
  * مزامنة قيد مصروف الصيانة مع الطلب:
  * مكتمل بتكلفة > 0 → قيد (مدين 5101 صيانة وإصلاحات / دائن الصندوق — يُدفع نقدًا)
  * غير مكتمل أو بلا تكلفة → لا قيد
- * item يجب أن يحتوي unit (include) لمعرفة العمارة
+ * العمارة: من الوحدة إن وُجدت، وإلا حقل buildingId (صيانة العمارة بكاملها)
+ * item يجب أن يحتوي unit (include) عند وجود وحدة
  */
 export async function syncMaintenanceEntry(db: DB, item: any): Promise<void> {
   const cost = Number(item.cost) || 0;
@@ -194,16 +266,17 @@ export async function syncMaintenanceEntry(db: DB, item: any): Promise<void> {
     await removeAutoEntry(db, 'maintenance', item.id);
     return;
   }
+  const buildingId = item.unit?.buildingId || item.buildingId || null;
   const parts = [
-    `مصروف صيانة: ${item.title}`,
-    item.unit?.number ? `— وحدة ${item.unit.number}` : '',
+    item.unit?.number ? `مصروف صيانة الوحدة ${item.unit.number}` : 'مصروف صيانة العمارة',
+    `: ${item.title}`,
   ].filter(Boolean);
   await upsertAutoEntry(db, {
     source: 'maintenance',
     sourceId: item.id,
     date: (item.completedAt ? new Date(item.completedAt) : new Date()).toISOString().slice(0, 10),
-    description: parts.join(' '),
-    buildingId: item.unit?.buildingId || null,
+    description: parts.join(''),
+    buildingId,
     lines: [
       { accountCode: ACC.MAINTENANCE, debit: cost },
       { accountCode: ACC.CASH, credit: cost },

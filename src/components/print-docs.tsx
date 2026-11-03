@@ -347,6 +347,77 @@ export function trialBalanceDocHtml(rows: TBRow[], currency = 'د.ك', asOfDate?
 </div></div>`;
 }
 
+// ---------- تقرير مالي لعمارة واحدة ----------
+export interface BuildingReportRow { label: string; amount: number; detail?: string; }
+
+export function buildingFinancialReportHtml(params: {
+  building: any;
+  unitsCount: number; occupiedCount: number;
+  expectedMonthly: number; contractedMonthly: number;
+  income: BuildingReportRow[];   // إيرادات العمارة
+  expenses: BuildingReportRow[]; // مصروفات العمارة
+  entries: any[];                // قيود العمارة (آخر 20)
+  currency?: string;
+}): string {
+  const currency = params.currency || 'د.ك';
+  const b = params.building;
+  const totalIncome = params.income.reduce((s, r) => s + r.amount, 0);
+  const totalExpense = params.expenses.reduce((s, r) => s + r.amount, 0);
+  const net = Math.round((totalIncome - totalExpense) * 1000) / 1000;
+  const row = (r: BuildingReportRow) =>
+    `<tr><td class="r">${esc(r.label)}${r.detail ? ` <span style="color:#9ca3af;font-size:11px;">(${esc(r.detail)})</span>` : ''}</td><td class="num">${fmt3(r.amount)}</td></tr>`;
+  const entryRows = params.entries.map((e: any) => {
+    const lines: any[] = Array.isArray(e.lines) ? e.lines : [];
+    const lr = lines.map(l => `<div style="font-size:11.5px;color:#6b7280;">${esc(l.accountCode)} ${esc(l.accountName)} — مدين ${fmt3(l.debit)} / دائن ${fmt3(l.credit)}</div>`).join('');
+    return `<tr><td class="num">${esc(dateStr(e.date))}</td><td class="r"><b>${esc(e.description || '')}</b>${e.source && e.source !== 'manual' ? ` <span style="color:#9ca3af;font-size:11px;">(${esc(SOURCE_LABELS[e.source] || 'تلقائي')})</span>` : ''}${lr}</td></tr>`;
+  }).join('');
+  return `<style>${DOC_CSS}</style>
+<div class="vdoc"><div class="v-sheet">
+  <div class="v-head">
+    <div class="v-brand">${LOGO_SVG}<div><div class="v-brand-name">PropertyHub</div><div class="v-brand-sub">نظام إدارة الأملاك والعقارات</div></div></div>
+    <div class="v-titlebox"><div class="v-kind">التقرير المالي — ${esc(b.name || '')}</div>
+    <div class="v-meta"><span>كود: <b>${esc(b.code || '-')}</b></span>${b.city ? `<span>${esc(b.city)}</span>` : ''}<span>الوحدات: <b>${params.unitsCount}</b> (${params.occupiedCount} مؤجرة)</span><span>العملة: <b>${esc(currency)}</b></span></div></div>
+  </div>
+  <div class="v-body">
+    <table class="v-table">
+      <thead><tr><th>بيانات العمارة</th><th style="width:130px">القيمة (${esc(currency)})</th></tr></thead>
+      <tbody>
+        <tr><td class="r">الإيجار المتوقع شهريًا</td><td class="num">${fmt3(params.expectedMonthly)}</td></tr>
+        <tr><td class="r">الإيجار التعاقدي شهريًا</td><td class="num">${fmt3(params.contractedMonthly)}</td></tr>
+        <tr><td class="r">القيمة الدفترية</td><td class="num">${fmt3(b.value)}</td></tr>
+        ${b.license ? `<tr><td class="r">الترخيص / السجل العقاري</td><td class="r">${esc(b.license)}</td></tr>` : ''}
+      </tbody>
+    </table>
+    <table class="v-table" style="margin-top:12px;">
+      <thead><tr><th>الإيرادات المحصلة</th><th style="width:130px">المبلغ (${esc(currency)})</th></tr></thead>
+      <tbody>${params.income.map(row).join('') || '<tr><td colspan="2" style="color:#9ca3af;">لا توجد إيرادات مسجلة لهذه العمارة بعد</td></tr>'}</tbody>
+      <tfoot><tr><td>إجمالي الإيرادات</td><td class="num">${fmt3(totalIncome)}</td></tr></tfoot>
+    </table>
+    <table class="v-table" style="margin-top:12px;">
+      <thead><tr><th>المصروفات (صيانة الوحدات والعمارة + إداري موزع + قضايا)</th><th style="width:130px">المبلغ (${esc(currency)})</th></tr></thead>
+      <tbody>${params.expenses.map(row).join('') || '<tr><td colspan="2" style="color:#9ca3af;">لا توجد مصروفات مسجلة لهذه العمارة بعد</td></tr>'}</tbody>
+      <tfoot><tr><td>إجمالي المصروفات</td><td class="num">${fmt3(totalExpense)}</td></tr></tfoot>
+    </table>
+    <table class="v-table" style="margin-top:12px;">
+      <thead><tr><th>صافي حركة العمارة</th><th style="width:130px">المبلغ (${esc(currency)})</th></tr></thead>
+      <tfoot><tr><td>${net >= 0 ? 'صافي فائض (إيراد − مصروف)' : 'صافي عجز (مصروف − إيراد)'}</td><td class="num">${fmt3(Math.abs(net))}</td></tr></tfoot>
+    </table>
+    <div style="margin-top:14px;font-weight:800;color:#9a3412;font-size:13px;">أحدث قيود العمارة المحاسبية (${params.entries.length}):</div>
+    <table class="v-table" style="margin-top:6px;">
+      <thead><tr><th style="width:90px">التاريخ</th><th>البيان والسطور</th></tr></thead>
+      <tbody>${entryRows || '<tr><td colspan="2" style="color:#9ca3af;">لا توجد قيود</td></tr>'}</tbody>
+    </table>
+    <div class="v-note">كل قيود العمارة مزدوجة (مدين ودائن) وتُجمع آليًا من: تحصيل الإيجارات، الصيانة، الحركات المالية، توزيع المصاريف الإدارية، والغرامات — نفس الأرقام تظهر في دفتر اليومية وميزان المراجعة.</div>
+  </div>
+  <div class="v-sigs">
+    <div class="v-sig"><div class="line"></div>المحاسب</div>
+    <div class="v-sig"><div class="line"></div>المراجع</div>
+    <div class="v-sig"><div class="line"></div>المدير المالي</div>
+  </div>
+  <div class="v-foot"><span>أُنشئ آليًا بواسطة نظام PropertyHub</span><span>طُبع في ${esc(nowStr())}</span></div>
+</div></div>`;
+}
+
 // ---------- حوار المعاينة + الطباعة ----------
 export function VoucherDialog({ trigger, title, docHtml }: {
   trigger: React.ReactNode;

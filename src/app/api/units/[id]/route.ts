@@ -37,7 +37,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const { id } = await params;
     const old = await db.unit.findUnique({ where: { id } });
     await db.unit.delete({ where: { id } });
-    await logAudit(user.id, 'delete', 'unit', id, old, `حذف وحدة: ${old?.number}`);
+    await logAudit(user.id, 'delete', 'unit', id, old || undefined, `حذف وحدة: ${old?.number}`);
     return NextResponse.json({ ok: true });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'خطأ' }, { status: 400 });

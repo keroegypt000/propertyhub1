@@ -53,6 +53,9 @@ model Building {
 
   units       Unit[]
   transactions Transaction[]
+  maintenanceRequests MaintenanceRequest[]
+  uploads     FileUpload[]
+  legalCases  LegalCase[]
 }
 
 model Unit {
@@ -71,11 +74,14 @@ model Unit {
   building    Building  @relation(fields: [buildingId], references: [id], onDelete: Cascade)
   contracts   Contract[]
   maintenanceRequests MaintenanceRequest[]
+  legalCases  LegalCase[]
 }
 
 model Tenant {
   id              String   @id @default(cuid())
   name            String
+  tenantType      String   @default("individual") // individual (فرد/عائلة) | company (شركة)
+  commercialReg   String?  // رقم السجل التجاري (للشركات)
   phone           String?
   email           String?
   idNumber        String?  // الرقم القومي (14 رقم)
@@ -90,6 +96,7 @@ model Tenant {
 
   contracts     Contract[]
   uploads       FileUpload[]
+  legalCases    LegalCase[]
 }
 
 model Contract {
@@ -142,12 +149,37 @@ model Transaction {
   type        String   // income, expense
   category    String   // البيان
   amount      Float
-  account     String?  // رقم الحساب من شجرة الحسابات
-  cashAccount String?  // الدفع من / الاستلام في
+  account     String?  // رقم الحساب من شجرة الحسابات (كود الحساب المدين/الدائن)
+  cashAccount String?  // الدفع من / الاستلام في: cash | bank | checks
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   building    Building? @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+}
+
+// === LEGAL CASES & MUNICIPAL VIOLATIONS ===
+// المخالفات البلدية والقضايا القانونية المرتبطة بعمارة أو وحدة أو مستأجر
+model LegalCase {
+  id          String   @id @default(cuid())
+  title       String   // عنوان المخالفة / القضية
+  type        String   @default("municipal") // municipal (مخالفة بلدية) | lawsuit (قضية) | other (أخرى)
+  reference   String?  // رقم المخالفة / رقم القضية
+  buildingId  String?
+  unitId      String?
+  tenantId    String?
+  status      String   @default("open") // open, in_progress, paid, closed
+  filedDate   String?  // تاريخ المخالفة / رفع القضية (YYYY-MM-DD)
+  hearingDate String?  // موعد الجلسة القادمة (YYYY-MM-DD)
+  amount      Float?   // قيمة الغرامة / مبلغ القضية
+  description String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  building    Building? @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  unit        Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  tenant      Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  attachments FileUpload[]
 }
 
 // === LOANS ===
@@ -191,7 +223,7 @@ model Account {
 }
 
 // === JOURNAL ENTRIES ===
-// source: manual (يدوي) | payment (تحصيل إيجار) | maintenance (مصروف صيانة) | loan (استلام قرض) | loanPayment (سداد قرض)
+// source: manual (يدوي) | payment (تحصيل إيجار) | maintenance (مصروف صيانة) | loan (استلام قرض) | loanPayment (سداد قرض) | transaction (حركة إيراد/مصروف) | legalCase (غرامة مخالفة/قضية)
 // sourceId: معرّف العملية الأصلية التي وُلّد منها القيد — يُستخدم للتحديث/الحذف التلقائي
 model JournalEntry {
   id          String   @id @default(cuid())
@@ -208,9 +240,11 @@ model JournalEntry {
 }
 
 // === MAINTENANCE ===
+// الصيانة إما لوحدة محددة أو للعمارة بكاملها (buildingId فقط بدون unitId)
 model MaintenanceRequest {
   id          String   @id @default(cuid())
   unitId      String?
+  buildingId  String?  // العمارة — يُملأ تلقائياً من الوحدة أو يُختار للصيانة العامة
   title       String
   description String?
   category    String?  // plumbing, electrical, ac, elevator, civil, cleaning, other
@@ -224,6 +258,7 @@ model MaintenanceRequest {
   updatedAt   DateTime @updatedAt
 
   unit        Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  building    Building? @relation(fields: [buildingId], references: [id], onDelete: SetNull)
   attachments FileUpload[]
 }
 
@@ -239,16 +274,21 @@ model FileUpload {
   data           Bytes?   // legacy: محتوى الملفات المرفوعة قبل التحول للتخزين السحابي
   storageProvider String  @default("db")   // db | r2
   storageKey     String?  // مفتاح الكائن في التخزين السحابي (بدون رابط عام دائم)
-  category       String   @default("general") // contract, maintenance, identity, general
+  category       String   @default("general") // contract, maintenance, identity, building_legal, legal_case, general
+  docType        String?  // نوع المستند القانوني: property_deed (وثيقة عقار) | license (ترخيص) | occupancy (شهادة إشغال) | blueprint (مخطط) | other
   contractId     String?
   maintenanceId  String?
   tenantId       String?
+  buildingId     String?  // مستندات العمارة القانونية (وثيقة العقار وغيرها)
+  legalCaseId    String?  // مستندات المخالفات والقضايا
   uploadedBy     String?
   createdAt      DateTime @default(now())
 
   contract       Contract?           @relation(fields: [contractId], references: [id], onDelete: SetNull)
   maintenance    MaintenanceRequest? @relation(fields: [maintenanceId], references: [id], onDelete: SetNull)
   tenant         Tenant?             @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  building       Building?           @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  legalCase      LegalCase?          @relation(fields: [legalCaseId], references: [id], onDelete: SetNull)
   uploader      User?                @relation(fields: [uploadedBy], references: [id], onDelete: SetNull)
 }
 

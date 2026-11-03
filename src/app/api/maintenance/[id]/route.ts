@@ -32,7 +32,18 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const { id } = await params;
     const body = await request.json();
     const old = await db.maintenanceRequest.findUnique({ where: { id } });
-    const item = await db.maintenanceRequest.update({ where: { id }, data: body });
+    // الحقول المسموح بها — مع ملء العمارة تلقائيًا من الوحدة
+    const data: any = {};
+    for (const k of ['title', 'description', 'category', 'priority', 'status', 'estimatedCost', 'cost', 'completedAt', 'assignedTo']) {
+      if (body[k] !== undefined) data[k] = body[k];
+    }
+    if (body.unitId !== undefined) data.unitId = body.unitId || null;
+    if (body.buildingId !== undefined) data.buildingId = body.buildingId || null;
+    if (data.unitId) {
+      const u = await db.unit.findUnique({ where: { id: data.unitId }, include: { building: { select: { id: true } } } });
+      if (u) data.buildingId = u.building.id;
+    }
+    const item = await db.maintenanceRequest.update({ where: { id }, data });
     await logAudit(user.id, 'update', 'maintenance', id, { before: old, after: body }, `تعديل طلب صيانة`);
 
     // مزامنة قيد مصروف الصيانة مع الحالة والتكلفة الجديدة

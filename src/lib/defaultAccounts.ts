@@ -77,4 +77,5 @@ export const DEFAULT_ACCOUNTS: DefaultAccount[] = [
   { code: '5205', name: 'مصروف إهلاك', type: 'expense', kind: 'post', parentCode: '52' },
   { code: '5206', name: 'مصروفات متنوعة', type: 'expense', kind: 'post', parentCode: '52' },
   { code: '5207', name: 'فوائد ومصاريف قروض', type: 'expense', kind: 'post', parentCode: '52' },
+  { code: '5208', name: 'غرامات ومخالفات بلدية وقضايا', type: 'expense', kind: 'post', parentCode: '52' },
 ];

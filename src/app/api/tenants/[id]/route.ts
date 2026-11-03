@@ -22,7 +22,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const { id } = await params;
     const body = await request.json();
     const old = await db.tenant.findUnique({ where: { id } });
-    const tenant = await db.tenant.update({ where: { id }, data: body });
+    // الحقول المسموح بها — منها نوع المستأجر (فرد/شركة) والسجل التجاري
+    const data: any = {};
+    for (const k of ['name', 'tenantType', 'commercialReg', 'phone', 'email', 'idNumber', 'idType', 'address', 'emergencyContact', 'guarantor', 'guarantorPhone', 'notes']) {
+      if (body[k] !== undefined) data[k] = body[k];
+    }
+    const tenant = await db.tenant.update({ where: { id }, data });
     await logAudit(user.id, 'update', 'tenant', id, { before: old, after: body }, `تعديل مستأجر: ${body.name || old?.name}`);
     return NextResponse.json(tenant);
   } catch (error: any) {
@@ -37,7 +42,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const { id } = await params;
     const old = await db.tenant.findUnique({ where: { id } });
     await db.tenant.delete({ where: { id } });
-    await logAudit(user.id, 'delete', 'tenant', id, old, `حذف مستأجر: ${old?.name}`);
+    await logAudit(user.id, 'delete', 'tenant', id, old || undefined, `حذف مستأجر: ${old?.name}`);
     return NextResponse.json({ ok: true });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'خطأ' }, { status: 400 });

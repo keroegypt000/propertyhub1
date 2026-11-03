@@ -9,6 +9,7 @@ import {
   paymentReceiptHtml, loanReceiptHtml, loanPaymentVoucherHtml,
   maintenanceVoucherHtml, transactionVoucherHtml,
   journalEntryDocHtml, journalBookDocHtml, trialBalanceDocHtml, TBRow,
+  buildingFinancialReportHtml,
 } from '@/components/print-docs';
 import {
   Building2, Home, Users, FileText, DollarSign, Wrench, Shield, Clock,
@@ -17,7 +18,7 @@ import {
   XCircle, Calendar, Phone, Mail, MapPin, Hash, Briefcase, Settings,
   Archive, Activity, UserPlus, Key, ToggleLeft, ToggleRight, Info,
   LayoutDashboard, FolderOpen, Camera, FileImage, CloudUpload, Printer, Scale,
-  Menu, X, Percent, TrendingUp
+  Menu, X, Percent, TrendingUp, Gavel, ArrowRight, Landmark, ReceiptText
 } from 'lucide-react';
 import { ExcelToolbar } from '@/components/ExcelToolbar';
 import { ResetDemoDataCard } from '@/components/ResetDemoDataCard';
@@ -36,17 +37,42 @@ import { Textarea } from '@/components/ui/textarea';
 interface User { id: string; username: string; name: string; role: string; roleName: string; permissions?: string; }
 interface Building { id: string; code?: string; name: string; address?: string; city?: string; floors?: number; unitsCount?: number; value?: number; license?: string; notes?: string; units?: Unit[]; transactions?: any[]; createdAt: string; }
 interface Unit { id: string; buildingId: string; number: string; floor?: number; area?: number; type?: string; status: string; rentAmount?: number; notes?: string; building?: Building; createdAt: string; }
-interface Tenant { id: string; name: string; phone?: string; email?: string; idNumber?: string; idType?: string; address?: string; notes?: string; uploads?: FileUpload[]; createdAt: string; }
+interface Tenant { id: string; name: string; tenantType?: string; commercialReg?: string; phone?: string; email?: string; idNumber?: string; idType?: string; address?: string; notes?: string; uploads?: FileUpload[]; createdAt: string; }
 interface Contract { id: string; unitId: string; tenantId: string; startDate: string; endDate: string; rentAmount: number; deposit?: number; paymentDay?: number; status: string; terms?: string; notes?: string; unit?: Unit; tenant?: Tenant; payments?: Payment[]; attachments?: FileUpload[]; createdAt: string; }
 interface Payment { id: string; contractId: string; amount: number; dueDate: string; paidDate?: string; month?: string; status: string; method?: string; reference?: string; notes?: string; contract?: Contract; createdAt: string; }
-interface MaintenanceItem { id: string; title: string; description?: string; priority: string; status: string; cost?: number; estimatedCost?: number; category?: string; assignedTo?: string; unitId?: string; unit?: Unit; attachments?: FileUpload[]; createdAt: string; }
-interface FileUpload { id: string; filename: string; originalName: string; mimeType: string; size: number; category: string; contractId?: string; tenantId?: string; maintenanceId?: string; createdAt: string; }
+interface MaintenanceItem { id: string; title: string; description?: string; priority: string; status: string; cost?: number; estimatedCost?: number; category?: string; assignedTo?: string; unitId?: string; unit?: Unit; buildingId?: string; building?: Building; attachments?: FileUpload[]; createdAt: string; }
+interface FileUpload { id: string; filename: string; originalName: string; mimeType: string; size: number; category: string; docType?: string; contractId?: string; tenantId?: string; maintenanceId?: string; buildingId?: string; legalCaseId?: string; createdAt: string; }
+interface LegalCase { id: string; title: string; type: string; reference?: string; buildingId?: string; building?: Building; unitId?: string; unit?: Unit; tenantId?: string; tenant?: Tenant; status: string; filedDate?: string; hearingDate?: string; amount?: number; description?: string; notes?: string; attachments?: FileUpload[]; createdAt: string; }
 interface AuditEntry { id: string; userId: string; action: string; entity: string; entityId?: string; changes?: string; details?: string; createdAt: string; user?: { id: string; name: string; username: string }; }
 interface RestorePoint { id: string; name: string; description?: string; createdBy: string; createdAt: string; creator?: { id: string; name: string; username: string }; }
 
 const CURRENCY = 'د.ك'; // Kuwaiti Dinar
 
-type Section = 'dashboard' | 'buildings' | 'units' | 'tenants' | 'contracts' | 'payments' | 'maintenance' | 'files' | 'transactions' | 'loans' | 'loanPayments' | 'accounts' | 'journal' | 'trialBalance' | 'audit' | 'restore' | 'health' | 'users' | 'settings';
+type Section = 'dashboard' | 'buildings' | 'buildingDetail' | 'units' | 'tenants' | 'contracts' | 'payments' | 'maintenance' | 'legalCases' | 'files' | 'transactions' | 'loans' | 'loanPayments' | 'accounts' | 'journal' | 'trialBalance' | 'audit' | 'restore' | 'health' | 'users' | 'settings';
+
+const TENANT_TYPE_LABEL: Record<string, { label: string; color: string }> = {
+  individual: { label: 'فرد / عائلة', color: 'bg-teal-100 text-teal-800' },
+  company: { label: 'شركة', color: 'bg-indigo-100 text-indigo-800' },
+};
+const CASE_TYPE_MAP: Record<string, { label: string; color: string }> = {
+  municipal: { label: 'مخالفة بلدية', color: 'bg-amber-100 text-amber-800' },
+  lawsuit: { label: 'قضية', color: 'bg-purple-100 text-purple-800' },
+  other: { label: 'أخرى', color: 'bg-gray-100 text-gray-700' },
+};
+const CASE_STATUS_MAP: Record<string, { label: string; color: string }> = {
+  open: { label: 'مفتوحة', color: 'bg-amber-100 text-amber-800' },
+  in_progress: { label: 'قيد المتابعة', color: 'bg-blue-100 text-blue-800' },
+  paid: { label: 'مسددة', color: 'bg-emerald-100 text-emerald-800' },
+  closed: { label: 'مغلقة', color: 'bg-gray-100 text-gray-700' },
+};
+const LEGAL_DOC_TYPES: Record<string, string> = {
+  property_deed: 'وثيقة العقار',
+  license: 'ترخيص بلدي / سجل عقاري',
+  occupancy: 'شهادة إشغال',
+  blueprint: 'مخطط العمارة',
+  other: 'مستند آخر',
+};
+const CASH_ACCOUNT_LABEL: Record<string, string> = { cash: 'الصندوق', bank: 'البنك', checks: 'شيكات التحصيل' };
 
 const ROLES_MAP: Record<string, string> = { admin: 'مدير', manager: 'مدير فرعي', accountant: 'محاسب', collector: 'محصّل', viewer: 'مشاهد' };
 const UNIT_STATUS_MAP: Record<string, { label: string; color: string }> = {
@@ -134,10 +160,15 @@ export default function PropertyManagerApp() {
   const [journalEntries, setJournalEntries] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [allFiles, setAllFiles] = useState<FileUpload[]>([]);
+  const [legalCases, setLegalCases] = useState<LegalCase[]>([]);
+  const [detailBuildingId, setDetailBuildingId] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState('overview');
   const [contractFilter, setContractFilter] = useState('all');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const go = (s: Section) => { setSection(s); setMobileNavOpen(false); };
+  // فتح صفحة تفاصيل العمارة — النقر على كارت العمارة يفتحها بتبويب النظرة العامة
+  const goBuildingDetail = (id: string, tab = 'overview') => { setDetailBuildingId(id); setDetailTab(tab); setSection('buildingDetail'); setMobileNavOpen(false); };
 
   const checkAuth = useCallback(async () => {
     try {
@@ -171,7 +202,18 @@ export default function PropertyManagerApp() {
       if (s === 'audit') { const data = await api<{ logs: AuditEntry[] }>('/api/audit?limit=100'); setAuditLogs(data.logs || []); }
       if (s === 'restore') setRestorePoints(await api<RestorePoint[]>('/api/restore'));
       if (s === 'users') setAllUsers(await api('/api/users'));
-      if (s === 'transactions') setTransactions(await api('/api/transactions'));
+      if (s === 'transactions') { setTransactions(await api('/api/transactions')); setBuildings(await api('/api/buildings')); setAccounts(await api('/api/accounts')); }
+      if (s === 'legalCases') setLegalCases(await api('/api/legal-cases'));
+      if (s === 'buildingDetail') {
+        const [b, u, c, t, m, tr, jr, ac, fl] = await Promise.all([
+          api<Building[]>('/api/buildings'), api<Unit[]>('/api/units'), api<Contract[]>('/api/contracts'),
+          api<Tenant[]>('/api/tenants'), api<MaintenanceItem[]>('/api/maintenance'), api('/api/transactions'),
+          api('/api/journal').catch(() => []), api('/api/accounts').catch(() => []), api<FileUpload[]>('/api/files/all').catch(() => []),
+        ]);
+        setBuildings(b); setUnits(u); setContracts(c); setTenants(t); setMaintenance(m); setTransactions(tr);
+        setJournalEntries(jr); setAccounts(ac); setAllFiles(fl);
+        try { setLegalCases(await api('/api/legal-cases')); } catch {}
+      }
       if (s === 'loans') { setLoans(await api('/api/loans')); setLoanPayments(await api('/api/loan-payments')); }
       if (s === 'accounts') setAccounts(await api('/api/accounts'));
       if (s === 'journal') {
@@ -223,7 +265,7 @@ export default function PropertyManagerApp() {
   // تفريغ البيانات من الذاكرة بعد مسح البيانات التجريبية
   const clearAllData = () => {
     setBuildings([]); setUnits([]); setTenants([]); setContracts([]); setPayments([]); setMaintenance([]);
-    setTransactions([]); setLoans([]); setLoanPayments([]); setAccounts([]); setJournalEntries([]); setAllFiles([]);
+    setTransactions([]); setLoans([]); setLoanPayments([]); setAccounts([]); setJournalEntries([]); setAllFiles([]); setLegalCases([]);
   };
 
   const handleLogout = async () => { await api('/api/auth/logout', 'POST'); clearStoredToken(); setUser(null); };
@@ -257,7 +299,7 @@ export default function PropertyManagerApp() {
   };
 
   // Upload file helper
-  const uploadFile = useCallback(async (file: File, category: string, meta?: { contractId?: string; tenantId?: string; maintenanceId?: string }) => {
+  const uploadFile = useCallback(async (file: File, category: string, meta?: { contractId?: string; tenantId?: string; maintenanceId?: string; buildingId?: string; legalCaseId?: string; docType?: string }) => {
     const processed = await compressImage(file);
     if (processed.size > 4 * 1024 * 1024) throw new Error('حجم الملف كبير جداً — الحد الأقصى 4MB. الصور تُضغط تلقائياً، والمستندات الكبيرة قلّل حجمها أولاً');
     const buf = await processed.arrayBuffer();
@@ -265,6 +307,9 @@ export default function PropertyManagerApp() {
     if (meta?.contractId) headers['X-Contract-Id'] = meta.contractId;
     if (meta?.tenantId) headers['X-Tenant-Id'] = meta.tenantId;
     if (meta?.maintenanceId) headers['X-Maintenance-Id'] = meta.maintenanceId;
+    if (meta?.buildingId) headers['X-Building-Id'] = meta.buildingId;
+    if (meta?.legalCaseId) headers['X-Legal-Case-Id'] = meta.legalCaseId;
+    if (meta?.docType) headers['X-Doc-Type'] = meta.docType;
     const st = getStoredToken(); if (st) headers['Authorization'] = `Bearer ${st}`;
     const res = await fetch('/api/files/upload', { method: 'POST', headers, body: buf, credentials: 'include' });
     if (!res.ok) { const errData = await res.json().catch(() => ({})); throw new Error(errData.error || 'فشل رفع الملف'); }
@@ -616,11 +661,12 @@ export default function PropertyManagerApp() {
               ); })()}
               <div className="grid gap-4">
                 {buildings.filter(b => !searchQuery || b.name.includes(searchQuery) || (b.code || '').includes(searchQuery) || (b.city || '').includes(searchQuery) || (b.address || '').includes(searchQuery)).map(b => (
-                  <Card key={b.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-5">
+                  <Card key={b.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow cursor-pointer group" onClick={() => goBuildingDetail(b.id)} role="button" aria-label={`فتح صفحة العمارة ${b.name}`}>
+                  <CardContent className="p-5">
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center text-white shadow"><Building2 size={24} /></div>
-                        <div><h3 className="font-bold text-lg text-gray-900">{b.name}</h3>
+                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center text-white shadow group-hover:scale-105 transition-transform"><Building2 size={24} /></div>
+                        <div><h3 className="font-bold text-lg text-gray-900 group-hover:text-orange-700 transition-colors">{b.name}</h3>
                           <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
                             {b.address && <span className="flex items-center gap-1"><MapPin size={14} />{b.address}</span>}
                             {b.city && <span>{b.city}</span>}
@@ -630,11 +676,12 @@ export default function PropertyManagerApp() {
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge className="bg-orange-100 text-orange-800">{(b.units || []).length} وحدة</Badge>
-                        {canWriteCheck('buildings') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={16} /></Button>} title="تعديل المبنى">{(close) => <BuildingForm initial={b} onSave={async (data) => { await api(`/api/buildings/${b.id}`, 'PUT', data); autoRestore('تعديل مبنى'); loadData('buildings'); }} onClose={close} />}</FormDialog>}
-                        {canWriteCheck('buildings') && <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('هل تريد حذف هذا المبنى؟')) { await api(`/api/buildings/${b.id}`, 'DELETE'); autoRestore('حذف مبنى'); loadData('buildings'); toast.success('تم حذف المبنى'); } }}><Trash2 size={16} /></Button>}
+                        <Button variant="outline" size="sm" className="border-orange-300 text-orange-700 hover:bg-orange-50" onClick={(e) => { e.stopPropagation(); goBuildingDetail(b.id); }}><Eye size={14} className="ml-1" />التفاصيل الكاملة</Button>
+                        {canWriteCheck('buildings') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل" onClick={(e) => e.stopPropagation()}><Edit3 size={16} /></Button>} title="تعديل المبنى">{(close) => <BuildingForm initial={b} onSave={async (data) => { await api(`/api/buildings/${b.id}`, 'PUT', data); autoRestore('تعديل مبنى'); loadData('buildings'); }} onClose={close} />}</FormDialog>}
+                        {canWriteCheck('buildings') && <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async (e) => { e.stopPropagation(); if (confirm('هل تريد حذف هذا المبنى؟')) { await api(`/api/buildings/${b.id}`, 'DELETE'); autoRestore('حذف مبنى'); loadData('buildings'); toast.success('تم حذف المبنى'); } }}><Trash2 size={16} /></Button>}
                       </div>
                     </div>
-                    {(() => { const s = buildingIncomeStats(units as any, contracts as any, b.id); const maintCost = maintenance.filter(m => m.unit?.buildingId === b.id).reduce((sum, m) => sum + (m.cost || 0), 0); return (
+                    {(() => { const s = buildingIncomeStats(units as any, contracts as any, b.id); const maintCost = maintenance.filter(m => m.unit?.buildingId === b.id || m.buildingId === b.id).reduce((sum, m) => sum + (m.cost || 0), 0); return (
                       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-4 pt-4 border-t border-gray-100">
                         <div className="p-2 bg-emerald-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">إيجار متوقع/شهر</p><p className="font-bold text-emerald-700 text-sm">{fmtKWD(s.expectedMonthly)} {CURRENCY}</p></div>
                         <div className="p-2 bg-blue-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">تعاقدي/شهر</p><p className="font-bold text-blue-700 text-sm">{fmtKWD(s.contractedMonthly)} {CURRENCY}</p></div>
@@ -643,11 +690,38 @@ export default function PropertyManagerApp() {
                         <div className="p-2 bg-red-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">مصروف صيانة تراكمي</p><p className="font-bold text-red-700 text-sm">{fmtKWD(maintCost)} {CURRENCY}</p></div>
                       </div>
                     ); })()}
+                    <p className="text-[11px] text-orange-500 mt-3 flex items-center gap-1"><ArrowRight size={12} className="rotate-180" />اضغط على كارت العمارة لفتح صفحتها الكاملة: الوحدات والمستأجرين، العقود، المستندات القانونية، المالية، والقضايا</p>
                   </CardContent></Card>
                 ))}
                 {buildings.length === 0 && <EmptyState icon={<Building2 size={48} />} text="لا توجد مباني مضافة" />}
               </div>
             </div>
+          )}
+
+          {/* Building Detail — صفحة العمارة الكاملة (وحدات + مستأجرين + مستندات + مالية + قضايا) */}
+          {section === 'buildingDetail' && detailBuildingId && (
+            <BuildingDetailSection
+              user={user}
+              building={buildings.find(b => b.id === detailBuildingId) || null}
+              buildings={buildings}
+              units={units as any}
+              tenants={tenants as any}
+              contracts={contracts as any}
+              payments={payments as any}
+              maintenance={maintenance as any}
+              transactions={transactions as any}
+              journalEntries={journalEntries as any}
+              accounts={accounts as any}
+              allFiles={allFiles}
+              legalCases={legalCases}
+              tab={detailTab}
+              setTab={setDetailTab}
+              onBack={() => go('buildings')}
+              canWrite={canWriteCheck}
+              uploadFile={uploadFile}
+              refresh={() => { loadData('buildingDetail'); autoRestore('تحديث بيانات العمارة'); }}
+              openCase={(id) => goBuildingDetail(detailBuildingId, 'cases')}
+            />
           )}
 
           {/* Units */}
@@ -692,8 +766,13 @@ export default function PropertyManagerApp() {
                 {tenants.filter(t => !searchQuery || t.name.includes(searchQuery) || (t.phone || '').includes(searchQuery) || (t.idNumber || '').includes(searchQuery)).map(t => (
                   <Card key={t.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-4">
                     <div className="flex items-center gap-3 mb-3">
-                      <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold">{t.name.charAt(0)}</div>
-                      <div><h3 className="font-bold text-gray-900">{t.name}</h3>{t.idNumber && <p className="text-xs text-gray-500">رقم الهوية: {t.idNumber}</p>}</div>
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${t.tenantType === 'company' ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700'}`}>{t.name.charAt(0)}</div>
+                      <div><h3 className="font-bold text-gray-900">{t.name}</h3>
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          <Badge className={`${TENANT_TYPE_LABEL[t.tenantType || 'individual']?.color} text-[10px]`}>{TENANT_TYPE_LABEL[t.tenantType || 'individual']?.label}</Badge>
+                          {t.tenantType === 'company' && t.commercialReg && <span className="text-[10px] text-gray-500">س.ت: {t.commercialReg}</span>}
+                        </div>
+                      </div>
                     </div>
                     <div className="space-y-1 text-sm text-gray-600">
                       {t.phone && <p className="flex items-center gap-1"><Phone size={14} />{t.phone}</p>}
@@ -785,7 +864,8 @@ export default function PropertyManagerApp() {
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="payments" rows={payments} canWrite={canWriteCheck('payments')} onImported={() => { loadData('payments'); toast.success('تم تحديث المدفوعات'); }} />
-                  {canWriteCheck('payments') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />تسجيل دفعة</Button>} title="تسجيل دفعة جديدة">{(close) => <PaymentForm contracts={contracts} payments={payments} buildings={buildings} onSave={async (data) => { await api('/api/payments', 'POST', data); autoRestore('تسجيل دفعة'); loadData('payments'); }} onClose={close} />}</FormDialog>)}
+                  {canWriteCheck('payments') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />تسجيل دفعة</Button>} title="تسجيل دفعة جديدة">{(close) => <PaymentForm contracts={contracts} payments={payments} buildings={buildings} onSave={async (data) => { const r: any = await api('/api/payments', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); autoRestore('تسجيل دفعة'); loadData('payments'); }} onClose={close} />}</FormDialog>)}
+                  {canWriteCheck('payments') && (<FormDialog trigger={<Button variant="outline" className="border-indigo-300 text-indigo-700 bg-indigo-50" title="شيك واحد للعمارة كاملة يوزع على عقود الشركات"><Landmark size={16} className="ml-1" />تحصيل شيك شركة (مجمّع)</Button>} title="تحصيل شيك شركة — عمارة كاملة" maxWidth="max-w-lg">{(close) => <CompanyCheckForm buildings={buildings} contracts={contracts as any} onSave={async (data) => { const r: any = await api('/api/payments/bulk', 'POST', data); toast.success(`تم توزيع ${r.totalAmount} ${CURRENCY} على ${r.paymentsCount} عقد شركة في ${r.buildingName} مع توليد القيود`); autoRestore('تحصيل شيك شركة مجمّع'); loadData('payments'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
               {/* Desktop table */}
@@ -848,7 +928,7 @@ export default function PropertyManagerApp() {
                   <Card key={m.id} className="border-0 shadow-lg"><CardContent className="p-4">
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       <div>
-                        <div className="flex items-center gap-2 mb-2"><Badge className={MAINT_STATUS_MAP[m.status]?.color}>{MAINT_STATUS_MAP[m.status]?.label || m.status}</Badge><Badge className={PRIORITY_MAP[m.priority]?.color}>{PRIORITY_MAP[m.priority]?.label || m.priority}</Badge>{m.unit && <Badge className="bg-purple-100 text-purple-800">وحدة {m.unit.number}{m.unit.building ? ` — ${m.unit.building.name}` : ''}</Badge>}{m.category && m.category !== 'other' && <Badge className="bg-gray-100 text-gray-700">{MAINT_CATEGORIES[m.category] || m.category}</Badge>}</div>
+                        <div className="flex items-center gap-2 mb-2 flex-wrap"><Badge className={MAINT_STATUS_MAP[m.status]?.color}>{MAINT_STATUS_MAP[m.status]?.label || m.status}</Badge><Badge className={PRIORITY_MAP[m.priority]?.color}>{PRIORITY_MAP[m.priority]?.label || m.priority}</Badge>{m.unit && <Badge className="bg-purple-100 text-purple-800">وحدة {m.unit.number}{m.unit.building ? ` — ${m.unit.building.name}` : ''}</Badge>}{!m.unit && (m.building ? <Badge className="bg-orange-100 text-orange-800">صيانة العمارة بكاملها — {m.building.name}</Badge> : (m.buildingId && <Badge className="bg-orange-100 text-orange-800">صيانة العمارة بكاملها</Badge>))}{m.category && m.category !== 'other' && <Badge className="bg-gray-100 text-gray-700">{MAINT_CATEGORIES[m.category] || m.category}</Badge>}</div>
                         <h3 className="font-bold text-gray-900">{m.title}</h3>
                         {m.description && <p className="text-sm text-gray-600 mt-1">{m.description}</p>}
                         {m.estimatedCost != null && <p className="text-sm text-amber-700 mt-1">التكلفة التقديرية: {m.estimatedCost.toLocaleString('ar')} {CURRENCY}</p>}
@@ -865,7 +945,7 @@ export default function PropertyManagerApp() {
                         )}
                       </div>
                       <div className="flex gap-2">
-                        {m.status === 'completed' && m.cost > 0 && <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند صرف — تكلفة الصيانة"><Printer size={14} /></Button>} title="سند صرف — صيانة" docHtml={maintenanceVoucherHtml(m, CURRENCY)} />}
+                        {m.status === 'completed' && (m.cost || 0) > 0 && <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند صرف — تكلفة الصيانة"><Printer size={14} /></Button>} title="سند صرف — صيانة" docHtml={maintenanceVoucherHtml(m, CURRENCY)} />}
                         {canWriteCheck('maintenance') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل طلب الصيانة">{(close) => <MaintenanceForm buildings={buildings} units={units} initial={m} onSave={async (data) => { await api(`/api/maintenance/${m.id}`, 'PUT', data); autoRestore('تعديل صيانة'); loadData('maintenance'); }} onClose={close} />}</FormDialog>}
                         {canWriteCheck('files') && (
                           <FileUploadButton className="border-orange-200 text-orange-700" icon={<Camera size={14} className="ml-1" />} onPick={async (file) => { try { const saved: any = await uploadFile(file, 'maintenance', { maintenanceId: m.id }); if (saved?.warning) { toast.warning(saved.warning); } else { toast.success('تم رفع الملف'); } loadData('maintenance'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); } }}>صورة</FileUploadButton>
@@ -879,6 +959,20 @@ export default function PropertyManagerApp() {
                 {maintenance.length === 0 && <EmptyState icon={<Wrench size={48} />} text="لا توجد طلبات صيانة" />}
               </div>
             </div>
+          )}
+
+          {/* Legal Cases — المخالفات البلدية والقضايا */}
+          {section === 'legalCases' && (
+            <LegalCasesSection
+              cases={legalCases}
+              buildings={buildings}
+              units={units as any}
+              tenants={tenants as any}
+              canWrite={canWriteCheck}
+              uploadFile={uploadFile}
+              refresh={() => { loadData('legalCases'); autoRestore('تحديث القضايا'); }}
+              openBuilding={(id) => goBuildingDetail(id)}
+            />
           )}
 
           {/* Audit */}
@@ -962,7 +1056,8 @@ export default function PropertyManagerApp() {
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="transactions" rows={transactions} canWrite={canWriteCheck('transactions')} onImported={() => { loadData('transactions'); toast.success('تم تحديث الحركات المالية'); }} />
-                  {canWriteCheck('transactions') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة حركة</Button>} title="إضافة حركة مالية">{(close) => <TransactionForm buildings={buildings} onSave={async (data) => { await api('/api/transactions', 'POST', data); autoRestore('إضافة حركة مالية'); loadData('transactions'); }} onClose={close} />}</FormDialog>)}
+                  {canWriteCheck('transactions') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة حركة</Button>} title="إضافة حركة مالية">{(close) => <TransactionForm buildings={buildings} accounts={accounts as any} onSave={async (data) => { const r: any = await api('/api/transactions', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); else if (r?.distributed) toast.success(`تم توزيع المصروف على ${r.count} عمارة وتوليد قيد لكل عمارة`); else toast.success('تم الحفظ وتوليد القيد المزدوج (مدين ودائن)'); autoRestore('إضافة حركة مالية'); loadData('transactions'); }} onClose={close} />}</FormDialog>)}
+                  {isAdmin && <Button variant="outline" className="border-emerald-300 text-emerald-700 bg-emerald-50" title="توليد القيود المزدوجة للحركات القديمة المسجلة قبل ربط الحركات بالمحاسبة — تشغيل واحد يكفي" onClick={async () => { if (!confirm('سيتم توليد قيد محاسبي لكل حركة مالية لا قيد لها (لن يتكرر أي قيد قائم). متابعة؟')) return; try { const r: any = await api('/api/transactions/sync-journal', 'POST', {}); toast.success(`تمت المزامنة: ${r.synced} قيد جديد من أصل ${r.total} حركة${r.failedCount ? ` — تعذر على ${r.failedCount}` : ''}`); } catch (e: any) { toast.error(e.message); } }}><RefreshCw size={15} className="ml-1" />مزامنة قيود الحركات القديمة</Button>}
                 </div>
               </div>
               {/* Desktop table */}
@@ -977,7 +1072,7 @@ export default function PropertyManagerApp() {
                   <TableCell className="font-semibold">{t.amount?.toLocaleString('ar')} {CURRENCY}</TableCell>
                   <TableCell><div className="flex gap-1">
                     <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند"><Printer size={14} /></Button>} title="سند — حركة مالية" docHtml={transactionVoucherHtml(t, CURRENCY)} />
-                    {canWriteCheck('transactions') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الحركة">{(close) => <TransactionForm buildings={buildings} initial={t} onSave={async (data) => { await api(`/api/transactions/${t.id}`, 'PUT', data); autoRestore('تعديل حركة مالية'); loadData('transactions'); }} onClose={close} />}</FormDialog>}
+                    {canWriteCheck('transactions') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الحركة">{(close) => <TransactionForm buildings={buildings} accounts={accounts as any} initial={t} onSave={async (data) => { const r: any = await api(`/api/transactions/${t.id}`, 'PUT', data); if (r?.entryWarning) toast.warning(r.entryWarning); else toast.success('تم التعديل وتحديث القيد المزدوج'); autoRestore('تعديل حركة مالية'); loadData('transactions'); }} onClose={close} />}</FormDialog>}
                     {canWriteCheck('transactions') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/transactions/${t.id}`, 'DELETE'); autoRestore('حذف حركة مالية'); loadData('transactions'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>}
                   </div></TableCell>
                 </TableRow>))}</TableBody></Table>
@@ -997,7 +1092,7 @@ export default function PropertyManagerApp() {
                     </div>
                     <div className="flex items-center gap-1.5 pt-2 border-t border-gray-100">
                       <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند"><Printer size={14} /></Button>} title="سند — حركة مالية" docHtml={transactionVoucherHtml(t, CURRENCY)} />
-                      {canWriteCheck('transactions') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الحركة">{(close) => <TransactionForm buildings={buildings} initial={t} onSave={async (data) => { await api(`/api/transactions/${t.id}`, 'PUT', data); autoRestore('تعديل حركة مالية'); loadData('transactions'); }} onClose={close} />}</FormDialog>}
+                      {canWriteCheck('transactions') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الحركة">{(close) => <TransactionForm buildings={buildings} accounts={accounts as any} initial={t} onSave={async (data) => { const r: any = await api(`/api/transactions/${t.id}`, 'PUT', data); if (r?.entryWarning) toast.warning(r.entryWarning); else toast.success('تم التعديل وتحديث القيد المزدوج'); autoRestore('تعديل حركة مالية'); loadData('transactions'); }} onClose={close} />}</FormDialog>}
                       {canWriteCheck('transactions') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/transactions/${t.id}`, 'DELETE'); autoRestore('حذف حركة مالية'); loadData('transactions'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>}
                     </div>
                   </CardContent></Card>
@@ -1414,15 +1509,21 @@ function UnitForm({ buildings, onSave, initial, onClose }: { buildings: Building
 
 function TenantForm({ onSave, initial, onClose }: { onSave: (data: any) => Promise<void>; initial?: Tenant; onClose?: () => void }) {
   const [saving, setSaving] = useState(false);
-  const [name, setName] = useState(initial?.name || ''); const [phone, setPhone] = useState(initial?.phone || ''); const [email, setEmail] = useState(initial?.email || ''); const [idNumber, setIdNumber] = useState(initial?.idNumber || ''); const [address, setAddress] = useState(initial?.address || ''); const [guarantor, setGuarantor] = useState((initial as any)?.guarantor || ''); const [guarantorPhone, setGuarantorPhone] = useState((initial as any)?.guarantorPhone || ''); const [notes, setNotes] = useState(initial?.notes || '');
-  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ name, phone, email, idNumber, address, guarantor, guarantorPhone, notes }); toast.success(initial ? 'تم تعديل المستأجر' : 'تم إنشاء المستأجر'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
-    <div><Label>الاسم</Label><Input value={name} onChange={e => setName(e.target.value)} required /></div>
+  const [tenantType, setTenantType] = useState(initial?.tenantType || 'individual'); const [commercialReg, setCommercialReg] = useState(initial?.commercialReg || ''); const [name, setName] = useState(initial?.name || ''); const [phone, setPhone] = useState(initial?.phone || ''); const [email, setEmail] = useState(initial?.email || ''); const [idNumber, setIdNumber] = useState(initial?.idNumber || ''); const [address, setAddress] = useState(initial?.address || ''); const [guarantor, setGuarantor] = useState((initial as any)?.guarantor || ''); const [guarantorPhone, setGuarantorPhone] = useState((initial as any)?.guarantorPhone || ''); const [notes, setNotes] = useState(initial?.notes || '');
+  const isCompany = tenantType === 'company';
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ name, tenantType, commercialReg: isCompany ? commercialReg : null, phone, email, idNumber, idType: isCompany ? 'commercial' : (initial?.idType || 'national'), address, guarantor: isCompany ? '' : guarantor, guarantorPhone: isCompany ? '' : guarantorPhone, notes }); toast.success(initial ? 'تم تعديل المستأجر' : 'تم إنشاء المستأجر'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div><Label>نوع المستأجر</Label><div className="grid grid-cols-2 gap-2">
+      <button type="button" onClick={() => setTenantType('individual')} className={`p-3 rounded-xl border-2 text-sm font-semibold transition ${!isCompany ? 'border-teal-500 bg-teal-50 text-teal-800' : 'border-gray-200 text-gray-500 hover:border-teal-200'}`}><Users size={18} className="mx-auto mb-1" />فرد / عائلة<small className="block text-[10px] font-normal mt-1">التحصيل كل مستأجر بروحه</small></button>
+      <button type="button" onClick={() => setTenantType('company')} className={`p-3 rounded-xl border-2 text-sm font-semibold transition ${isCompany ? 'border-indigo-500 bg-indigo-50 text-indigo-800' : 'border-gray-200 text-gray-500 hover:border-indigo-200'}`}><Briefcase size={18} className="mx-auto mb-1" />شركة<small className="block text-[10px] font-normal mt-1">التحصيل بشيك مجمّع للعمارة</small></button>
+    </div></div>
+    <div><Label>{isCompany ? 'اسم الشركة' : 'الاسم'}</Label><Input value={name} onChange={e => setName(e.target.value)} required /></div>
+    {isCompany && <div><Label>رقم السجل التجاري</Label><Input value={commercialReg} onChange={e => setCommercialReg(e.target.value)} placeholder="اختياري" /></div>}
     <div><Label>الهاتف</Label><Input value={phone} onChange={e => setPhone(e.target.value)} /></div>
     <div><Label>البريد</Label><Input type="email" value={email} onChange={e => setEmail(e.target.value)} /></div>
-    <div><Label>رقم الهوية</Label><Input value={idNumber} onChange={e => setIdNumber(e.target.value)} /></div>
+    <div><Label>{isCompany ? 'رقم الترخيص / التسجيل' : 'رقم الهوية'}</Label><Input value={idNumber} onChange={e => setIdNumber(e.target.value)} /></div>
     <div><Label>العنوان</Label><Input value={address} onChange={e => setAddress(e.target.value)} /></div>
-    <div><Label>اسم الضامن</Label><Input value={guarantor} onChange={e => setGuarantor(e.target.value)} /></div>
-    <div><Label>هاتف الضامن</Label><Input value={guarantorPhone} onChange={e => setGuarantorPhone(e.target.value)} /></div>
+    {!isCompany && (<><div><Label>اسم الضامن</Label><Input value={guarantor} onChange={e => setGuarantor(e.target.value)} /></div>
+    <div><Label>هاتف الضامن</Label><Input value={guarantorPhone} onChange={e => setGuarantorPhone(e.target.value)} /></div></>)}
     <div><Label>ملاحظات</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
     <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
   </form>);
@@ -1440,7 +1541,8 @@ function ContractForm({ units, tenants, buildings, onSave, initial, onClose }: {
     <div><Label>المبنى</Label><Select value={buildingId} onValueChange={(v) => { setBuildingId(v); setUnitId(''); }}><SelectTrigger><SelectValue placeholder="اختر المبنى أولاً" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
     <div><Label>الوحدة</Label><Select value={unitId} onValueChange={handleUnitChange}><SelectTrigger><SelectValue placeholder={buildingId ? 'اختر الوحدة' : 'اختر المبنى أولاً'} /></SelectTrigger><SelectContent>{filteredUnits.map(u => <SelectItem key={u.id} value={u.id}>وحدة {u.number}{u.status === 'rented' ? ' (مؤجرة)' : ''}{u.rentAmount ? ` — افتراضي ${u.rentAmount}` : ''}</SelectItem>)}</SelectContent></Select></div>
     {selectedUnit?.rentAmount && <p className="text-xs text-emerald-700 bg-emerald-50 p-2 rounded-lg">الإيجار الافتراضي للوحدة: <b>{selectedUnit.rentAmount} {CURRENCY}</b> — عدّل قيمة العقد المتفق عليها أدناه إن اختلفت، ولن تتأثر القيمة الافتراضية إلا إذا فعّلت الخيار الأخير</p>}
-    <div><Label>المستأجر</Label><Select value={tenantId} onValueChange={setTenantId}><SelectTrigger><SelectValue placeholder="اختر المستأجر" /></SelectTrigger><SelectContent>{tenants.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select></div>
+    <div><Label>المستأجر</Label><Select value={tenantId} onValueChange={setTenantId}><SelectTrigger><SelectValue placeholder="اختر المستأجر" /></SelectTrigger><SelectContent>{tenants.map(t => <SelectItem key={t.id} value={t.id}>{t.name} — {TENANT_TYPE_LABEL[t.tenantType || 'individual']?.label}</SelectItem>)}</SelectContent></Select></div>
+    {tenants.find(t => t.id === tenantId)?.tenantType === 'company' && <p className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 p-2 rounded-lg">مستأجر شركة — التحصيل عادةً بشيك مجمّع للعمارة كاملة (زر «تحصيل شيك شركة» في صفحة المدفوعات)</p>}
     <div className="grid grid-cols-2 gap-3"><div><Label>تاريخ البداية</Label><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required /></div><div><Label>تاريخ النهاية</Label><Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} required /></div></div>
     <div><Label>قيمة الإيجار المتفق عليها ({CURRENCY})</Label><Input type="number" value={rentAmount} onChange={e => setRentAmount(e.target.value)} required /></div>
     <div className="grid grid-cols-2 gap-3"><div><Label>التأمين</Label><Input type="number" value={deposit} onChange={e => setDeposit(e.target.value)} /></div><div><Label>يوم الدفع الشهري</Label><Input type="number" min="1" max="28" value={paymentDay} onChange={e => setPaymentDay(e.target.value)} /></div></div>
@@ -1460,6 +1562,12 @@ function PaymentForm({ contracts, payments, buildings, onSave, initial, onClose 
   return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ contractId, amount: +amount, dueDate, month, method, reference, notes, status: initial?.status || 'paid', paidDate: initial?.paidDate || new Date().toISOString() }); toast.success(initial ? 'تم تعديل الدفعة' : 'تم تسجيل الدفعة'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
     <div><Label>المبنى (فلتر)</Label><Select value={buildingId} onValueChange={setBuildingId}><SelectTrigger><SelectValue placeholder="كل المباني" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
     <div><Label>العقد</Label><Select value={contractId} onValueChange={setContractId}><SelectTrigger><SelectValue placeholder="اختر العقد" /></SelectTrigger><SelectContent>{filteredContracts.map(c => <SelectItem key={c.id} value={c.id}>عقد #{c.id.slice(0, 8)} — {c.tenant?.name || 'بدون مستأجر'} — وحدة {c.unit?.number || '?'}</SelectItem>)}</SelectContent></Select></div>
+    {selected?.tenant?.tenantType === 'company' && (
+      <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-sm text-indigo-900">
+        <p className="font-bold flex items-center gap-2"><Landmark size={15} />هذا مستأجر شركة</p>
+        <p className="text-xs mt-1">التحصيل مع الشركات عادةً بشيك أو تحويل واحد للعمارة كاملة يوزع على كل العقود — استخدم زر «تحصيل شيك شركة (مجمّع)» في أعلى الصفحة، أو سجّل هنا دفعة جزئية على هذا العقد وحده</p>
+      </div>
+    )}
     {selected && balance && (<div className="p-3 bg-blue-50 border border-blue-100 rounded-xl space-y-1 text-sm">
       <p className="font-semibold text-gray-800">{selected.tenant?.name} — وحدة {selected.unit?.number}{selected.unit?.building ? ` (${selected.unit.building.name})` : ''}</p>
       <p className="text-gray-600">الإيجار الشهري: <b>{fmtKWD(selected.rentAmount)} {CURRENCY}</b> — مدفوعات مسجلة: {(selected.payments || []).length}</p>
@@ -1480,14 +1588,15 @@ const MAINT_CATEGORIES: Record<string, string> = {
 
 function MaintenanceForm({ buildings, units, onSave, initial, onClose }: { buildings: Building[]; units: Unit[]; onSave: (data: any) => Promise<void>; initial?: MaintenanceItem; onClose?: () => void }) {
   const [saving, setSaving] = useState(false);
-  const [buildingId, setBuildingId] = useState(initial?.unit?.buildingId || ''); const [unitId, setUnitId] = useState(initial?.unitId || ''); const [title, setTitle] = useState(initial?.title || ''); const [description, setDescription] = useState(initial?.description || ''); const [category, setCategory] = useState(initial?.category || 'other'); const [priority, setPriority] = useState(initial?.priority || 'medium'); const [estimatedCost, setEstimatedCost] = useState(String(initial?.estimatedCost ?? '')); const [cost, setCost] = useState(String(initial?.cost || ''));
+  const [buildingId, setBuildingId] = useState(initial?.unit?.buildingId || initial?.buildingId || ''); const [unitId, setUnitId] = useState(initial?.unitId || ''); const [title, setTitle] = useState(initial?.title || ''); const [description, setDescription] = useState(initial?.description || ''); const [category, setCategory] = useState(initial?.category || 'other'); const [priority, setPriority] = useState(initial?.priority || 'medium'); const [estimatedCost, setEstimatedCost] = useState(String(initial?.estimatedCost ?? '')); const [cost, setCost] = useState(String(initial?.cost || ''));
   // اختيار متسلسل: مبنى ← وحداته فقط — وتصفير الوحدة عند تغيير المبنى
   const filteredUnits = buildingId ? units.filter(u => u.buildingId === buildingId) : units;
-  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ title, description, unitId: unitId || null, category, priority, estimatedCost: estimatedCost ? +estimatedCost : null, cost: cost ? +cost : null }); toast.success(initial ? 'تم تعديل طلب الصيانة' : 'تم إنشاء طلب الصيانة'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ title, description, unitId: unitId || null, buildingId: buildingId || null, category, priority, estimatedCost: estimatedCost ? +estimatedCost : null, cost: cost ? +cost : null }); toast.success(initial ? 'تم تعديل طلب الصيانة' : 'تم إنشاء طلب الصيانة'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
     <div className="grid grid-cols-2 gap-3">
       <div><Label>المبنى</Label><Select value={buildingId} onValueChange={(v) => { setBuildingId(v); setUnitId(''); }}><SelectTrigger><SelectValue placeholder="اختر المبنى" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
-      <div><Label>الوحدة</Label><Select value={unitId} onValueChange={setUnitId}><SelectTrigger><SelectValue placeholder={buildingId ? 'اختر الوحدة (اختياري)' : 'اختر المبنى أولاً'} /></SelectTrigger><SelectContent>{filteredUnits.map(u => <SelectItem key={u.id} value={u.id}>وحدة {u.number}</SelectItem>)}</SelectContent></Select></div>
+      <div><Label>الوحدة (اتركها فارغة للعقار كامله)</Label><Select value={unitId || 'no-unit'} onValueChange={(v) => setUnitId(v === 'no-unit' ? '' : v)}><SelectTrigger><SelectValue placeholder={buildingId ? 'صيانة العمارة بكاملها' : 'اختر المبنى أولاً'} /></SelectTrigger><SelectContent><SelectItem value="no-unit">🏢 صيانة العمارة بكاملها</SelectItem>{filteredUnits.map(u => <SelectItem key={u.id} value={u.id}>وحدة {u.number}</SelectItem>)}</SelectContent></Select></div>
     </div>
+    <p className="text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-lg p-2.5">لو الصيانة على العمارة كلها (ساكن، مصعد، واجهة…) اترك الوحدة على «صيانة العمارة بكاملها» — المصروف يُسجل على العمارة ويظهر في تقريرها المحاسبي</p>
     <div><Label>عنوان الطلب</Label><Input value={title} onChange={e => setTitle(e.target.value)} required /></div>
     <div><Label>التصنيف</Label><Select value={category} onValueChange={setCategory}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(MAINT_CATEGORIES).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent></Select></div>
     <div><Label>الوصف</Label><Textarea value={description} onChange={e => setDescription(e.target.value)} /></div>
@@ -1565,16 +1674,41 @@ function StorageMaintenanceCard() {
   );
 }
 
-function TransactionForm({ buildings, onSave, initial, onClose }: { buildings: Building[]; onSave: (data: any) => Promise<void>; initial?: any; onClose?: () => void }) {
+function TransactionForm({ buildings, accounts, onSave, initial, onClose }: { buildings: Building[]; accounts?: any[]; onSave: (data: any) => Promise<void>; initial?: any; onClose?: () => void }) {
   const [saving, setSaving] = useState(false);
   const [date, setDate] = useState(initial?.date || new Date().toISOString().slice(0, 10)); const [buildingId, setBuildingId] = useState(initial?.buildingId || ''); const [type, setType] = useState(initial?.type || 'income'); const [category, setCategory] = useState(initial?.category || ''); const [amount, setAmount] = useState(String(initial?.amount || ''));
-  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ date, buildingId: buildingId || null, type, category, amount: +amount }); toast.success(initial ? 'تم تعديل الحركة' : 'تم إنشاء الحركة المالية'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
-    <div><Label>التاريخ</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
-    <div><Label>العمارة</Label><Select value={buildingId} onValueChange={setBuildingId}><SelectTrigger><SelectValue placeholder="اختر العمارة (اختياري)" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
-    <div><Label>النوع</Label><Select value={type} onValueChange={setType}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="income">إيراد</SelectItem><SelectItem value="expense">مصروف</SelectItem></SelectContent></Select></div>
-    <div><Label>البيان</Label><Input value={category} onChange={e => setCategory(e.target.value)} /></div>
-    <div><Label>المبلغ</Label><Input type="number" value={amount} onChange={e => setAmount(e.target.value)} required /></div>
-    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+  const [account, setAccount] = useState(initial?.account || ''); const [cashAccount, setCashAccount] = useState(initial?.cashAccount || 'cash');
+  // المصروف الإداري المشترك — يوزع على كل العمارات تلقائيًا (رواتب محاسب/سكرتارية وغيرها)
+  const [distribute, setDistribute] = useState(false); const [distributeMode, setDistributeMode] = useState('equal');
+  const isExpense = type === 'expense';
+  // حسابات الفرعي المتاحة حسب نوع الحركة: إيرادات (4xx) أو مصروفات (5xx)
+  const postAccounts = (accounts || []).filter((a: any) => a.kind === 'post');
+  const accountOptions = postAccounts.filter((a: any) => isExpense ? String(a.code).startsWith('5') : String(a.code).startsWith('4'));
+  const accountCode = account || (isExpense ? '5206' : '4101');
+  const selectedAccountName = accountOptions.find((a: any) => a.code === accountCode)?.name;
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ date, buildingId: distribute ? null : (buildingId || null), type, category, amount: +amount, account: accountCode, cashAccount, distribute: distribute ? { mode: distributeMode } : null }); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div className="grid grid-cols-2 gap-3">
+      <div><Label>التاريخ</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
+      <div><Label>النوع</Label><Select value={type} onValueChange={(v) => { setType(v); setAccount(''); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="income">إيراد</SelectItem><SelectItem value="expense">مصروف</SelectItem></SelectContent></Select></div>
+    </div>
+    <div><Label>البيان</Label><Input value={category} onChange={e => setCategory(e.target.value)} required placeholder={isExpense ? 'مثال: راتب المحاسب — ديسمبر' : 'مثال: بيع خردوات قديمة'} /></div>
+    <div><Label>الحساب المحاسبي (من شجرة الحسابات)</Label><Select value={account} onValueChange={setAccount}><SelectTrigger><SelectValue placeholder={selectedAccountName ? `${accountCode} — ${selectedAccountName}` : (isExpense ? 'افتراضي: 5206 مصروفات متنوعة' : 'افتراضي: 4101 إيراد إيجار سكني')} /></SelectTrigger><SelectContent>{accountOptions.map((a: any) => <SelectItem key={a.code} value={a.code}>{a.code} — {a.name}</SelectItem>)}</SelectContent></Select></div>
+    <div><Label>{isExpense ? 'الدفع من' : 'الاستلام في'}</Label><Select value={cashAccount} onValueChange={setCashAccount}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cash">الصندوق (نقدية)</SelectItem><SelectItem value="bank">البنك (تحويل)</SelectItem><SelectItem value="checks">شيكات برسم التحصيل</SelectItem></SelectContent></Select></div>
+    <div><Label>العمارة</Label><Select value={buildingId} onValueChange={setBuildingId} disabled={distribute}><SelectTrigger><SelectValue placeholder={distribute ? 'توزيع على كل العمارات' : 'اختر العمارة (اختياري)'} /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
+    <div><Label>المبلغ ({CURRENCY})</Label><Input type="number" value={amount} onChange={e => setAmount(e.target.value)} required /></div>
+    {isExpense && (
+      <div className="space-y-2 bg-indigo-50 border border-indigo-100 rounded-xl p-3">
+        <div className="flex items-start gap-2">
+          <input type="checkbox" id="distributeOverhead" checked={distribute} onChange={e => setDistribute(e.target.checked)} className="w-4 h-4 mt-0.5" />
+          <Label htmlFor="distributeOverhead" className="text-xs cursor-pointer font-normal text-indigo-950">مصروف إداري مشترك على كل العمارات (مثل: راتب المحاسب والسكرتارية) — يُقسم تلقائيًا على العمارات ويولّد قيدًا مزدوجًا لكل عمارة يظهر في تقريرها</Label>
+        </div>
+        {distribute && (
+          <div><Label className="text-xs">طريقة التوزيع</Label><Select value={distributeMode} onValueChange={setDistributeMode}><SelectTrigger className="h-9"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="equal">بالتساوي على العمارات</SelectItem><SelectItem value="rent">بنسبة الإيجار المتوقع لكل عمارة</SelectItem></SelectContent></Select></div>
+        )}
+      </div>
+    )}
+    <p className="text-xs text-gray-500">سيُولد تلقائيًا قيد محاسبي مزدوج (مدين ودائن) مرتبط بالعمارة — يظهر في دفتر اليومية وميزان المراجعة وتقرير العمارة</p>
+    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ وتوليد القيد...' : 'حفظ'}</Button>
   </form>);
 }
 
@@ -1789,6 +1923,513 @@ function PermissionsEditor({ currentPerms, onSave, onClose }: { currentPerms: st
   </div>);
 }
 
+// =============================================================
+// صفحة العمارة الكاملة — تفتح بالضغط على كارت العمارة
+// تبويبات: نظرة عامة | الوحدات والمستأجرين | العقود | المستندات القانونية | المالية | القضايا
+// =============================================================
+function BuildingDetailSection({ user, building, buildings, units, tenants, contracts, payments, maintenance, transactions, journalEntries, accounts, allFiles, legalCases, tab, setTab, onBack, canWrite, uploadFile, refresh, openCase }: {
+  user: User; building: Building | null; buildings: Building[];
+  units: Unit[]; tenants: Tenant[]; contracts: Contract[]; payments: Payment[];
+  maintenance: MaintenanceItem[]; transactions: any[]; journalEntries: any[]; accounts: any[];
+  allFiles: FileUpload[]; legalCases: LegalCase[];
+  tab: string; setTab: (t: string) => void;
+  onBack: () => void; canWrite: (e: string) => boolean;
+  uploadFile: (file: File, category: string, meta?: any) => Promise<any>;
+  refresh: () => void; openCase: (id: string) => void;
+}) {
+  if (!building) return (<div className="space-y-4"><Button variant="outline" onClick={onBack} className="border-orange-200 text-orange-700"><ArrowRight size={16} />عودة للمباني</Button><EmptyState icon={<Building2 size={48} />} text="لم يتم العثور على العمارة" /></div>);
+
+  const bUnits = units.filter(u => u.buildingId === building.id);
+  const bUnitIds = new Set(bUnits.map(u => u.id));
+  const bContracts = contracts.filter(c => bUnitIds.has(c.unitId));
+  const activeContracts = bContracts.filter(c => c.status === 'active' || c.status === 'renewed');
+  const bMaintenance = maintenance.filter(m => m.unit?.buildingId === building.id || m.buildingId === building.id);
+  const bTransactions = transactions.filter((t: any) => t.buildingId === building.id);
+  const bEntries = journalEntries.filter((e: any) => e.buildingId === building.id);
+  const bCases = legalCases.filter(c => c.buildingId === building.id);
+  const bFiles = allFiles.filter(f => f.buildingId === building.id);
+
+  // أرصدة العمارة المحاسبية من القيود (كل القيود مرتبطة بbuildingId)
+  const accTypeMap = new Map(accounts.map((a: any) => [a.code, a.type]));
+  let incomeTotal = 0, expenseTotal = 0;
+  for (const e of bEntries) {
+    for (const l of (e.lines || [])) {
+      const t = accTypeMap.get(String(l.accountCode));
+      if (t === 'revenue') incomeTotal += Number(l.credit) || 0;
+      if (t === 'expense') expenseTotal += Number(l.debit) || 0;
+    }
+  }
+  const net = Math.round((incomeTotal - expenseTotal) * 1000) / 1000;
+  const stats = buildingIncomeStats(units as any, contracts as any, building.id);
+
+  // تقرير العمارة المالي القابل للطباعة — يجمع كل مصادر العمارة
+  const reportIncome: { label: string; amount: number; detail?: string }[] = [
+    { label: 'إيجارات محصلة (تحصيل الوحدات والشركات)', amount: bEntries.flatMap((e: any) => e.lines || []).filter((l: any) => String(l.accountCode).startsWith('4')).reduce((s: number, l: any) => s + (Number(l.credit) || 0), 0), detail: 'من القيود المحاسبية' },
+    { label: 'إيرادات أخرى مسجلة', amount: bTransactions.filter((t: any) => t.type === 'income' && t.account && !String(t.account).startsWith('4')).reduce((s: number, t: any) => s + (t.amount || 0), 0) },
+  ];
+  const maintExpense = bMaintenance.filter(m => m.status === 'completed').reduce((s, m) => s + (m.cost || 0), 0);
+  const otherExpense = bTransactions.filter((t: any) => t.type === 'expense' && t.account && String(t.account) !== '5101').reduce((s: number, t: any) => s + (t.amount || 0), 0);
+  const reportExpenses: { label: string; amount: number; detail?: string }[] = [
+    { label: 'صيانة الوحدات والعمارة', amount: maintExpense, detail: `${bMaintenance.filter(m => m.status === 'completed').length} طلب مكتمل` },
+    { label: 'غرامات وقضايا مسددة', amount: bCases.filter(c => c.status === 'paid').reduce((s, c) => s + (c.amount || 0), 0) },
+    { label: 'مصروفات وحصص إدارية موزعة', amount: otherExpense },
+  ];
+
+  const TABS = [
+    { key: 'overview', label: 'نظرة عامة', icon: <Building2 size={16} /> },
+    { key: 'units', label: 'الوحدات والمستأجرين', icon: <Home size={16} /> },
+    { key: 'contracts', label: 'العقود', icon: <FileText size={16} /> },
+    { key: 'legal', label: 'المستندات القانونية', icon: <FolderOpen size={16} /> },
+    { key: 'finance', label: 'المالية', icon: <DollarSign size={16} /> },
+    { key: 'cases', label: 'القضايا والمخالفات', icon: <Gavel size={16} /> },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <Button variant="outline" size="sm" onClick={onBack} className="border-orange-200 text-orange-700"><ArrowRight size={14} className="ml-1" />المباني</Button>
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center text-white shadow"><Building2 size={20} /></div>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-lg sm:text-xl font-bold text-gray-900 truncate">{building.name}</h2>
+          <p className="text-xs text-gray-500">{building.code} {building.address ? `— ${building.address}` : ''}{building.city ? ` — ${building.city}` : ''}</p>
+        </div>
+        {canWrite('buildings') && <FormDialog trigger={<Button variant="outline" size="sm" className="border-orange-200 text-orange-700"><Edit3 size={14} className="ml-1" />تعديل</Button>} title="تعديل المبنى">{(close) => <BuildingForm initial={building} onSave={async (data) => { await api(`/api/buildings/${building.id}`, 'PUT', data); refresh(); }} onClose={close} />}</FormDialog>}
+      </div>
+
+      {/* شريط التبويبات */}
+      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+        {TABS.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition ${tab === t.key ? 'bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md' : 'bg-white text-gray-600 border border-orange-100 hover:bg-orange-50'}`}>
+            {t.icon}{t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ===== نظرة عامة ===== */}
+      {tab === 'overview' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {[
+              { label: 'الإيجار المتوقع / شهر', value: fmtKWD(stats.expectedMonthly), cls: 'bg-emerald-50 text-emerald-700' },
+              { label: 'الإيجار التعاقدي / شهر', value: fmtKWD(stats.contractedMonthly), cls: 'bg-blue-50 text-blue-700' },
+              { label: 'إيرادات محصلة (قيود)', value: fmtKWD(incomeTotal), cls: 'bg-teal-50 text-teal-700' },
+              { label: 'مصروفات (قيود)', value: fmtKWD(expenseTotal), cls: 'bg-red-50 text-red-700' },
+            ].map((s, i) => (
+              <div key={i} className={`p-3.5 rounded-2xl ${s.cls} shadow-sm`}><p className="text-[11px] text-gray-600">{s.label}</p><p className="font-bold text-lg">{s.value} {CURRENCY}</p></div>
+            ))}
+          </div>
+          <Card className="border-0 shadow-lg"><CardContent className="p-5">
+            <h3 className="font-bold text-gray-900 mb-3">بيانات العمارة</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+              {[
+                ['كود العمارة', building.code], ['العنوان', building.address || '-'], ['المدينة', building.city || '-'],
+                ['عدد الطوابق', building.floors || '-'], ['عدد الوحدات الفعلي', String(bUnits.length)],
+                ['القيمة الدفترية', building.value ? `${fmtKWD(building.value)} ${CURRENCY}` : '-'],
+                ['الترخيص / السجل العقاري', building.license || '-'],
+                ['نسبة الإشغال', `${bUnits.length ? Math.round((bUnits.filter(u => u.status === 'rented').length / bUnits.length) * 100) : 0}%`],
+              ].map(([k, v]) => (
+                <div key={k} className="flex justify-between gap-2 border-b border-dotted border-gray-100 py-1.5"><span className="text-gray-500">{k}</span><span className="font-semibold text-gray-800 text-left">{v}</span></div>
+              ))}
+            </div>
+            {building.notes && <p className="text-sm text-gray-600 bg-orange-50 rounded-xl p-3 mt-3">{building.notes}</p>}
+          </CardContent></Card>
+        </div>
+      )}
+
+      {/* ===== الوحدات والمستأجرين ===== */}
+      {tab === 'units' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <p className="text-sm text-gray-500">{bUnits.length} وحدة — {bUnits.filter(u => u.status === 'rented').length} مؤجرة</p>
+            {canWrite('units') && <FormDialog trigger={<Button size="sm" className="bg-gradient-to-l from-orange-500 to-amber-500 text-white"><Plus size={14} className="ml-1" />إضافة وحدة لهذه العمارة</Button>} title="إضافة وحدة جديدة">{(close) => <UnitForm buildings={buildings} initial={{ buildingId: building.id } as any} onSave={async (data) => { await api('/api/units', 'POST', data); refresh(); }} onClose={close} />}</FormDialog>}
+          </div>
+          {/* ديسكتوب */}
+          <div className="hidden md:block">
+            <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
+              <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>الوحدة</TableHead><TableHead>الطابق</TableHead><TableHead>النوع</TableHead><TableHead>الحالة</TableHead><TableHead>الإيجار الافتراضي</TableHead><TableHead>المستأجر الحالي</TableHead><TableHead>المتبقي عليه</TableHead></TableRow></TableHeader>
+              <TableBody>{bUnits.map(u => {
+                const act = activeContracts.filter(c => c.unitId === u.id).sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())[0];
+                const bal = act ? contractBalance(act as any, (act.payments || []) as any) : null;
+                return (<TableRow key={u.id}>
+                  <TableCell className="font-bold">{u.number}</TableCell>
+                  <TableCell>{u.floor ?? '-'}</TableCell>
+                  <TableCell className="text-xs">{({ apartment: 'شقة', office: 'مكتب', shop: 'محل', warehouse: 'مستودع' } as any)[u.type || ''] || u.type || '-'}</TableCell>
+                  <TableCell><Badge className={UNIT_STATUS_MAP[u.status]?.color}>{UNIT_STATUS_MAP[u.status]?.label || u.status}</Badge></TableCell>
+                  <TableCell className="text-sm">{u.rentAmount ? `${fmtKWD(u.rentAmount)} ${CURRENCY}` : '-'}</TableCell>
+                  <TableCell>{act?.tenant ? (<div className="flex items-center gap-1.5 flex-wrap"><span className="text-sm font-medium">{act.tenant.name}</span>{act.tenant.tenantType && <Badge className={`${TENANT_TYPE_LABEL[act.tenant.tenantType]?.color} text-[10px]`}>{TENANT_TYPE_LABEL[act.tenant.tenantType]?.label}</Badge>}</div>) : <span className="text-gray-400 text-sm">شاغرة</span>}</TableCell>
+                  <TableCell className="text-sm font-bold">{bal ? (bal.outstanding > 0 ? <span className="text-red-600">{fmtKWD(bal.outstanding)} {CURRENCY}</span> : <span className="text-emerald-600">لا متبقي ✓</span>) : '-'}</TableCell>
+                </TableRow>);
+              })}</TableBody></Table>
+            </div></Card>
+          </div>
+          {/* موبايل */}
+          <div className="grid gap-3 md:hidden">
+            {bUnits.map(u => {
+              const act = activeContracts.filter(c => c.unitId === u.id).sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())[0];
+              const bal = act ? contractBalance(act as any, (act.payments || []) as any) : null;
+              return (<Card key={u.id} className="border-0 shadow-md"><CardContent className="p-4 space-y-1.5">
+                <div className="flex items-center justify-between"><span className="font-bold">وحدة {u.number}</span><Badge className={UNIT_STATUS_MAP[u.status]?.color}>{UNIT_STATUS_MAP[u.status]?.label || u.status}</Badge></div>
+                {act?.tenant && <p className="text-sm">المستأجر: <b>{act.tenant.name}</b> {act.tenant.tenantType && <Badge className={`${TENANT_TYPE_LABEL[act.tenant.tenantType]?.color} text-[10px]`}>{TENANT_TYPE_LABEL[act.tenant.tenantType]?.label}</Badge>}</p>}
+                {bal && <p className="text-xs text-gray-500">المتبقي: <b className={bal.outstanding > 0 ? 'text-red-600' : 'text-emerald-600'}>{fmtKWD(bal.outstanding)} {CURRENCY}</b></p>}
+              </CardContent></Card>);
+            })}
+          </div>
+          {bUnits.length === 0 && <EmptyState icon={<Home size={48} />} text="لا توجد وحدات في هذه العمارة بعد" />}
+        </div>
+      )}
+
+      {/* ===== العقود ===== */}
+      {tab === 'contracts' && (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-500">{bContracts.length} عقد — {activeContracts.length} نشط</p>
+          <div className="grid gap-3">
+            {bContracts.map(c => (
+              <Card key={c.id} className="border-0 shadow-md"><CardContent className="p-4">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap"><Badge className={CONTRACT_STATUS_MAP[c.status]?.color}>{CONTRACT_STATUS_MAP[c.status]?.label || c.status}</Badge>{c.tenant?.tenantType && <Badge className={`${TENANT_TYPE_LABEL[c.tenant.tenantType]?.color} text-[10px]`}>{TENANT_TYPE_LABEL[c.tenant.tenantType]?.label}</Badge>}</div>
+                    <p className="font-bold text-gray-900">{c.tenant?.name || 'بدون مستأجر'} — وحدة {c.unit?.number || '?'}</p>
+                    <p className="text-xs text-gray-500">إيجار شهري: {fmtKWD(c.rentAmount)} {CURRENCY} — من {new Date(c.startDate).toLocaleDateString('ar')} إلى {new Date(c.endDate).toLocaleDateString('ar')}</p>
+                  </div>
+                  {(() => { const bal = contractBalance(c as any, (c.payments || []) as any); return (
+                    <div className="text-sm bg-blue-50 rounded-xl p-3 min-w-[180px]">
+                      <p>المستحق: <b>{fmtKWD(bal.totalDue)}</b></p>
+                      <p>المدفوع: <b className="text-emerald-700">{fmtKWD(bal.totalPaid)}</b></p>
+                      <p>المتبقي: <b className={bal.outstanding > 0 ? 'text-red-600' : 'text-emerald-600'}>{fmtKWD(bal.outstanding)} {CURRENCY}</b></p>
+                    </div>);
+                  })()}
+                </div>
+              </CardContent></Card>
+            ))}
+            {bContracts.length === 0 && <EmptyState icon={<FileText size={48} />} text="لا توجد عقود لوحدات هذه العمارة" />}
+          </div>
+        </div>
+      )}
+
+      {/* ===== المستندات القانونية ===== */}
+      {tab === 'legal' && (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-500">وثيقة العقار، التراخيص، شهادة الإشغال، المخططات وغيرها — تُرفع هنا وتُحفظ مرتبطة بهذه العمارة</p>
+          {canWrite('files') && (
+            <div className="flex flex-wrap items-center gap-2 bg-orange-50 border border-orange-100 rounded-2xl p-4">
+              <span className="text-sm font-semibold text-orange-900">رفع مستند:</span>
+              {Object.entries(LEGAL_DOC_TYPES).map(([k, label]) => (
+                <FileUploadButton key={k} className="border-orange-300 text-orange-800 bg-white" icon={<Upload size={13} className="ml-1" />}
+                  onPick={async (file) => {
+                    try {
+                      const saved: any = await uploadFile(file, 'building_legal', { buildingId: building.id, docType: k });
+                      if (saved?.warning) toast.warning(saved.warning); else toast.success(`تم رفع: ${label}`);
+                      refresh();
+                    } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
+                  }}>{label}</FileUploadButton>
+              ))}
+            </div>
+          )}
+          <div className="grid gap-2">
+            {bFiles.map(f => (
+              <Card key={f.id} className="border-0 shadow-sm"><CardContent className="p-3 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3 min-w-0">
+                  <FilePreviewDialog fileId={f.id} fileName={f.originalName} mimeType={f.mimeType} showThumbnail />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{f.originalName}</p>
+                    <p className="text-xs text-gray-500">{LEGAL_DOC_TYPES[f.docType || ''] || 'مستند'} — {new Date(f.createdAt).toLocaleDateString('ar')} — {(f.size / 1024).toFixed(0)}KB</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <FilePreviewDialog fileId={f.id} fileName={f.originalName} mimeType={f.mimeType} triggerLabel="عرض" />
+                  {canWrite('files') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف الملف؟')) { await api(`/api/files/${f.id}`, 'DELETE'); refresh(); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>}
+                </div>
+              </CardContent></Card>
+            ))}
+            {bFiles.length === 0 && <EmptyState icon={<FolderOpen size={48} />} text="لا توجد مستندات مرفوعة لهذه العمارة — ابدأ برفع وثيقة العقار" />}
+          </div>
+        </div>
+      )}
+
+      {/* ===== المالية ===== */}
+      {tab === 'finance' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {[
+              { label: 'إيرادات العمارة', value: fmtKWD(incomeTotal), cls: 'bg-emerald-50 text-emerald-700' },
+              { label: 'مصروفات العمارة', value: fmtKWD(expenseTotal), cls: 'bg-red-50 text-red-700' },
+              { label: 'الصافي', value: fmtKWD(net), cls: net >= 0 ? 'bg-teal-50 text-teal-700' : 'bg-orange-50 text-red-700' },
+              { label: 'عدد القيود', value: String(bEntries.length), cls: 'bg-blue-50 text-blue-700' },
+            ].map((s, i) => (<div key={i} className={`p-3.5 rounded-2xl ${s.cls} shadow-sm`}><p className="text-[11px] text-gray-600">{s.label}</p><p className="font-bold text-lg">{s.value} {CURRENCY}</p></div>))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <VoucherDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white"><Printer size={15} className="ml-1" />طباعة التقرير المالي للعمارة</Button>} title={`التقرير المالي — ${building.name}`}
+              docHtml={buildingFinancialReportHtml({
+                building, unitsCount: bUnits.length, occupiedCount: bUnits.filter(u => u.status === 'rented').length,
+                expectedMonthly: stats.expectedMonthly, contractedMonthly: stats.contractedMonthly,
+                income: reportIncome, expenses: reportExpenses, entries: bEntries.slice(0, 20), currency: CURRENCY,
+              })} />
+            {canWrite('transactions') && <FormDialog trigger={<Button variant="outline" className="border-orange-200 text-orange-700"><Plus size={14} className="ml-1" />إضافة حركة على هذه العمارة</Button>} title="إضافة حركة مالية">{(close) => <TransactionForm buildings={buildings} initial={{ buildingId: building.id } as any} accounts={accounts as any} onSave={async (data) => { const r: any = await api('/api/transactions', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); else if (r?.distributed) toast.success(`تم التوزيع على ${r.count} عمارة مع توليد القيود`); else toast.success('تم الحفظ وتوليد القيد المزدوج'); refresh(); }} onClose={close} />}</FormDialog>}
+            {canWrite('journal') && <FormDialog trigger={<Button variant="outline" className="border-orange-200 text-orange-700"><Plus size={14} className="ml-1" />قيد يومي للعمارة</Button>} title="إضافة قيد يومي" maxWidth="max-w-lg">{(close) => <JournalForm accounts={accounts as any} buildings={buildings} initial={{ buildingId: building.id } as any} onSave={async (data) => { await api('/api/journal', 'POST', data); toast.success('تم حفظ القيد'); refresh(); }} onClose={close} />}</FormDialog>}
+          </div>
+          {/* جدول القيود */}
+          <Card className="border-0 shadow-lg overflow-hidden"><div className="max-h-[420px] overflow-auto"><div className="min-w-[560px]">
+            <Table><TableHeader><TableRow className="bg-orange-50 sticky top-0"><TableHead>التاريخ</TableHead><TableHead>البيان</TableHead><TableHead>المصدر</TableHead><TableHead>السطور</TableHead></TableRow></TableHeader>
+            <TableBody>{bEntries.map((e: any) => (
+              <TableRow key={e.id}>
+                <TableCell className="text-xs whitespace-nowrap">{new Date(e.date).toLocaleDateString('ar')}</TableCell>
+                <TableCell className="text-sm">{e.description}</TableCell>
+                <TableCell><Badge className="bg-indigo-100 text-indigo-800 text-[10px]">{SOURCE_LABELS[e.source] || 'يدوي'}</Badge></TableCell>
+                <TableCell className="text-xs"><div className="space-y-0.5">{(e.lines || []).map((l: any, i: number) => (<div key={i}>{l.accountCode} {l.accountName} — {l.debit > 0 ? <b className="text-emerald-700">م {l.debit.toLocaleString?.('ar') ?? l.debit}</b> : <b className="text-red-700">د {l.credit.toLocaleString?.('ar') ?? l.credit}</b>}</div>))}</div></TableCell>
+              </TableRow>
+            ))}</TableBody></Table>
+          </div></div></Card>
+          {bEntries.length === 0 && <EmptyState icon={<ReceiptText size={48} />} text="لا توجد قيود محاسبية لهذه العمارة بعد — سجل حركة أو قيدًا وسيظهر هنا" />}
+        </div>
+      )}
+
+      {/* ===== القضايا والمخالفات ===== */}
+      {tab === 'cases' && (
+        <div className="space-y-3">
+          {canWrite('legalCases') && <FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white"><Plus size={15} className="ml-1" />إضافة مخالفة/قضية لهذه العمارة</Button>} title="مخالفة أو قضية جديدة">{(close) => <LegalCaseForm buildings={buildings} units={units as any} tenants={tenants as any} initial={{ buildingId: building.id } as any} onSave={async (data) => { const r: any = await api('/api/legal-cases', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); refresh(); }} onClose={close} />}</FormDialog>}
+          <div className="grid gap-3">
+            {bCases.map(c => <LegalCaseCard key={c.id} c={c} buildings={buildings} units={units as any} tenants={tenants as any} canWrite={canWrite} uploadFile={uploadFile} refresh={refresh} />)}
+            {bCases.length === 0 && <EmptyState icon={<Gavel size={48} />} text="لا توجد مخالفات أو قضايا على هذه العمارة — الحمد لله" />}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =============================================================
+// قسم المخالفات والقضايا — كل العمارات
+// =============================================================
+function LegalCasesSection({ cases, buildings, units, tenants, canWrite, uploadFile, refresh, openBuilding }: {
+  cases: LegalCase[]; buildings: Building[]; units: Unit[]; tenants: Tenant[];
+  canWrite: (e: string) => boolean;
+  uploadFile: (file: File, category: string, meta?: any) => Promise<any>;
+  refresh: () => void; openBuilding: (id: string) => void;
+}) {
+  const open = cases.filter(c => c.status === 'open' || c.status === 'in_progress');
+  const paid = cases.filter(c => c.status === 'paid');
+  const totalFines = cases.reduce((s, c) => s + (c.amount || 0), 0);
+  const paidFines = cases.filter(c => c.status === 'paid').reduce((s, c) => s + (c.amount || 0), 0);
+  // جلسات قريبة خلال 14 يوم
+  const soon = new Date(Date.now() + 14 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const upcoming = cases.filter(c => c.hearingDate && c.status !== 'closed' && c.hearingDate <= soon);
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900">المخالفات البلدية والقضايا</h2>
+          <p className="text-sm text-gray-500 mt-0.5">متابعة المخالفات والقضايا القانونية وغراماتها</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={undefined as any} readOnly className="pr-9 w-full sm:w-48 border-orange-200" /></div>
+          {canWrite('legalCases') && <FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />مخالفة/قضية جديدة</Button>} title="مخالفة أو قضية جديدة">{(close) => <LegalCaseForm buildings={buildings} units={units} tenants={tenants} onSave={async (data) => { const r: any = await api('/api/legal-cases', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); refresh(); }} onClose={close} />}</FormDialog>}
+        </div>
+      </div>
+      {/* ملخص */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          { label: 'قضايا مفتوحة', value: String(open.length), icon: <AlertTriangle size={16} />, cls: 'bg-amber-50 text-amber-700' },
+          { label: 'غرامات مسددة', value: fmtKWD(paidFines), icon: <CheckCircle2 size={16} />, cls: 'bg-emerald-50 text-emerald-700' },
+          { label: 'إجمالي قيم القضايا', value: fmtKWD(totalFines), icon: <Gavel size={16} />, cls: 'bg-purple-50 text-purple-700' },
+          { label: 'جلسات قريبة (14 يوم)', value: String(upcoming.length), icon: <Calendar size={16} />, cls: upcoming.length ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600' },
+        ].map((s, i) => (
+          <div key={i} className={`p-3.5 rounded-2xl ${s.cls} flex items-center gap-3 shadow-sm`}>
+            <div className="w-9 h-9 rounded-xl bg-white/70 flex items-center justify-center shrink-0">{s.icon}</div>
+            <div className="min-w-0"><p className="text-[11px] text-gray-600">{s.label}</p><p className="font-bold text-sm sm:text-lg truncate">{s.value}</p></div>
+          </div>
+        ))}
+      </div>
+      {upcoming.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 space-y-1">
+          <p className="font-bold text-red-800 text-sm flex items-center gap-2"><Calendar size={15} />جلسات قادمة خلال أسبوعين:</p>
+          {upcoming.map(c => (<p key={c.id} className="text-sm text-red-700">• {c.title} — جلسة {new Date(c.hearingDate!).toLocaleDateString('ar')}{c.building?.name ? ` (${c.building.name})` : ''}</p>))}
+        </div>
+      )}
+      <div className="grid gap-3">
+        {cases.map(c => <LegalCaseCard key={c.id} c={c} buildings={buildings} units={units} tenants={tenants} canWrite={canWrite} uploadFile={uploadFile} refresh={refresh} openBuilding={openBuilding} />)}
+        {cases.length === 0 && <EmptyState icon={<Gavel size={48} />} text="لا توجد مخالفات أو قضايا مسجلة" />}
+      </div>
+    </div>
+  );
+}
+
+// كارت قضية/مخالفة — يستخدم في القسم الرئيسي وصفحة العمارة
+function LegalCaseCard({ c, buildings, units, tenants, canWrite, uploadFile, refresh, openBuilding }: {
+  c: LegalCase; buildings: Building[]; units: Unit[]; tenants: Tenant[];
+  canWrite: (e: string) => boolean;
+  uploadFile: (file: File, category: string, meta?: any) => Promise<any>;
+  refresh: () => void; openBuilding?: (id: string) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const setStatus = async (status: string) => {
+    setSaving(true);
+    try {
+      const r: any = await api(`/api/legal-cases/${c.id}`, 'PUT', { status });
+      if (r?.entryWarning) toast.warning(r.entryWarning);
+      else if (status === 'paid') toast.success('تم تسجيل السداد وتوليد قيد الغرامة (مدين غرامات / دائن الصندوق)');
+      refresh();
+    } catch (e: any) { toast.error(e.message || 'خطأ'); } finally { setSaving(false); }
+  };
+  return (
+    <Card className="border-0 shadow-lg"><CardContent className="p-4">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <Badge className={CASE_TYPE_MAP[c.type]?.color}>{CASE_TYPE_MAP[c.type]?.label || c.type}</Badge>
+            <Badge className={CASE_STATUS_MAP[c.status]?.color}>{CASE_STATUS_MAP[c.status]?.label || c.status}</Badge>
+            {c.reference && <Badge className="bg-gray-100 text-gray-700">مرجع: {c.reference}</Badge>}
+          </div>
+          <h3 className="font-bold text-gray-900">{c.title}</h3>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 mt-1.5">
+            {c.building && <button className="text-orange-600 hover:underline flex items-center gap-1" onClick={() => openBuilding?.(c.building!.id)}><Building2 size={12} />{c.building.name}</button>}
+            {c.unit && <span>وحدة {c.unit.number}</span>}
+            {c.tenant && <span><Users size={12} className="inline ml-1" />{c.tenant.name}</span>}
+            {c.filedDate && <span><Calendar size={12} className="inline ml-1" />تاريخ التسجيل: {new Date(c.filedDate).toLocaleDateString('ar')}</span>}
+            {c.hearingDate && <span className="text-red-600 font-semibold"><Clock size={12} className="inline ml-1" />الجلسة: {new Date(c.hearingDate).toLocaleDateString('ar')}</span>}
+          </div>
+          {c.description && <p className="text-sm text-gray-600 mt-2">{c.description}</p>}
+          {c.notes && <p className="text-xs text-gray-500 mt-1">{c.notes}</p>}
+          {c.amount != null && c.amount > 0 && <p className="text-sm font-bold text-amber-700 mt-2">قيمة الغرامة / القضية: {fmtKWD(c.amount)} {CURRENCY}{c.status === 'paid' ? ' — مسددة ✓' : ''}</p>}
+          {(c.attachments && c.attachments.length > 0) && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {c.attachments.map(f => (<span key={f.id}><FilePreviewDialog fileId={f.id} fileName={f.originalName} mimeType={f.mimeType} showThumbnail /></span>))}
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap items-start gap-1.5 shrink-0">
+          {canWrite('legalCases') && (
+            <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل القضية/المخالفة">{(close) => <LegalCaseForm buildings={buildings} units={units} tenants={tenants} initial={c} onSave={async (data) => { await api(`/api/legal-cases/${c.id}`, 'PUT', data); refresh(); }} onClose={close} />}</FormDialog>
+          )}
+          {canWrite('files') && (
+            <FileUploadButton className="border-orange-200 text-orange-700" icon={<Camera size={14} className="ml-1" />}
+              onPick={async (file) => { try { const saved: any = await uploadFile(file, 'legal_case', { legalCaseId: c.id }); if (saved?.warning) toast.warning(saved.warning); else toast.success('تم رفع مستند القضية'); refresh(); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل الرفع'); } }}>مستند</FileUploadButton>
+          )}
+          {canWrite('legalCases') && c.status !== 'paid' && c.amount && c.amount > 0 && (
+            <Button variant="outline" size="sm" disabled={saving} className="border-emerald-200 text-emerald-700" onClick={() => setStatus('paid')} title="سداد الغرامة مع توليد القيد المحاسبي"><CheckCircle2 size={14} /></Button>
+          )}
+          {canWrite('legalCases') && c.status !== 'closed' && (
+            <Button variant="outline" size="sm" disabled={saving} className="border-gray-200 text-gray-600" onClick={() => setStatus('closed')} title="إغلاق القضية">إغلاق</Button>
+          )}
+          {canWrite('legalCases') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف القضية/المخالفة نهائيًا؟')) { await api(`/api/legal-cases/${c.id}`, 'DELETE'); refresh(); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>}
+        </div>
+      </div>
+    </CardContent></Card>
+  );
+}
+
+// نموذج مخالفة/قضية — إنشاء وتعديل
+function LegalCaseForm({ buildings, units, tenants, onSave, initial, onClose }: { buildings: Building[]; units: Unit[]; tenants: Tenant[]; onSave: (data: any) => Promise<void>; initial?: any; onClose?: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [title, setTitle] = useState(initial?.title || '');
+  const [type, setType] = useState(initial?.type || 'municipal');
+  const [reference, setReference] = useState(initial?.reference || '');
+  const [buildingId, setBuildingId] = useState(initial?.buildingId || initial?.building?.id || '');
+  const [unitId, setUnitId] = useState(initial?.unitId || '');
+  const [tenantId, setTenantId] = useState(initial?.tenantId || '');
+  const [status, setStatus] = useState(initial?.status || 'open');
+  const [filedDate, setFiledDate] = useState(initial?.filedDate || new Date().toISOString().slice(0, 10));
+  const [hearingDate, setHearingDate] = useState(initial?.hearingDate || '');
+  const [amount, setAmount] = useState(initial?.amount != null ? String(initial.amount) : '');
+  const [description, setDescription] = useState(initial?.description || '');
+  const [notes, setNotes] = useState(initial?.notes || '');
+  const filteredUnits = buildingId ? units.filter((u: any) => u.buildingId === buildingId) : units;
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ title, type, reference, buildingId: buildingId || null, unitId: unitId || null, tenantId: tenantId || null, status, filedDate, hearingDate: hearingDate || null, amount: amount ? +amount : null, description, notes }); toast.success(initial ? 'تم تعديل القضية' : 'تم إنشاء القضية/المخالفة'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div><Label>العنوان *</Label><Input value={title} onChange={e => setTitle(e.target.value)} required placeholder="مثال: مخالفة بلدية — ساكنات غير مرخصة" /></div>
+    <div className="grid grid-cols-2 gap-3">
+      <div><Label>النوع</Label><Select value={type} onValueChange={setType}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="municipal">مخالفة بلدية</SelectItem><SelectItem value="lawsuit">قضية</SelectItem><SelectItem value="other">أخرى</SelectItem></SelectContent></Select></div>
+      <div><Label>الحالة</Label><Select value={status} onValueChange={setStatus}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="open">مفتوحة</SelectItem><SelectItem value="in_progress">قيد المتابعة</SelectItem><SelectItem value="paid">مسددة</SelectItem><SelectItem value="closed">مغلقة</SelectItem></SelectContent></Select></div>
+    </div>
+    <div><Label>رقم المخالفة / القضية (مرجع)</Label><Input value={reference} onChange={e => setReference(e.target.value)} placeholder="اختياري" /></div>
+    <div className="grid grid-cols-2 gap-3">
+      <div><Label>العمارة (اختياري)</Label><Select value={buildingId} onValueChange={(v) => { setBuildingId(v); setUnitId(''); }}><SelectTrigger><SelectValue placeholder="اختر العمارة" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
+      <div><Label>الوحدة (اختياري)</Label><Select value={unitId} onValueChange={setUnitId}><SelectTrigger><SelectValue placeholder={buildingId ? 'اختر الوحدة' : 'اختر العمارة أولاً'} /></SelectTrigger><SelectContent>{filteredUnits.map(u => <SelectItem key={u.id} value={u.id}>وحدة {u.number}</SelectItem>)}</SelectContent></Select></div>
+    </div>
+    <div><Label>المستأجر المرتبط (اختياري)</Label><Select value={tenantId} onValueChange={setTenantId}><SelectTrigger><SelectValue placeholder="بدون مستأجر" /></SelectTrigger><SelectContent>{tenants.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select></div>
+    <div className="grid grid-cols-2 gap-3">
+      <div><Label>تاريخ المخالفة / رفع القضية</Label><Input type="date" value={filedDate} onChange={e => setFiledDate(e.target.value)} /></div>
+      <div><Label>موعد الجلسة القادمة</Label><Input type="date" value={hearingDate} onChange={e => setHearingDate(e.target.value)} /></div>
+    </div>
+    <div><Label>قيمة الغرامة / مبلغ القضية ({CURRENCY})</Label><Input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" /></div>
+    <p className="text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-lg p-2.5">عند تحويل الحالة إلى «مسددة» يُولد تلقائيًا قيد محاسبي مزدوج: مدين حساب الغرامات والمخالفات (5208) / دائن الصندوق — مرتبط بالعمارة ويظهر في تقريرها</p>
+    <div><Label>الوصف</Label><Textarea value={description} onChange={e => setDescription(e.target.value)} /></div>
+    <div><Label>ملاحظات</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
+    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+  </form>);
+}
+
+// =============================================================
+// تحصيل شيك شركة مجمّع — للعمارة كاملة
+// يوزع المبلغ تلقائيًا على عقود الشركات النشطة (الأقدم استحقاقًا أولًا)
+// =============================================================
+function CompanyCheckForm({ buildings, contracts, onSave, onClose }: {
+  buildings: Building[]; contracts: Contract[];
+  onSave: (data: any) => Promise<void>; onClose?: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [buildingId, setBuildingId] = useState('');
+  const [amount, setAmount] = useState('');
+  const [method, setMethod] = useState('check');
+  const [reference, setReference] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [notes, setNotes] = useState('');
+  // عقود الشركات النشطة في العمارة المختارة — مرتبة أقدم أولًا (نفس ترتيب السيرفر)
+  const companyContracts = contracts
+    .filter(c => (c.status === 'active' || c.status === 'renewed') && c.unit?.buildingId === buildingId && c.tenant?.tenantType === 'company')
+    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+  // معاينة التوزيع: كل عقد حتى رصيده المستحق — الآخر يستوعب الفائض
+  let remaining = +amount || 0;
+  const preview = companyContracts.map((c, i) => {
+    const bal = contractBalance(c as any, (c.payments || []) as any, new Date(date));
+    const isLast = i === companyContracts.length - 1;
+    const pay = isLast ? remaining : Math.min(bal.outstanding, remaining);
+    remaining = Math.max(0, Math.round((remaining - pay) * 1000) / 1000);
+    return { c, pay, outstanding: bal.outstanding };
+  }).filter(p => p.pay > 0);
+  const totalOutstanding = companyContracts.reduce((s, c) => s + contractBalance(c as any, (c.payments || []) as any, new Date(date)).outstanding, 0);
+  const surplus = Math.round(((+amount || 0) - preview.reduce((s, p) => s + p.pay, 0)) * 1000) / 1000;
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ buildingId, amount: +amount, method, reference, date, notes }); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-sm text-indigo-900">
+      <p className="font-bold flex items-center gap-2"><Landmark size={15} />تحصيل شركات — شيك/تحويل واحد للعمارة كاملة</p>
+      <p className="text-xs mt-1">يوزع النظام المبلغ تلقائيًا على عقود الشركات النشطة (الأقدم استحقاقًا يُسدد أولًا)، وكل دفعة تولّد قيدها المحاسبي على العمارة.</p>
+    </div>
+    <div><Label>العمارة</Label><Select value={buildingId} onValueChange={setBuildingId} required><SelectTrigger><SelectValue placeholder="اختر العمارة" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
+    {buildingId && (companyContracts.length === 0 ? (
+      <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3">لا توجد عقود شركات نشطة في هذه العمارة — المستأجرون هنا أفراد، استخدم «تسجيل دفعة» العادية لكل مستأجر على حدة</p>
+    ) : (
+      <div className="border border-orange-100 rounded-xl overflow-hidden">
+        <div className="bg-orange-50 px-3 py-2 text-xs font-bold text-orange-900">عقود الشركات في العمارة ({companyContracts.length}) — إجمالي المستحق: {fmtKWD(totalOutstanding)} {CURRENCY}</div>
+        <div className="max-h-44 overflow-y-auto divide-y divide-gray-100">
+          {companyContracts.map((c, i) => (<div key={c.id} className="px-3 py-2 text-xs flex items-center justify-between gap-2">
+            <span className="font-semibold text-gray-800">{c.tenant?.name} — وحدة {c.unit?.number}</span>
+            <span className="text-gray-500 shrink-0">إيجار {fmtKWD(c.rentAmount)} — متبقٍ <b className="text-red-600">{fmtKWD(contractBalance(c as any, (c.payments || []) as any, new Date(date)).outstanding)}</b></span>
+          </div>))}
+        </div>
+      </div>
+    ))}
+    {companyContracts.length > 0 && (<>
+      <div className="grid grid-cols-2 gap-3">
+        <div><Label>مبلغ الشيك / التحويل ({CURRENCY})</Label><Input type="number" value={amount} onChange={e => setAmount(e.target.value)} required /></div>
+        <div><Label>الطريقة</Label><Select value={method} onValueChange={setMethod}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="check">شيك</SelectItem><SelectItem value="transfer">تحويل بنكي</SelectItem></SelectContent></Select></div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div><Label>رقم الشيك / المرجع</Label><Input value={reference} onChange={e => setReference(e.target.value)} placeholder="اختياري" /></div>
+        <div><Label>تاريخ الاستلام</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
+      </div>
+      {amount && +amount > 0 && (
+        <div className="border border-emerald-100 bg-emerald-50 rounded-xl p-3 space-y-1.5">
+          <p className="text-xs font-bold text-emerald-900">معاينة التوزيع:</p>
+          {preview.map(p => (<div key={p.c.id} className="text-xs flex justify-between text-emerald-900"><span>{p.c.tenant?.name} — وحدة {p.c.unit?.number}</span><b>{fmtKWD(p.pay)} {CURRENCY}</b></div>))}
+          {surplus > 0 && <p className="text-xs text-amber-800">فائض {fmtKWD(surplus)} {CURRENCY} سيُسجل دفعة مقدمة على آخر عقد</p>}
+          {surplus < 0 && <p className="text-xs text-red-700">تنبيه: المبلغ أكبر من إجمالي المستحق — سيُرفض الحفظ، قلّل المبلغ أو سجّل الفائض كدفعة عادية</p>}
+        </div>
+      )}
+      <div><Label>ملاحظات</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
+    </>)}
+    <Button type="submit" disabled={saving || !buildingId || !amount || +amount <= 0 || companyContracts.length === 0 || surplus < 0} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري التوزيع والحفظ...' : 'توزيع الشيك وتسجيل الدفعات'}</Button>
+  </form>);
+}
+
 // محتوى القائمة الجانبية — مشترك بين الديسكتوب ودرج الموبايل
 function SidebarContent({ user, section, isAdmin, onNavigate, onLogout }: {
   user: User; section: Section; isAdmin: boolean;
@@ -1802,6 +2443,7 @@ function SidebarContent({ user, section, isAdmin, onNavigate, onLogout }: {
     { key: 'contracts', icon: <FileText size={20} />, label: 'العقود' },
     { key: 'payments', icon: <DollarSign size={20} />, label: 'المدفوعات' },
     { key: 'maintenance', icon: <Wrench size={20} />, label: 'الصيانة' },
+    { key: 'legalCases', icon: <Gavel size={20} />, label: 'المخالفات والقضايا' },
     { key: 'files', icon: <FolderOpen size={20} />, label: 'الملفات' },
     { key: 'transactions', icon: <DollarSign size={20} />, label: 'الإيرادات والمصروفات' },
     { key: 'loans', icon: <Briefcase size={20} />, label: 'القروض' },

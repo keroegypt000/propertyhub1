@@ -9,8 +9,8 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
       select: {
         id: true, filename: true, originalName: true, mimeType: true, size: true,
-        category: true, contractId: true, maintenanceId: true, tenantId: true,
-        uploadedBy: true, createdAt: true,
+        category: true, docType: true, contractId: true, maintenanceId: true, tenantId: true,
+        buildingId: true, legalCaseId: true, uploadedBy: true, createdAt: true,
       },
     });
     return NextResponse.json(files);

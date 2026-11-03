@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
       include: {
         unit: { include: { building: true } },
+        building: true,
         attachments: {
           select: {
             id: true, filename: true, originalName: true, mimeType: true, size: true,
@@ -33,7 +34,23 @@ export async function POST(request: NextRequest) {
     const user = await authMiddleware(request);
     if (!canWrite(user.role, 'maintenance')) return NextResponse.json({ error: 'ليست لديك صلاحية' }, { status: 403 });
     const body = await request.json();
-    const item = await db.maintenanceRequest.create({ data: body });
+    // الحقول المسموح بها — buildingId يحفظ العمارة لصيانة العقار بكاملها (بدون وحدة)
+    const data: any = {
+      title: body.title, description: body.description || null, category: body.category || null,
+      priority: body.priority || 'medium', status: body.status || 'open',
+      unitId: body.unitId || null, buildingId: body.buildingId || null,
+      estimatedCost: body.estimatedCost ?? null, cost: body.cost ?? null,
+    };
+    if (!data.unitId && data.buildingId) {
+      const b = await db.building.findUnique({ where: { id: data.buildingId }, select: { id: true } });
+      if (!b) return NextResponse.json({ error: 'العمارة غير موجودة' }, { status: 400 });
+    }
+    if (data.unitId) {
+      const u = await db.unit.findUnique({ where: { id: data.unitId }, include: { building: { select: { id: true } } } });
+      if (!u) return NextResponse.json({ error: 'الوحدة غير موجودة' }, { status: 400 });
+      data.buildingId = u.building.id; // العمارة تُملأ تلقائياً من الوحدة
+    }
+    const item = await db.maintenanceRequest.create({ data });
     await logAudit(user.id, 'create', 'maintenance', item.id, body, `إنشاء طلب صيانة: ${body.title}`);
     // إن أُنشئ الطلب مكتملًا بتكلفة فعلية → توليد قيد مصروف الصيانة فورًا
     let entryWarning: string | null = null;

@@ -28,7 +28,12 @@ export async function POST(request: NextRequest) {
     const user = await authMiddleware(request);
     if (!canWrite(user.role, 'tenants')) return NextResponse.json({ error: 'ليست لديك صلاحية' }, { status: 403 });
     const body = await request.json();
-    const tenant = await db.tenant.create({ data: body });
+    // الحقول المسموح بها — منها نوع المستأجر (فرد/شركة) والسجل التجاري
+    const data: any = {};
+    for (const k of ['name', 'tenantType', 'commercialReg', 'phone', 'email', 'idNumber', 'idType', 'address', 'emergencyContact', 'guarantor', 'guarantorPhone', 'notes']) {
+      if (body[k] !== undefined) data[k] = body[k];
+    }
+    const tenant = await db.tenant.create({ data });
     await logAudit(user.id, 'create', 'tenant', tenant.id, body, `إنشاء مستأجر: ${body.name}`);
     return NextResponse.json(tenant, { status: 201 });
   } catch (error: any) {
