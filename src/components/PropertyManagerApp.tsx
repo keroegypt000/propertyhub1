@@ -19,7 +19,7 @@ import {
   Archive, Activity, UserPlus, Key, ToggleLeft, ToggleRight, Info,
   LayoutDashboard, FolderOpen, Camera, FileImage, CloudUpload, Printer, Scale,
   Menu, X, Percent, TrendingUp, Gavel, ArrowRight, Landmark, ReceiptText,
-  MousePointerClick, ArrowLeft
+  MousePointerClick, ArrowLeft, History
 } from 'lucide-react';
 import { ExcelToolbar } from '@/components/ExcelToolbar';
 import { ResetDemoDataCard } from '@/components/ResetDemoDataCard';
@@ -38,7 +38,7 @@ import { Textarea } from '@/components/ui/textarea';
 interface User { id: string; username: string; name: string; role: string; roleName: string; permissions?: string; }
 interface Building { id: string; code?: string; name: string; address?: string; city?: string; floors?: number; unitsCount?: number; value?: number; license?: string; notes?: string; units?: Unit[]; transactions?: any[]; createdAt: string; }
 interface Unit { id: string; buildingId: string; number: string; floor?: number; area?: number; type?: string; status: string; rentAmount?: number; notes?: string; building?: Building; createdAt: string; }
-interface Tenant { id: string; name: string; tenantType?: string; commercialReg?: string; phone?: string; email?: string; idNumber?: string; idType?: string; address?: string; notes?: string; uploads?: FileUpload[]; createdAt: string; }
+interface Tenant { id: string; name: string; tenantType?: string; commercialReg?: string; phone?: string; email?: string; idNumber?: string; idType?: string; address?: string; guarantor?: string | null; guarantorPhone?: string | null; notes?: string; uploads?: FileUpload[]; createdAt: string; }
 interface Contract { id: string; unitId: string; tenantId: string; startDate: string; endDate: string; rentAmount: number; deposit?: number; paymentDay?: number; status: string; terms?: string; notes?: string; unit?: Unit; tenant?: Tenant; payments?: Payment[]; attachments?: FileUpload[]; createdAt: string; }
 interface Payment { id: string; contractId: string; amount: number; dueDate: string; paidDate?: string; month?: string; status: string; method?: string; reference?: string; notes?: string; contract?: Contract; createdAt: string; }
 interface MaintenanceItem { id: string; title: string; description?: string; priority: string; status: string; cost?: number; estimatedCost?: number; category?: string; assignedTo?: string; unitId?: string; unit?: Unit; buildingId?: string; building?: Building; attachments?: FileUpload[]; completedAt?: string | null; createdAt: string; }
@@ -204,7 +204,13 @@ export default function PropertyManagerApp() {
         setBuildings(b); setUnits(u); setContracts(c); setPayments(p); setJournalEntries(j as any);
       }
       if (s === 'units') setUnits(await api<Unit[]>('/api/units'));
-      if (s === 'tenants') { const data = await api<Tenant[]>('/api/tenants'); setTenants(data); }
+      if (s === 'tenants') {
+        const [t, c, p, lc] = await Promise.all([
+          api<Tenant[]>('/api/tenants'), api<Contract[]>('/api/contracts'),
+          api<Payment[]>('/api/payments').catch(() => []), api('/api/legal-cases').catch(() => []),
+        ]);
+        setTenants(t); setContracts(c); setPayments(p); setLegalCases(lc as any);
+      }
       if (s === 'contracts') setContracts(await api<Contract[]>('/api/contracts'));
       if (s === 'payments') { setPayments(await api<Payment[]>('/api/payments')); setContracts(await api<Contract[]>('/api/contracts')); }
       if (s === 'maintenance') setMaintenance(await api<MaintenanceItem[]>('/api/maintenance'));
@@ -880,6 +886,7 @@ export default function PropertyManagerApp() {
                       )}
                     </div>
                     {canWriteCheck('tenants') && <div className="flex gap-2 mt-3"><FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل المستأجر">{(close) => <TenantForm initial={t} onSave={async (data) => { await api(`/api/tenants/${t.id}`, 'PUT', data); autoRestore('تعديل مستأجر'); loadData('tenants'); }} onClose={close} />}</FormDialog><Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/tenants/${t.id}`, 'DELETE'); autoRestore('حذف مستأجر'); loadData('tenants'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button></div>}
+                    <TenantHistoryDialog trigger={<Button variant="outline" size="sm" className="w-full mt-2 border-orange-200 text-orange-700 hover:bg-orange-50" title="سجل العميل الكامل: الدفعات والالتزام والعقود والقضايا"><History size={14} className="ml-1" />سجل العميل — الدفعات والالتزام والقضايا</Button>} tenant={t} contracts={contracts as any} payments={payments as any} legalCases={legalCases as any} />
                   </CardContent></Card>
                 ))}
                 {tenants.length === 0 && <EmptyState icon={<Users size={48} />} text="لا يوجد مستأجرين" />}
@@ -1578,6 +1585,189 @@ function FormDialog({ trigger, title, children, maxWidth = 'max-w-md' }: {
         {children(() => setOpen(false))}
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ============ سجل العميل — كل تفاصيل العميل: الدفعات والالتزام والعقود والقضايا ============
+function TenantHistoryDialog({ trigger, tenant, contracts, payments, legalCases }: {
+  trigger: React.ReactNode;
+  tenant: Tenant;
+  contracts: Contract[];
+  payments: Payment[];
+  legalCases: any[];
+}) {
+  // عقود العميل — الأحدث أولاً
+  const tContracts = contracts.filter(c => c.tenantId === tenant.id).sort((a, b) => (b.startDate || '').localeCompare(a.startDate || ''));
+  const tContractIds = new Set(tContracts.map(c => c.id));
+  const tPayments = payments.filter(p => tContractIds.has(p.contractId));
+  const tCases = legalCases.filter((lc: any) => lc.tenantId === tenant.id);
+  const openCases = tCases.filter((lc: any) => lc.status === 'open' || lc.status === 'in_progress');
+
+  // الملخص المالي والالتزام — نفس منطق صفحة العقود (contractBalance)
+  let totalDue = 0, totalPaid = 0, outstanding = 0;
+  for (const c of tContracts) {
+    try {
+      const bal = contractBalance(c as any, (c.payments || []) as any);
+      totalDue += bal.totalDue; totalPaid += bal.totalPaid; outstanding += bal.outstanding;
+    } catch {}
+  }
+  const commitmentPct = totalDue > 0 ? Math.min(100, Math.round((totalPaid / totalDue) * 100)) : 100;
+  const verdict = outstanding <= 0
+    ? { label: 'ملتزم بالكامل', color: 'bg-emerald-100 text-emerald-800', ring: 'border-emerald-200' }
+    : commitmentPct >= 80
+      ? { label: 'التزام جيد — عليه متأخر', color: 'bg-amber-100 text-amber-800', ring: 'border-amber-200' }
+      : { label: 'متأخر عن السداد', color: 'bg-red-100 text-red-800', ring: 'border-red-200' };
+
+  // انتظام الدفع: كل دفعة — هل دُفعت في موعدها؟
+  const paidRows = tPayments.filter(p => p.status === 'paid' || p.status === 'partial').map(p => {
+    const due = p.dueDate ? new Date(p.dueDate) : null;
+    const paid = p.paidDate ? new Date(p.paidDate) : null;
+    let punctuality: { label: string; cls: string };
+    if (!paid || !due) punctuality = { label: '—', cls: 'text-gray-400' };
+    else {
+      const diffDays = Math.round((paid.getTime() - due.getTime()) / 86400000);
+      if (diffDays <= 0) punctuality = { label: diffDays === 0 ? 'في الموعد ✓' : `قبل الموعد بـ ${Math.abs(diffDays)} يوم ✓`, cls: 'text-emerald-700 font-semibold' };
+      else punctuality = { label: `متأخر ${diffDays} يوم`, cls: 'text-red-700 font-semibold' };
+    }
+    const c = tContracts.find(x => x.id === p.contractId);
+    return { ...p, punctuality, unitNumber: c?.unit?.number || '-', buildingName: c?.unit?.building?.name || '-' };
+  }).sort((a, b) => (b.paidDate || '').localeCompare(a.paidDate || ''));
+  const lateCount = paidRows.filter(r => r.punctuality.label.includes('متأخر')).length;
+
+  // كل عقود العميل مع الأرصدة — النشط والمنتهي (الالتزام التاريخي)
+  const openBalances = tContracts.map(c => {
+    try {
+      const bal = contractBalance(c as any, (c.payments || []) as any);
+      return { c, bal };
+    } catch { return null; }
+  }).filter(Boolean) as { c: Contract; bal: { totalDue: number; totalPaid: number; outstanding: number } }[];
+
+  const CASE_TYPE: Record<string, { label: string; color: string }> = {
+    municipal: { label: 'مخالفة بلدية', color: 'bg-amber-100 text-amber-800' },
+    lawsuit: { label: 'قضية', color: 'bg-red-100 text-red-800' },
+    other: { label: 'أخرى', color: 'bg-gray-100 text-gray-700' },
+  };
+  const CASE_STATUS: Record<string, { label: string; color: string }> = {
+    open: { label: 'مفتوحة', color: 'bg-red-100 text-red-800' },
+    in_progress: { label: 'جارية', color: 'bg-amber-100 text-amber-800' },
+    paid: { label: 'مسددة', color: 'bg-emerald-100 text-emerald-800' },
+    closed: { label: 'مغلقة', color: 'bg-gray-100 text-gray-700' },
+  };
+  const fmt = (n: number) => (n ?? 0).toLocaleString('en-US', { maximumFractionDigits: 3 });
+  const d = (s?: string | null) => s ? new Date(s).toLocaleDateString('ar-EG') : '-';
+
+  return (
+    <FormDialog trigger={trigger} title={`سجل العميل — ${tenant.name}`} maxWidth="max-w-4xl">
+      {() => (
+        <div className="space-y-4 max-h-[70vh] overflow-y-auto pl-1">
+          {/* بيانات العميل */}
+          <div className={`bg-gray-50 rounded-xl p-3 border ${verdict.ring} text-sm space-y-1`}>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge className={`${TENANT_TYPE_LABEL[tenant.tenantType || 'individual']?.color} text-[10px]`}>{TENANT_TYPE_LABEL[tenant.tenantType || 'individual']?.label}</Badge>
+              {tenant.tenantType === 'company' && tenant.commercialReg && <span className="text-gray-500">س.ت: {tenant.commercialReg}</span>}
+              {tenant.idNumber && <span className="text-gray-500">{tenant.idType === 'passport' ? 'جواز سفر' : 'هوية'}: {tenant.idNumber}</span>}
+              {tenant.phone && <span className="flex items-center gap-1 text-gray-600"><Phone size={12} />{tenant.phone}</span>}
+              {tenant.email && <span className="flex items-center gap-1 text-gray-600"><Mail size={12} />{tenant.email}</span>}
+            </div>
+            {tenant.address && <p className="text-gray-500 text-xs flex items-center gap-1"><MapPin size={12} />{tenant.address}</p>}
+            {tenant.guarantor && <p className="text-gray-500 text-xs flex items-center gap-1"><UserPlus size={12} />الضامن: {tenant.guarantor}{tenant.guarantorPhone ? ` — ${tenant.guarantorPhone}` : ''}</p>}
+          </div>
+
+          {/* ملخص الالتزام المالي */}
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+              <p className="text-xs font-bold text-gray-700 flex items-center gap-1"><DollarSign size={13} />ملخص الحساب والالتزام</p>
+              <Badge className={verdict.color}>{verdict.label}</Badge>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="p-2.5 bg-emerald-50 rounded-lg text-center border border-emerald-100"><p className="text-[10px] text-gray-600">المستحق حتى اليوم</p><p className="text-base font-bold text-emerald-700">{fmt(totalDue)} {CURRENCY}</p></div>
+              <div className="p-2.5 bg-indigo-50 rounded-lg text-center border border-indigo-100"><p className="text-[10px] text-gray-600">المدفوع</p><p className="text-base font-bold text-indigo-700">{fmt(totalPaid)} {CURRENCY}</p></div>
+              <div className="p-2.5 bg-red-50 rounded-lg text-center border border-red-100"><p className="text-[10px] text-gray-600">المتبقي (المتأخرات)</p><p className={`text-base font-bold ${outstanding > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmt(outstanding)} {CURRENCY}</p></div>
+              <div className="p-2.5 bg-teal-50 rounded-lg text-center border border-teal-100"><p className="text-[10px] text-gray-600">نسبة الالتزام</p><p className="text-base font-bold text-teal-700">{commitmentPct}%</p></div>
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1.5">
+              {tContracts.length > 0 ? `${tContracts.length} عقد — ` : 'لا توجد عقود — '}
+              {paidRows.length} دفعة مسجلة{paidRows.length > 0 ? (lateCount > 0 ? ` — دفع متأخر في ${lateCount} مرة` : ' — لم يتأخر في أي دفعة ✓') : ''}
+              {tCases.length > 0 ? ` — ${tCases.length} قضية/مخالفة (${openCases.length} مفتوحة)` : ' — لا توجد قضايا ✓'}
+            </p>
+          </div>
+
+          {/* سجل الدفعات — دفع امتا وكام والتزم ولا لا */}
+          <div>
+            <p className="text-xs font-bold text-gray-700 mb-2 flex items-center gap-1"><ReceiptText size={13} />سجل الدفعات — دفع امتى وكام</p>
+            {paidRows.length > 0 ? (
+              <div className="overflow-x-auto rounded-lg border border-gray-100">
+                <Table>
+                  <TableHeader><TableRow className="bg-orange-50"><TableHead>تاريخ الدفع</TableHead><TableHead>المبلغ</TableHead><TableHead>عن شهر</TableHead><TableHead>العمارة / الوحدة</TableHead><TableHead>الطريقة</TableHead><TableHead>المرجع</TableHead><TableHead>الالتزام</TableHead></TableRow></TableHeader>
+                  <TableBody>{paidRows.map(p => (
+                    <TableRow key={p.id}>
+                      <TableCell className="text-sm whitespace-nowrap">{d(p.paidDate)}</TableCell>
+                      <TableCell className="font-bold text-sm whitespace-nowrap">{fmt(p.amount)} {CURRENCY}</TableCell>
+                      <TableCell className="text-sm">{p.month || '-'}</TableCell>
+                      <TableCell className="text-xs text-gray-600">{p.buildingName} — {p.unitNumber}</TableCell>
+                      <TableCell className="text-sm">{p.method === 'cash' ? 'نقدي' : p.method === 'check' ? 'شيك' : p.method === 'transfer' ? 'تحويل' : p.method || '-'}</TableCell>
+                      <TableCell className="text-xs text-gray-500">{p.reference || '-'}</TableCell>
+                      <TableCell className={`text-xs ${p.punctuality.cls}`}><span title={p.status === 'partial' ? 'دفع جزئي' : ''}>{p.punctuality.label}{p.status === 'partial' ? ' (جزئي)' : ''}</span></TableCell>
+                    </TableRow>
+                  ))}</TableBody>
+                </Table>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 text-center py-4 bg-gray-50 rounded-lg">لم يسجل أي دفعة بعد{outstanding > 0 ? ` — عليه ${fmt(outstanding)} ${CURRENCY} مستحقة` : ''}</p>
+            )}
+          </div>
+
+          {/* العقود — كل العقود مع الأرصدة والحالة */}
+          {openBalances.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-gray-700 mb-2 flex items-center gap-1"><FileText size={13} />العقود — الإيجار والالتزام (الحالية والمنتهية)</p>
+              <div className="overflow-x-auto rounded-lg border border-gray-100">
+                <Table>
+                  <TableHeader><TableRow className="bg-blue-50"><TableHead>الوحدة</TableHead><TableHead>العمارة</TableHead><TableHead>الإيجار شهرياً</TableHead><TableHead>الفترة</TableHead><TableHead>الحالة</TableHead><TableHead>المستحق</TableHead><TableHead>المدفوع</TableHead><TableHead>المتبقي</TableHead></TableRow></TableHeader>
+                  <TableBody>{openBalances.map(({ c, bal }) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="text-sm font-medium">{c.unit?.number || '-'}</TableCell>
+                      <TableCell className="text-xs text-gray-600">{c.unit?.building?.name || '-'}</TableCell>
+                      <TableCell className="text-sm">{fmt(c.rentAmount)} {CURRENCY}</TableCell>
+                      <TableCell className="text-xs text-gray-500 whitespace-nowrap">{d(c.startDate)} → {d(c.endDate)}</TableCell>
+                      <TableCell><Badge className={`${CONTRACT_STATUS_MAP[c.status]?.color || 'bg-gray-100'} text-[10px]`}>{CONTRACT_STATUS_MAP[c.status]?.label || c.status}</Badge></TableCell>
+                      <TableCell className="text-sm text-emerald-700">{fmt(bal.totalDue)}</TableCell>
+                      <TableCell className="text-sm text-indigo-700">{fmt(bal.totalPaid)}</TableCell>
+                      <TableCell className={`text-sm font-bold ${bal.outstanding > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmt(bal.outstanding)}</TableCell>
+                    </TableRow>
+                  ))}</TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+
+          {/* القضايا والمخالفات */}
+          <div>
+            <p className="text-xs font-bold text-gray-700 mb-2 flex items-center gap-1"><Gavel size={13} />القضايا والمخالفات على العميل</p>
+            {tCases.length > 0 ? (
+              <div className="overflow-x-auto rounded-lg border border-gray-100">
+                <Table>
+                  <TableHeader><TableRow className="bg-red-50"><TableHead>النوع</TableHead><TableHead>العنوان</TableHead><TableHead>الرقم</TableHead><TableHead>الحالة</TableHead><TableHead>تاريخ التقديم</TableHead><TableHead>الجلسة القادمة</TableHead><TableHead>المبلغ</TableHead></TableRow></TableHeader>
+                  <TableBody>{tCases.map((lc: any) => (
+                    <TableRow key={lc.id}>
+                      <TableCell><Badge className={`${CASE_TYPE[lc.type]?.color || 'bg-gray-100'} text-[10px]`}>{CASE_TYPE[lc.type]?.label || lc.type}</Badge></TableCell>
+                      <TableCell className="text-sm font-medium">{lc.title}</TableCell>
+                      <TableCell className="text-xs text-gray-500">{lc.reference || '-'}</TableCell>
+                      <TableCell><Badge className={`${CASE_STATUS[lc.status]?.color || 'bg-gray-100'} text-[10px]`}>{CASE_STATUS[lc.status]?.label || lc.status}</Badge></TableCell>
+                      <TableCell className="text-sm">{d(lc.filedDate)}</TableCell>
+                      <TableCell className={`text-sm ${(lc.hearingDate && new Date(lc.hearingDate) <= new Date(Date.now() + 14 * 86400000)) ? 'text-red-700 font-bold' : ''}`}>{d(lc.hearingDate)}</TableCell>
+                      <TableCell className="text-sm">{lc.amount ? `${fmt(lc.amount)} ${CURRENCY}` : '-'}</TableCell>
+                    </TableRow>
+                  ))}</TableBody>
+                </Table>
+              </div>
+            ) : (
+              <p className="text-sm text-emerald-700 text-center py-3 bg-emerald-50 rounded-lg border border-emerald-100 flex items-center justify-center gap-1"><CheckCircle2 size={14} />لا توجد قضايا أو مخالفات على العميل</p>
+            )}
+          </div>
+        </div>
+      )}
+    </FormDialog>
   );
 }
 
