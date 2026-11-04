@@ -51,10 +51,8 @@ export async function POST(request: NextRequest) {
       contract: c,
       balance: contractBalance(c as any, c.payments as any, date),
     }));
-    const totalOutstanding = Math.round(balances.reduce((s, b) => s + b.balance.outstanding, 0) * 1000) / 1000;
-    if (totalOutstanding <= 0) {
-      return NextResponse.json({ error: 'لا توجد مبالغ مستحقة على الشركات في هذه العمارة حاليًا' }, { status: 400 });
-    }
+    // ملاحظة: إذا كان إجمالي المستحق صفرًا نسمح بالتحصيل — الفائض كله يُسجل دفعة مقدمة على آخر عقد
+    // (نفس معاينة واجهة المستخدم: «تسديد 0 + مقدمة X») بدل رفض الشيك بالكامل
 
     // التوزيع: كل عقد حتى رصيده المستحق — والفائض يُسجل على آخر عقد (دفعة مقدمة)
     let remaining = Math.round(amount * 1000) / 1000;
@@ -99,7 +97,7 @@ export async function POST(request: NextRequest) {
             status: 'paid',
             method,
             reference,
-            notes: `شيك مجمّع للعمارة ${building.name}${surplus ? surplusNote : ''}${notes ? ` — ${notes}` : ''}`,
+            notes: `شيك مجمّع للعمارة ${building.name}${surplusNote}${notes ? ` — ${notes}` : ''}`,
           },
         });
         payments.push(payment);
