@@ -2751,31 +2751,62 @@ function CompanyCheckForm({ buildings, contracts, onSave, onClose }: {
 }
 
 // محتوى القائمة الجانبية — مشترك بين الديسكتوب ودرج الموبايل
+// قائمة مجمّعة: البنود المتشابهة داخل مجموعات منسدلة (اضغط المجموعة تفتح/تطوي)
+// والمجموعة التي يوجد بها القسم الحالي تُفتح تلقائيًا عند التنقل
 function SidebarContent({ user, section, isAdmin, onNavigate, onLogout }: {
   user: User; section: Section; isAdmin: boolean;
   onNavigate: (s: Section) => void; onLogout: () => void;
 }) {
-  const navItems: { key: Section; icon: React.ReactNode; label: string; admin?: boolean }[] = [
-    { key: 'dashboard', icon: <LayoutDashboard size={20} />, label: 'لوحة التحكم' },
-    { key: 'buildings', icon: <Building2 size={20} />, label: 'المباني' },
-    { key: 'units', icon: <Home size={20} />, label: 'الوحدات' },
-    { key: 'tenants', icon: <Users size={20} />, label: 'المستأجرين' },
-    { key: 'contracts', icon: <FileText size={20} />, label: 'العقود' },
-    { key: 'payments', icon: <DollarSign size={20} />, label: 'المدفوعات' },
-    { key: 'maintenance', icon: <Wrench size={20} />, label: 'الصيانة' },
-    { key: 'legalCases', icon: <Gavel size={20} />, label: 'المخالفات والقضايا' },
-    { key: 'files', icon: <FolderOpen size={20} />, label: 'الملفات' },
-    { key: 'transactions', icon: <DollarSign size={20} />, label: 'الإيرادات والمصروفات' },
-    { key: 'loans', icon: <Briefcase size={20} />, label: 'القروض' },
-    { key: 'accounts', icon: <Hash size={20} />, label: 'شجرة الحسابات', admin: true },
-    { key: 'journal', icon: <FileText size={20} />, label: 'القيود اليومية', admin: true },
-    { key: 'trialBalance', icon: <Scale size={20} />, label: 'ميزان المراجعة', admin: true },
-    { key: 'audit', icon: <Activity size={20} />, label: 'سجل التدقيق', admin: true },
-    { key: 'restore', icon: <Archive size={20} />, label: 'نقاط الاستعادة', admin: true },
-    { key: 'health', icon: <Activity size={20} />, label: 'صحة النظام', admin: true },
-    { key: 'users', icon: <Shield size={20} />, label: 'المستخدمون', admin: true },
-    { key: 'settings', icon: <Settings size={20} />, label: 'الإعدادات' },
+  type NavItem = { key: Section; icon: React.ReactNode; label: string };
+  type NavGroup = { id: string; title: string; icon: React.ReactNode; items: NavItem[]; admin?: boolean };
+  const NAV_GROUPS: NavGroup[] = [
+    { id: 'properties', title: 'العقارات', icon: <Building2 size={17} />, items: [
+      { key: 'buildings', icon: <Building2 size={17} />, label: 'المباني' },
+      { key: 'units', icon: <Home size={17} />, label: 'الوحدات' },
+      { key: 'maintenance', icon: <Wrench size={17} />, label: 'الصيانة' },
+      { key: 'files', icon: <FolderOpen size={17} />, label: 'الملفات' },
+    ] },
+    { id: 'clients', title: 'العملاء والعقود', icon: <Users size={17} />, items: [
+      { key: 'tenants', icon: <Users size={17} />, label: 'المستأجرين' },
+      { key: 'contracts', icon: <FileText size={17} />, label: 'العقود' },
+      { key: 'legalCases', icon: <Gavel size={17} />, label: 'المخالفات والقضايا' },
+    ] },
+    { id: 'finance', title: 'المالية', icon: <Landmark size={17} />, items: [
+      { key: 'payments', icon: <DollarSign size={17} />, label: 'المدفوعات' },
+      { key: 'transactions', icon: <TrendingUp size={17} />, label: 'الإيرادات والمصروفات' },
+      { key: 'loans', icon: <Briefcase size={17} />, label: 'القروض' },
+    ] },
+    { id: 'accounting', title: 'المحاسبة', icon: <Scale size={17} />, admin: true, items: [
+      { key: 'accounts', icon: <Hash size={17} />, label: 'شجرة الحسابات' },
+      { key: 'journal', icon: <ReceiptText size={17} />, label: 'القيود اليومية' },
+      { key: 'trialBalance', icon: <Scale size={17} />, label: 'ميزان المراجعة' },
+    ] },
+    { id: 'system', title: 'النظام', icon: <Shield size={17} />, admin: true, items: [
+      { key: 'users', icon: <Shield size={17} />, label: 'المستخدمون' },
+      { key: 'audit', icon: <Activity size={17} />, label: 'سجل التدقيق' },
+      { key: 'restore', icon: <Archive size={17} />, label: 'نقاط الاستعادة' },
+      { key: 'health', icon: <Activity size={17} />, label: 'صحة النظام' },
+    ] },
   ];
+  const directItems: Record<'dashboard' | 'settings', NavItem> = {
+    dashboard: { key: 'dashboard', icon: <LayoutDashboard size={17} />, label: 'لوحة التحكم' },
+    settings: { key: 'settings', icon: <Settings size={17} />, label: 'الإعدادات' },
+  };
+
+  const groupOfSection = (s: Section) => NAV_GROUPS.find(g => g.items.some(i => i.key === s))?.id || null;
+  // حالة الفتح: اختيار المستخدم يغلب — وإلا المجموعة الحالية مفتوحة تلقائيًا مشتقًا من القسم النشط
+  // (بدون أي useEffect: التنقل من الوصول السريع يفتح المجموعة تلقائيًا لأن الحالة مشتقة)
+  const [groupState, setGroupState] = useState<Record<string, boolean>>({});
+  const isOpen = (id: string) => groupState[id] ?? groupOfSection(section) === id;
+  const toggleGroup = (id: string) => setGroupState(prev => ({ ...prev, [id]: !isOpen(id) }));
+
+  const navBtn = (item: NavItem) => (
+    <button key={item.key} onClick={() => onNavigate(item.key)}
+      className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-200 ${section === item.key ? 'bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md' : 'text-gray-600 hover:bg-orange-50 hover:text-orange-700'}`}>
+      {item.icon}<span>{item.label}</span>
+    </button>
+  );
+
   return (<>
     <div className="p-5 border-b border-orange-100">
       <div className="flex items-center gap-3">
@@ -2786,12 +2817,30 @@ function SidebarContent({ user, section, isAdmin, onNavigate, onLogout }: {
       </div>
     </div>
     <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-      {navItems.filter(n => !n.admin || isAdmin).map(item => (
-        <button key={item.key} onClick={() => onNavigate(item.key)}
-          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${section === item.key ? 'bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md' : 'text-gray-700 hover:bg-orange-50 hover:text-orange-700'}`}>
-          {item.icon}<span>{item.label}</span>
-        </button>
-      ))}
+      {navBtn(directItems.dashboard)}
+      {NAV_GROUPS.filter(g => !g.admin || isAdmin).map(group => {
+        const activeInside = group.items.some(i => i.key === section);
+        const open = isOpen(group.id);
+        return (
+          <div key={group.id}>
+            <button onClick={() => toggleGroup(group.id)}
+              aria-expanded={open}
+              title={open ? `اضغط لإخفاء ${group.title}` : `اضغط لعرض ${group.title}`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${activeInside ? 'bg-orange-100/80 text-orange-800 shadow-sm' : 'text-gray-700 hover:bg-orange-50 hover:text-orange-700'}`}>
+              <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm transition-colors ${activeInside ? 'bg-gradient-to-br from-orange-500 to-amber-500 text-white' : 'bg-orange-100 text-orange-600'}`}>{group.icon}</span>
+              <span className="flex-1 text-right">{group.title}</span>
+              <span className="text-[10px] font-medium text-gray-400">{group.items.length}</span>
+              <ChevronDown size={15} className={`text-orange-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+            </button>
+            {open && (
+              <div className="mt-1 mb-1 mr-[22px] space-y-0.5 border-r-2 border-orange-100 pr-2.5">
+                {group.items.map(navBtn)}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {navBtn(directItems.settings)}
     </nav>
     <div className="p-4 border-t border-orange-100">
       <div className="flex items-center gap-3 mb-3">
