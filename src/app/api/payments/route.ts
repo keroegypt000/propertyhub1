@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { syncPaymentEntry } from '@/lib/accounting';
+import { effectiveRent } from '@/lib/calc';
 
 export async function GET(request: NextRequest) {
   try {
@@ -33,9 +34,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'تاريخ الاستحقاق غير صالح' }, { status: 400 });
     }
 
-    // تصنيف تلقائي: أقل من الإيجار الشهري = دفعة جزئية
+    // تصنيف تلقائي: أقل من الإيجار بعد الخصم = دفعة جزئية
+    // (العقود المخفّضة تُسدد بقيمتها بعد الخصم — المقارنة على rentAmount كانت تحطّب الدفعة الكاملة «جزئية»)
     let status = body.status || 'paid';
-    if (status === 'paid' && amount < contract.rentAmount) status = 'partial';
+    if (status === 'paid' && amount + 0.0005 < effectiveRent(contract as any)) status = 'partial';
 
     const payment = await db.payment.create({
       data: {

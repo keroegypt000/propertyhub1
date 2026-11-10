@@ -1073,6 +1073,7 @@ export default function PropertyManagerApp() {
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="payments" rows={payments} canWrite={canWriteCheck('payments')} onImported={() => { loadData('payments'); toast.success('تم تحديث المدفوعات'); }} />
                   {canWriteCheck('payments') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />تسجيل دفعة</Button>} title="تسجيل دفعة جديدة">{(close) => <PaymentForm contracts={contracts} payments={payments} buildings={buildings} onSave={async (data) => { const r: any = await api('/api/payments', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); autoRestore('تسجيل دفعة'); loadData('payments'); }} onClose={close} />}</FormDialog>)}
+                  {canWriteCheck('payments') && (<FormDialog trigger={<Button variant="outline" className="border-emerald-300 text-emerald-700 bg-emerald-50" title="حدد عدة عملاء وسجل دفعاتهم مرة واحدة"><Users size={16} className="ml-1" />تسجيل دفعات متعددة</Button>} title="تسجيل دفعات متعددة — تحصيل جماعي" maxWidth="max-w-3xl">{(close) => <MultiPaymentForm contracts={contracts} buildings={buildings} onSave={async (data) => { const r: any = await api('/api/payments/multi', 'POST', data); toast.success(`تم تسجيل ${r.count} دفعة بإجمالي ${fmtKWD(r.totalAmount)} ${CURRENCY} مع توليد القيود${r.partialCount ? ` — منها ${r.partialCount} جزئية` : ''}`); if (r.entryWarnings?.length) toast.warning(`تنبيه محاسبي: ${r.entryWarnings[0]}`); autoRestore('تسجيل دفعات متعددة'); loadData('payments'); }} onClose={close} />}</FormDialog>)}
                   {canWriteCheck('payments') && (<FormDialog trigger={<Button variant="outline" className="border-indigo-300 text-indigo-700 bg-indigo-50" title="شيك واحد للعمارة كاملة يوزع على عقود الشركات"><Landmark size={16} className="ml-1" />تحصيل شيك شركة (مجمّع)</Button>} title="تحصيل شيك شركة — عمارة كاملة" maxWidth="max-w-lg">{(close) => <CompanyCheckForm buildings={buildings} contracts={contracts as any} onSave={async (data) => { const r: any = await api('/api/payments/bulk', 'POST', data); toast.success(`تم توزيع ${r.totalAmount} ${CURRENCY} على ${r.paymentsCount} عقد شركة في ${r.buildingName} مع توليد القيود`); autoRestore('تحصيل شيك شركة مجمّع'); loadData('payments'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
@@ -2009,6 +2010,115 @@ function PaymentForm({ contracts, payments, buildings, onSave, initial, onClose 
     <div className="grid grid-cols-2 gap-3"><div><Label>طريقة الدفع</Label><Select value={method} onValueChange={setMethod}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cash">نقدي</SelectItem><SelectItem value="transfer">تحويل</SelectItem><SelectItem value="check">شيك</SelectItem><SelectItem value="card">بطاقة</SelectItem></SelectContent></Select></div><div><Label>رقم المرجع</Label><Input value={reference} onChange={e => setReference(e.target.value)} /></div></div>
     <div><Label>ملاحظات</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
     <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+  </form>);
+}
+
+// ============ تسجيل دفعات متعددة — تحصيل جماعي لعدة عملاء في عملية واحدة ============
+// بدل تسجيل دفعة لكل مستأجر على حدة: حدد العملاء المسددين، المبلغ يُعبأ تلقائيًا بالمتبقي لكل واحد
+// (قابل للتعديل — أقل من الإيجار = جزئية)، وتاريخ/وسيلة دفع/مرجع مشتركة، وكل دفعة تولّد قيدها المحاسبي
+function MultiPaymentForm({ contracts, buildings, onSave, onClose }: { contracts: Contract[]; buildings: Building[]; onSave: (data: any) => Promise<void>; onClose?: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [buildingId, setBuildingId] = useState('');
+  const [search, setSearch] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [month, setMonth] = useState('');
+  const [method, setMethod] = useState('cash');
+  const [reference, setReference] = useState('');
+  const [notes, setNotes] = useState('');
+  // المحددون: { معرف العقد: المبلغ } — نص لإدخال حر، والفراغ يعني «لم يُدخل مبلغ بعد»
+  const [selected, setSelected] = useState<Record<string, string>>({});
+
+  // العقود المؤهلة: النشطة فقط — مرتبة بالعمارة ثم رقم الوحدة (ترتيب التحصيل الميداني)
+  const withBal = contracts
+    .filter(c => c.status === 'active' || c.status === 'renewed')
+    .map(c => ({ c, bal: contractBalance(c as any, (c.payments || []) as any, new Date(date)) }))
+    .sort((a, b) => (a.c.unit?.building?.name || '').localeCompare(b.c.unit?.building?.name || '', 'ar') || String(a.c.unit?.number || '').localeCompare(String(b.c.unit?.number || ''), 'ar', { numeric: true }));
+  const shown = withBal.filter(({ c }) =>
+    (!buildingId || c.unit?.buildingId === buildingId) &&
+    (!search || (c.tenant?.name || '').includes(search) || String(c.unit?.number || '').includes(search)));
+
+  const toggle = (id: string, outstanding: number) => {
+    setSelected(prev => {
+      const next = { ...prev };
+      if (next[id] !== undefined) delete next[id];
+      else next[id] = outstanding > 0 ? String(outstanding) : '';
+      return next;
+    });
+  };
+  // تحديد الكل: كل ظاهر له متبقٍ يُعبأ بالمتبقي — المسددون بالكامل لا يُحددون
+  const selectAll = () => {
+    const next: Record<string, string> = { ...selected };
+    shown.forEach(({ c, bal }) => { if (bal.outstanding > 0) next[c.id] = String(bal.outstanding); });
+    setSelected(next);
+  };
+  const clearAll = () => setSelected({});
+  const entries = Object.entries(selected).map(([cid, amt]) => ({ cid, amount: +amt || 0 })).filter(e => e.amount > 0);
+  const total = Math.round(entries.reduce((s, e) => s + e.amount, 0) * 1000) / 1000;
+
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ items: entries.map(en => ({ contractId: en.cid, amount: en.amount, month: month || null })), date, method, reference, notes }); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-sm text-emerald-900">
+      <p className="font-bold flex items-center gap-2"><Users size={15} />تحصيل جماعي — عدة عملاء في عملية واحدة</p>
+      <p className="text-xs mt-1">حدد كل عميل سدد اليوم ويُعبأ مبلغه تلقائيًا بالمتبقي عليه (عدّله لو دفع جزء)، والتاريخ والوسيلة والمرجع مشتركة للكل. كل دفعة تولّد قيدها المحاسبي على عمارتها.</p>
+    </div>
+    <div className="grid grid-cols-2 gap-3">
+      <div><Label>العمارة (فلتر)</Label><Select value={buildingId} onValueChange={setBuildingId}><SelectTrigger><SelectValue placeholder="كل المباني" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
+      <div><Label>بحث باسم العميل أو الوحدة</Label><Input value={search} onChange={e => setSearch(e.target.value)} placeholder="مثال: أحمد أو 12" /></div>
+    </div>
+    <div className="grid grid-cols-2 gap-3">
+      <div><Label>تاريخ الدفع (للجميع)</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
+      <div><Label>عن شهر (للجميع — اختياري)</Label><Input type="month" value={month} onChange={e => setMonth(e.target.value)} /></div>
+    </div>
+    <div className="grid grid-cols-2 gap-3">
+      <div><Label>طريقة الدفع</Label><Select value={method} onValueChange={setMethod}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cash">نقدي</SelectItem><SelectItem value="transfer">تحويل</SelectItem><SelectItem value="check">شيك</SelectItem><SelectItem value="card">بطاقة</SelectItem></SelectContent></Select></div>
+      <div><Label>رقم المرجع / سند</Label><Input value={reference} onChange={e => setReference(e.target.value)} placeholder="اختياري" /></div>
+    </div>
+    {withBal.length === 0 ? (
+      <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3">لا توجد عقود نشطة — سجّل عقودًا أولًا أو استخدم «تسجيل دفعة» العادية</p>
+    ) : (
+      <div className="border border-orange-100 rounded-xl overflow-hidden">
+        <div className="bg-orange-50 px-3 py-2 text-xs font-bold text-orange-900 flex items-center justify-between gap-2 flex-wrap">
+          <span>العقود النشطة ({shown.length}{buildingId || search ? ` من ${withBal.length}` : ''}) — إجمالي المتبقي: {fmtKWD(shown.reduce((s, x) => s + x.bal.outstanding, 0))} {CURRENCY}</span>
+          <span className="flex gap-1.5">
+            <Button type="button" variant="outline" size="sm" className="h-6 px-2 text-[11px] border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={selectAll}>تحديد الكل بالمتبقي</Button>
+            <Button type="button" variant="outline" size="sm" className="h-6 px-2 text-[11px] border-gray-300 text-gray-600" onClick={clearAll}>مسح التحديد</Button>
+          </span>
+        </div>
+        <div className="max-h-72 overflow-y-auto divide-y divide-gray-100">
+          {shown.map(({ c, bal }) => {
+            const sel = selected[c.id] !== undefined;
+            return (<div key={c.id} className={`px-3 py-2 flex items-center gap-2 ${sel ? 'bg-emerald-50/60' : ''}`}>
+              <input type="checkbox" className="w-4 h-4 shrink-0 accent-emerald-600" checked={sel} onChange={() => toggle(c.id, bal.outstanding)} aria-label={`تحديد ${c.tenant?.name || 'عميل'}`} />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-gray-900 truncate">
+                  {c.tenant?.name || 'بدون مستأجر'}
+                  {c.tenant?.tenantType === 'company' && <span className="mr-1 text-[10px] bg-indigo-100 text-indigo-800 rounded px-1 py-0.5">شركة</span>}
+                  <span className="font-normal text-gray-400"> — وحدة {c.unit?.number || '?'} • {c.unit?.building?.name || '-'}</span>
+                </p>
+                <p className="text-[11px] text-gray-500">
+                  إيجار بعد الخصم {fmtKWD(effectiveRent(c as any))} {CURRENCY} — متبقٍ <b className={bal.outstanding > 0 ? 'text-red-600' : 'text-emerald-600'}>{fmtKWD(bal.outstanding)}</b> {CURRENCY}
+                  {bal.outstanding <= 0 && sel && <span className="text-amber-700"> — مسدد بالكامل (أدخل مبلغًا لتسجيله دفعة مقدمة)</span>}
+                </p>
+              </div>
+              {sel && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <Input type="number" step="0.001" min="0" value={selected[c.id]} onChange={e => setSelected(prev => ({ ...prev, [c.id]: e.target.value }))} className="w-24 h-8 text-xs" placeholder="المبلغ" required />
+                  {bal.outstanding > 0 && <Button type="button" variant="ghost" size="sm" className="h-7 px-1.5 text-[11px] text-emerald-700 hover:bg-emerald-100" onClick={() => setSelected(prev => ({ ...prev, [c.id]: String(bal.outstanding) }))}>المتبقي</Button>}
+                </div>
+              )}
+            </div>);
+          })}
+          {shown.length === 0 && <p className="px-3 py-4 text-xs text-gray-500 text-center">لا نتائج مطابقة للفلتر أو البحث</p>}
+        </div>
+      </div>
+    )}
+    {entries.length > 0 && (
+      <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 flex items-center justify-between text-sm">
+        <span className="font-bold text-gray-800">سيتم تسجيل {entries.length} دفعة{month ? ` عن شهر ${month}` : ''}</span>
+        <span className="font-bold text-emerald-700">الإجمالي: {fmtKWD(total)} {CURRENCY}</span>
+      </div>
+    )}
+    <div><Label>ملاحظات (تُوثق على كل دفعة)</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
+    <Button type="submit" disabled={saving || entries.length === 0} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري حفظ الدفعات...' : entries.length > 0 ? `حفظ ${entries.length} دفعة — إجمالي ${fmtKWD(total)} ${CURRENCY}` : 'حدد عميلًا واحدًا على الأقل'}</Button>
   </form>);
 }
 
