@@ -96,22 +96,30 @@ function norm(s: any): string {
     .trim().replace(/\s+/g, ' ');
 }
 
+/** تطبيع أقوى للمطابقة فقط (لا يُخزن): يشيل التشكيل والتطويل ويوحد الهمزات والتاء المربوطة */
+function normMatch(s: any): string {
+  return norm(s)
+    .replace(/[\u064B-\u0652\u0670\u0640]/g, '') // تشكيل + تطويل
+    .replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه');
+}
+
 /** يطابق قيمة قادمة من الإكسل مع معجم (عربي → كود) مع قبول الكود الإنجليزي نفسه */
 export function mapValue(v: any, dict: Record<string, string>): string | undefined {
-  const s = norm(v);
+  const s = normMatch(v);
   if (!s) return undefined;
   const low = s.toLowerCase();
   for (const code of Object.values(dict)) if (low === code || s === code) return code;
   for (const [ar, code] of Object.entries(dict)) {
-    if (s === ar || s.includes(ar) || ar.includes(s)) return code;
+    const arN = normMatch(ar);
+    if (s === arN || s.includes(arN) || arN.includes(s)) return code;
   }
   return undefined;
 }
 
 // ---------- معاجم القيم العربية ----------
 export const DICTS = {
-  unitType: { 'شقة': 'apartment', 'سكني': 'apartment', 'مكتب': 'office', 'اداري': 'office', 'إداري': 'office', 'محل': 'shop', 'تجاري': 'shop', 'مخزن': 'warehouse', 'مستودع': 'warehouse' },
-  unitStatus: { 'متاحة': 'available', 'متاح': 'available', 'شاغرة': 'available', 'مؤجرة': 'rented', 'مؤجر': 'rented', 'مشغولة': 'rented', 'صيانة': 'maintenance', 'تحت الصيانة': 'maintenance', 'محجوزة': 'reserved', 'محجوز': 'reserved' },
+  unitType: { 'شقة': 'apartment', 'سكني': 'apartment', 'استوديو': 'studio', 'ستوديو': 'studio', 'مكتب': 'office', 'اداري': 'office', 'إداري': 'office', 'محل': 'shop', 'تجاري': 'shop', 'مخزن': 'warehouse', 'مستودع': 'warehouse' },
+  unitStatus: { 'متاحة': 'available', 'متاح': 'available', 'شاغرة': 'available', 'مؤجرة': 'rented', 'مؤجر': 'rented', 'مؤجّرة': 'rented', 'مشغولة': 'rented', 'صيانة': 'maintenance', 'تحت الصيانة': 'maintenance', 'محجوزة': 'reserved', 'محجوز': 'reserved' },
   contractStatus: { 'نشط': 'active', 'ساري': 'active', 'منتهي': 'expired', 'منتهية': 'expired', 'ملغي': 'terminated', 'ملغى': 'terminated', 'مجدد': 'renewed', 'مجدّد': 'renewed', 'اخلي': 'vacated', 'إخلاء': 'vacated' },
   paymentStatus: { 'معلق': 'pending', 'لم يدفع': 'pending', 'مدفوع': 'paid', 'مدفوعة': 'paid', 'جزئي': 'partial', 'جزئية': 'partial', 'متأخر': 'overdue', 'متأخرة': 'overdue', 'ملغي': 'cancelled', 'ملغى': 'cancelled' },
   payMethod: { 'كاش': 'cash', 'نقدي': 'cash', 'نقدا': 'cash', 'cash': 'cash', 'تحويل': 'transfer', 'حوالة': 'transfer', 'بنكي': 'transfer', 'transfer': 'transfer', 'شيك': 'check', 'check': 'check', 'بطاقة': 'card', 'شبكة': 'card', 'كي نت': 'card', 'card': 'card' },
@@ -126,9 +134,9 @@ export const DICTS = {
 
 // ---------- محلّلات المراجع (بالاسم/الكود) ----------
 function findBuilding(ctx: ImportCtx, nameOrCode: any) {
-  const s = norm(nameOrCode);
+  const s = normMatch(nameOrCode);
   if (!s) return undefined;
-  return ctx.buildings.find((b: any) => b.code === s || b.name === s || b.name.includes(s) || s.includes(b.name));
+  return ctx.buildings.find((b: any) => b.code === s || normMatch(b.name) === s || normMatch(b.name).includes(s) || s.includes(normMatch(b.name)));
 }
 function findUnit(ctx: ImportCtx, buildingRef: any, number: any) {
   const numStr = norm(number);
@@ -142,9 +150,9 @@ function findUnit(ctx: ImportCtx, buildingRef: any, number: any) {
   return candidates[0];
 }
 function findTenant(ctx: ImportCtx, name: any) {
-  const s = norm(name);
+  const s = normMatch(name);
   if (!s) return undefined;
-  return ctx.tenants.find((t: any) => t.name === s || t.name.includes(s) || s.includes(t.name));
+  return ctx.tenants.find((t: any) => normMatch(t.name) === s || normMatch(t.name).includes(s) || s.includes(normMatch(t.name)));
 }
 function findContract(ctx: ImportCtx, opts: { building?: any; unitNumber?: any; tenant?: any }) {
   const t = opts.tenant ? findTenant(ctx, opts.tenant) : undefined;
@@ -218,13 +226,13 @@ export const ENTITIES: Record<string, EntityDef> = {
   // ============ الوحدات ============
   units: {
     key: 'units', label: 'الوحدات', sheetName: 'الوحدات', apiPath: '/api/units',
-    ctxNeeds: ['buildings'],
+    ctxNeeds: ['buildings', 'contracts'],
     columns: [
       { key: 'building', header: 'العمارة', width: 20, example: 'B01', note: 'اسم أو كود عمارة موجودة (استورد العمارات أولاً)' },
       { key: 'number', header: 'رقم الوحدة', width: 12, example: '101', note: 'إجباري' },
       { key: 'floor', header: 'الطابق', width: 10, example: '1' },
       { key: 'area', header: 'المساحة م2', width: 12, example: '120' },
-      { key: 'type', header: 'النوع', width: 12, example: 'شقة', note: 'شقة / مكتب / محل / مخزن' },
+      { key: 'type', header: 'النوع', width: 12, example: 'شقة', note: 'شقة / استوديو / مكتب / محل / مخزن' },
       { key: 'status', header: 'الحالة', width: 12, example: 'متاحة', note: 'متاحة / مؤجرة / صيانة / محجوزة' },
       { key: 'rentAmount', header: 'الإيجار الشهري', width: 15, example: '350' },
       { key: 'notes', header: 'ملاحظات', width: 22 },
@@ -232,7 +240,7 @@ export const ENTITIES: Record<string, EntityDef> = {
     exportRow: (u) => ({
       'العمارة': u.building?.name || u.building?.code || '', 'رقم الوحدة': u.number || '',
       'الطابق': u.floor ?? '', 'المساحة م2': u.area ?? '',
-      'النوع': ({ apartment: 'شقة', office: 'مكتب', shop: 'محل', warehouse: 'مخزن' } as any)[u.type || ''] || u.type || '',
+      'النوع': ({ apartment: 'شقة', studio: 'استوديو', office: 'مكتب', shop: 'محل', warehouse: 'مخزن' } as any)[u.type || ''] || u.type || '',
       'الحالة': ({ available: 'متاحة', rented: 'مؤجرة', maintenance: 'صيانة', reserved: 'محجوزة' } as any)[u.status] || u.status,
       'الإيجار الشهري': u.rentAmount ?? '', 'ملاحظات': u.notes || '',
     }),
@@ -242,7 +250,15 @@ export const ENTITIES: Record<string, EntityDef> = {
       const bRef = norm(g(row, columns, 'building'));
       const b = findBuilding(ctx, bRef);
       if (!b) return { ok: false, error: `العمارة «${bRef || '—'}» غير موجودة — استورد العمارات أولاً` };
-      const status = mapValue(g(row, columns, 'status'), DICTS.unitStatus) || 'available';
+      // الوحدة عليها عقد نشط في النظام؟ تُعتبر مؤجرة تلقائيًا حتى لو وردت «متاحة» في الملف
+      const hasActiveContract = (ctx.contracts || []).some((c: any) => {
+        if (!['active', 'renewed'].includes(c.status)) return false;
+        const cu = c.unit;
+        if (!cu) return false;
+        if (cu.buildingId && cu.buildingId !== b.id) return false;
+        return String(cu.number ?? '').trim() === number;
+      });
+      const status = hasActiveContract ? 'rented' : (mapValue(g(row, columns, 'status'), DICTS.unitStatus) || 'available');
       return { ok: true, data: {
         buildingId: b.id,
         number,
@@ -306,7 +322,8 @@ export const ENTITIES: Record<string, EntityDef> = {
       { key: 'tenant', header: 'المستأجر', width: 24, example: 'أحمد محمد علي', note: 'اسم مستأجر موجود (استورد المستأجرين أولاً) — إجباري' },
       { key: 'startDate', header: 'تاريخ البداية', width: 15, example: '2025-01-01', note: 'إجباري — YYYY-MM-DD أو 01/01/2025' },
       { key: 'endDate', header: 'تاريخ النهاية', width: 15, example: '2025-12-31', note: 'إجباري' },
-      { key: 'rentAmount', header: 'الإيجار', width: 14, example: '350', note: 'إجباري' },
+      { key: 'rentAmount', header: 'الإيجار الشهري', width: 14, example: '350', note: 'قبل الخصم — إجباري' },
+      { key: 'discount', header: 'الخصم الشهري', width: 14, example: '40', note: 'اختياري — الإيجار الفعلي = الإيجار − الخصم' },
       { key: 'deposit', header: 'مبلغ التأمين', width: 14, example: '200' },
       { key: 'paymentDay', header: 'يوم الدفع (1-31)', width: 14, example: '5' },
       { key: 'status', header: 'الحالة', width: 12, example: 'نشط', note: 'نشط / منتهي / ملغي / مجدد' },
@@ -317,7 +334,7 @@ export const ENTITIES: Record<string, EntityDef> = {
       'العمارة': c.unit?.building?.name || '', 'رقم الوحدة': c.unit?.number || '', 'المستأجر': c.tenant?.name || '',
       'تاريخ البداية': c.startDate ? String(c.startDate).slice(0, 10) : '',
       'تاريخ النهاية': c.endDate ? String(c.endDate).slice(0, 10) : '',
-      'الإيجار': c.rentAmount ?? '', 'مبلغ التأمين': c.deposit ?? '', 'يوم الدفع (1-31)': c.paymentDay ?? '',
+      'الإيجار': c.rentAmount ?? '', 'الخصم الشهري': c.discount ?? 0, 'مبلغ التأمين': c.deposit ?? '', 'يوم الدفع (1-31)': c.paymentDay ?? '',
       'الحالة': ({ active: 'نشط', expired: 'منتهي', terminated: 'ملغي', renewed: 'مجدد', vacated: 'إخلاء' } as any)[c.status] || c.status,
       'الشروط': c.terms || '', 'ملاحظات': c.notes || '',
     }),
@@ -339,6 +356,7 @@ export const ENTITIES: Record<string, EntityDef> = {
       return { ok: true, data: {
         unitId: u.id, tenantId: t.id,
         startDate: start, endDate: end, rentAmount: rent,
+        discount: toNumber(g(row, columns, 'discount')) ?? 0,
         deposit: toNumber(g(row, columns, 'deposit')) ?? 0,
         paymentDay: toInt(g(row, columns, 'paymentDay')),
         status: mapValue(g(row, columns, 'status'), DICTS.contractStatus) || 'active',

@@ -106,6 +106,7 @@ model Contract {
   startDate    DateTime
   endDate      DateTime
   rentAmount   Float
+  discount     Float?   @default(0) // الخصم الشهري — الإيجار الفعلي = rentAmount - discount
   deposit      Float?   @default(0) // مبلغ التأمين
   paymentDay   Int?     // day of month for payment
   status       String   @default("active") // active, expired, terminated, renewed, vacated

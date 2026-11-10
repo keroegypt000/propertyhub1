@@ -26,6 +26,32 @@ const CONFIRM_ORDER: Record<string, string[]> = {
   maintenance: ['buildings', 'units'],
 };
 
+const UNIT_STATUS_LABEL: Record<string, string> = { available: 'متاحة', rented: 'مؤجرة', maintenance: 'صيانة', reserved: 'محجوزة' };
+const UNIT_STATUS_CHIP: Record<string, string> = { available: 'bg-emerald-100 text-emerald-800', rented: 'bg-blue-100 text-blue-800', maintenance: 'bg-amber-100 text-amber-800', reserved: 'bg-purple-100 text-purple-800' };
+
+/** ملخص حالات الوحدات في صفوف محللة */
+function unitStatusSummary(rows: { data?: any }[]): Record<string, number> | null {
+  if (!rows.length) return null;
+  const counts: Record<string, number> = {};
+  rows.forEach(r => { const s = r.data?.status || 'available'; counts[s] = (counts[s] || 0) + 1; });
+  return counts;
+}
+
+function UnitStatusChips({ counts }: { counts: Record<string, number> | null }) {
+  if (!counts) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <span className="text-gray-500 font-semibold">الحالات بعد التحليل:</span>
+      {Object.entries(counts).map(([s, n]) => (
+        <Badge key={s} className={UNIT_STATUS_CHIP[s] || 'bg-gray-100 text-gray-700'}>{UNIT_STATUS_LABEL[s] || s}: {n}</Badge>
+      ))}
+      {(counts.rented || 0) === 0 && (
+        <span className="text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">كل الوحدات «متاحة» — لو كانت مؤجرة فعليًا عدّل عمود «الحالة» إلى «مؤجرة» في الملف وأعد الاستيراد (الموجود هيتحدث من غير تكرار)</span>
+      )}
+    </div>
+  );
+}
+
 async function api<T = any>(url: string, method = 'GET', body?: any): Promise<T> {
   const headers: Record<string, string> = {};
   if (body) headers['Content-Type'] = 'application/json';
@@ -192,6 +218,7 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
                   <Badge className="bg-emerald-100 text-emerald-800"><CheckCircle2 size={12} className="ml-1" />{validRows.length} صف جاهز</Badge>
                   {invalidRows.length > 0 && <Badge className="bg-red-100 text-red-800"><XCircle size={12} className="ml-1" />{invalidRows.length} صف به مشكلة (سيُتجاهل)</Badge>}
                 </div>
+                {entity === 'units' && validRows.length > 0 && <UnitStatusChips counts={unitStatusSummary(validRows)} />}
 
                 {validRows.length === 0 ? (
                   <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-800">لا توجد صفوف صالحة — تأكد من مطابقة أسماء الأعمدة للقالب ونزّل القالب للمقارنة.</div>
@@ -253,6 +280,7 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
                     <p className="text-sm text-emerald-800">تم إضافة {importStats.ok} سجل بنجاح{importStats.fail > 0 ? ` — وفشل ${importStats.fail} صف` : ''}.</p>
                   </div>
                 </div>
+                {entity === 'units' && validRows.length > 0 && <UnitStatusChips counts={unitStatusSummary(validRows)} />}
                 {failures.length > 0 && (
                   <ScrollArea className="h-40 rounded-xl border border-red-100 bg-red-50 p-3">
                     <p className="text-xs font-bold text-red-900 mb-1">تفاصيل الصفوف الفاشلة:</p>
@@ -261,7 +289,7 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
                     </div>
                   </ScrollArea>
                 )}
-                <p className="text-xs text-gray-400">ملاحظة: صفوف «مكرر» تفشل إذا كان الكود/الاسم موجودًا مسبقًا — هذا مقصود لحماية بياناتك من التكرار.</p>
+                <p className="text-xs text-gray-400">ملاحظة: {entity === 'units' ? 'الوحدات الموجودة بنفس رقم العمارة تُحدَّث بياناتها وحالتها تلقائيًا بدون تكرار — أعد استيراد نفس الملف بعد تعديل الحالات لتصحيحها.' : 'صفوف «مكرر» تفشل إذا كان الكود/الاسم موجودًا مسبقًا — هذا مقصود لحماية بياناتك من التكرار.'}</p>
               </div>
             )}
           </div>

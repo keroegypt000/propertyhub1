@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
         startDate: new Date(body.startDate),
         endDate: new Date(body.endDate),
         rentAmount: Number(body.rentAmount),
+        discount: body.discount !== undefined && body.discount !== null && body.discount !== '' ? Number(body.discount) : 0,
         deposit: body.deposit !== undefined && body.deposit !== null && body.deposit !== '' ? Number(body.deposit) : 0,
         paymentDay: body.paymentDay ? Number(body.paymentDay) : null,
         status: body.status || 'active',

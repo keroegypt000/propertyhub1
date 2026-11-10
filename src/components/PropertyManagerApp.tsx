@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
-import { buildingIncomeStats, totalIncomeStats, contractBalance, collectedStats, arrearsOfContracts, fmtKWD } from '@/lib/calc';
+import { buildingIncomeStats, totalIncomeStats, contractBalance, collectedStats, arrearsOfContracts, effectiveRent, fmtKWD } from '@/lib/calc';
 import { SOURCE_LABELS } from '@/lib/accounting';
 import {
   VoucherDialog, printHtmlDoc,
@@ -39,7 +39,7 @@ interface User { id: string; username: string; name: string; role: string; roleN
 interface Building { id: string; code?: string; name: string; address?: string; city?: string; floors?: number; unitsCount?: number; value?: number; license?: string; notes?: string; units?: Unit[]; transactions?: any[]; createdAt: string; }
 interface Unit { id: string; buildingId: string; number: string; floor?: number; area?: number; type?: string; status: string; rentAmount?: number; notes?: string; building?: Building; createdAt: string; }
 interface Tenant { id: string; name: string; tenantType?: string; commercialReg?: string; phone?: string; email?: string; idNumber?: string; idType?: string; address?: string; guarantor?: string | null; guarantorPhone?: string | null; notes?: string; uploads?: FileUpload[]; createdAt: string; }
-interface Contract { id: string; unitId: string; tenantId: string; startDate: string; endDate: string; rentAmount: number; deposit?: number; paymentDay?: number; status: string; terms?: string; notes?: string; unit?: Unit; tenant?: Tenant; payments?: Payment[]; attachments?: FileUpload[]; createdAt: string; }
+interface Contract { id: string; unitId: string; tenantId: string; startDate: string; endDate: string; rentAmount: number; discount?: number | null; deposit?: number; paymentDay?: number; status: string; terms?: string; notes?: string; unit?: Unit; tenant?: Tenant; payments?: Payment[]; attachments?: FileUpload[]; createdAt: string; }
 interface Payment { id: string; contractId: string; amount: number; dueDate: string; paidDate?: string; month?: string; status: string; method?: string; reference?: string; notes?: string; contract?: Contract; createdAt: string; }
 interface MaintenanceItem { id: string; title: string; description?: string; priority: string; status: string; cost?: number; estimatedCost?: number; category?: string; assignedTo?: string; unitId?: string; unit?: Unit; buildingId?: string; building?: Building; attachments?: FileUpload[]; completedAt?: string | null; createdAt: string; }
 interface FileUpload { id: string; filename: string; originalName: string; mimeType: string; size: number; category: string; docType?: string; contractId?: string; tenantId?: string; maintenanceId?: string; buildingId?: string; legalCaseId?: string; createdAt: string; }
@@ -82,6 +82,7 @@ const UNIT_STATUS_MAP: Record<string, { label: string; color: string }> = {
   maintenance: { label: 'صيانة', color: 'bg-amber-100 text-amber-800' },
   reserved: { label: 'محجوزة', color: 'bg-purple-100 text-purple-800' },
 };
+const UNIT_TYPE_LABEL: Record<string, string> = { apartment: 'شقة', studio: 'استوديو', office: 'مكتب', shop: 'محل', warehouse: 'مستودع' };
 const CONTRACT_STATUS_MAP: Record<string, { label: string; color: string }> = {
   active: { label: 'نشط', color: 'bg-emerald-100 text-emerald-800' },
   expired: { label: 'منتهي', color: 'bg-red-100 text-red-800' },
@@ -919,7 +920,8 @@ export default function PropertyManagerApp() {
                           {c.unit && <p className="flex items-center gap-1"><Home size={14} className="text-gray-400" />وحدة {c.unit.number} - {c.unit.building?.name}</p>}
                           {c.tenant && <p className="flex items-center gap-1"><Users size={14} className="text-gray-400" />{c.tenant.name}</p>}
                           <p className="flex items-center gap-1"><Calendar size={14} className="text-gray-400" />{new Date(c.startDate).toLocaleDateString('ar')} - {new Date(c.endDate).toLocaleDateString('ar')}</p>
-                          <p className="font-semibold text-emerald-700">الإيجار: {c.rentAmount.toLocaleString('ar')} {CURRENCY}</p>
+                          <p className="font-semibold text-emerald-700">الإيجار: {effectiveRent(c as any).toLocaleString('ar')} {CURRENCY} شهرياً{(c.discount || 0) > 0 ? <span className="text-xs font-normal text-gray-500"> (قبل الخصم {c.rentAmount.toLocaleString('ar')} — خصم {(c.discount || 0).toLocaleString('ar')})</span> : null}</p>
+                          <p className="text-xs text-gray-500">سنوياً: {fmtKWD(effectiveRent(c as any) * 12)} {CURRENCY}{(c.discount || 0) > 0 ? ` (قبل الخصم ${fmtKWD(c.rentAmount * 12)} ${CURRENCY})` : ''}</p>
                           {(() => { try { const bal = contractBalance(c as any, (c.payments || []) as any); if (bal.totalDue <= 0) return null; return (<p className={`text-sm font-semibold ${bal.outstanding > 0 ? 'text-red-600' : 'text-emerald-600'}`}>المستحق: {fmtKWD(bal.totalDue)} — المدفوع: {fmtKWD(bal.totalPaid)} — المتبقي: {fmtKWD(bal.outstanding)} {CURRENCY}</p>); } catch { return null; } })()}
                         </div>
                       </div>
@@ -1728,7 +1730,7 @@ function TenantHistoryDialog({ trigger, tenant, contracts, payments, legalCases 
                     <TableRow key={c.id}>
                       <TableCell className="text-sm font-medium">{c.unit?.number || '-'}</TableCell>
                       <TableCell className="text-xs text-gray-600">{c.unit?.building?.name || '-'}</TableCell>
-                      <TableCell className="text-sm">{fmt(c.rentAmount)} {CURRENCY}</TableCell>
+                      <TableCell className="text-sm">{fmt(effectiveRent(c as any))} {CURRENCY}{(c.discount || 0) > 0 ? <span className="text-[10px] text-gray-500 block">قبل الخصم {fmt(c.rentAmount)} — خصم {fmt(c.discount || 0)} شهرياً</span> : null}</TableCell>
                       <TableCell className="text-xs text-gray-500 whitespace-nowrap">{d(c.startDate)} → {d(c.endDate)}</TableCell>
                       <TableCell><Badge className={`${CONTRACT_STATUS_MAP[c.status]?.color || 'bg-gray-100'} text-[10px]`}>{CONTRACT_STATUS_MAP[c.status]?.label || c.status}</Badge></TableCell>
                       <TableCell className="text-sm text-emerald-700">{fmt(bal.totalDue)}</TableCell>
@@ -1790,13 +1792,14 @@ function BuildingForm({ onSave, initial, onClose }: { onSave: (data: any) => Pro
 
 function UnitForm({ buildings, onSave, initial, onClose }: { buildings: Building[]; onSave: (data: any) => Promise<void>; initial?: Unit; onClose?: () => void }) {
   const [saving, setSaving] = useState(false);
-  const [buildingId, setBuildingId] = useState(initial?.buildingId || ''); const [number, setNumber] = useState(initial?.number || ''); const [floor, setFloor] = useState(String(initial?.floor || '')); const [area, setArea] = useState(String(initial?.area || '')); const [type, setType] = useState(initial?.type || 'apartment'); const [rentAmount, setRentAmount] = useState(String(initial?.rentAmount || '')); const [notes, setNotes] = useState(initial?.notes || '');
-  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ buildingId, number, floor: floor ? +floor : null, area: area ? +area : null, type, rentAmount: rentAmount ? +rentAmount : null, notes }); toast.success(initial ? 'تم تعديل الوحدة' : 'تم إنشاء الوحدة'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+  const [buildingId, setBuildingId] = useState(initial?.buildingId || ''); const [number, setNumber] = useState(initial?.number || ''); const [floor, setFloor] = useState(String(initial?.floor || '')); const [area, setArea] = useState(String(initial?.area || '')); const [type, setType] = useState(initial?.type || 'apartment'); const [status, setStatus] = useState(initial?.status || 'available'); const [rentAmount, setRentAmount] = useState(String(initial?.rentAmount || '')); const [notes, setNotes] = useState(initial?.notes || '');
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ buildingId, number, floor: floor ? +floor : null, area: area ? +area : null, type, status, rentAmount: rentAmount ? +rentAmount : null, notes }); toast.success(initial ? 'تم تعديل الوحدة' : 'تم إنشاء الوحدة'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
     <div><Label>المبنى</Label><Select value={buildingId} onValueChange={setBuildingId}><SelectTrigger><SelectValue placeholder="اختر المبنى" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
     <div><Label>رقم الوحدة</Label><Input value={number} onChange={e => setNumber(e.target.value)} required /></div>
     <div><Label>الطابق</Label><Input type="number" value={floor} onChange={e => setFloor(e.target.value)} /></div>
     <div><Label>المساحة (م²)</Label><Input type="number" value={area} onChange={e => setArea(e.target.value)} /></div>
-    <div><Label>النوع</Label><Select value={type} onValueChange={setType}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="apartment">شقة</SelectItem><SelectItem value="office">مكتب</SelectItem><SelectItem value="shop">محل</SelectItem><SelectItem value="warehouse">مستودع</SelectItem></SelectContent></Select></div>
+    <div><Label>النوع</Label><Select value={type} onValueChange={setType}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(UNIT_TYPE_LABEL).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent></Select></div>
+    <div><Label>حالة الوحدة</Label><Select value={status} onValueChange={setStatus}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(UNIT_STATUS_MAP).map(([k, v]) => <SelectItem key={k} value={k}>{v.label}</SelectItem>)}</SelectContent></Select><p className="text-[11px] text-gray-400 mt-1">مؤجرة تعني إن الوحدة مستأجرة فعليًا — إنشاء عقد نشط يجعلها مؤجرة تلقائيًا</p></div>
     <div><Label>قيمة الإيجار</Label><Input type="number" value={rentAmount} onChange={e => setRentAmount(e.target.value)} /></div>
     <div><Label>ملاحظات</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
     <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ'}</Button>
@@ -1827,20 +1830,33 @@ function TenantForm({ onSave, initial, onClose }: { onSave: (data: any) => Promi
 
 function ContractForm({ units, tenants, buildings, onSave, initial, onClose }: { units: Unit[]; tenants: Tenant[]; buildings: Building[]; onSave: (data: any) => Promise<void>; initial?: Contract; onClose?: () => void }) {
   const [saving, setSaving] = useState(false);
-  const [buildingId, setBuildingId] = useState(initial?.unit?.buildingId || ''); const [unitId, setUnitId] = useState(initial?.unitId || ''); const [tenantId, setTenantId] = useState(initial?.tenantId || ''); const [startDate, setStartDate] = useState(initial?.startDate ? new Date(initial.startDate).toISOString().slice(0,10) : ''); const [endDate, setEndDate] = useState(initial?.endDate ? new Date(initial.endDate).toISOString().slice(0,10) : ''); const [rentAmount, setRentAmount] = useState(String(initial?.rentAmount || '')); const [deposit, setDeposit] = useState(String(initial?.deposit || '0')); const [paymentDay, setPaymentDay] = useState(String(initial?.paymentDay || '1')); const [notes, setNotes] = useState(initial?.notes || '');
+  const [buildingId, setBuildingId] = useState(initial?.unit?.buildingId || ''); const [unitId, setUnitId] = useState(initial?.unitId || ''); const [tenantId, setTenantId] = useState(initial?.tenantId || ''); const [startDate, setStartDate] = useState(initial?.startDate ? new Date(initial.startDate).toISOString().slice(0,10) : ''); const [endDate, setEndDate] = useState(initial?.endDate ? new Date(initial.endDate).toISOString().slice(0,10) : ''); const [rentAmount, setRentAmount] = useState(String(initial?.rentAmount || '')); const [discount, setDiscount] = useState(String((initial as any)?.discount || 0)); const [deposit, setDeposit] = useState(String(initial?.deposit || '0')); const [paymentDay, setPaymentDay] = useState(String(initial?.paymentDay || '1')); const [notes, setNotes] = useState(initial?.notes || '');
   const [updateDefaultRent, setUpdateDefaultRent] = useState(false);
   const filteredUnits = buildingId ? units.filter(u => u.buildingId === buildingId) : units;
   const selectedUnit = units.find(u => u.id === unitId);
+  const rentNum = parseFloat(rentAmount) || 0;
+  const discNum = parseFloat(discount) || 0;
+  const effRent = Math.max(0, rentNum - discNum);
   // عند اختيار وحدة جديدة (إنشاء عقد جديد): تعبئة الإيجار الافتراضي تلقائياً — قيمة العقد قابلة للتعديل
   const handleUnitChange = (id: string) => { setUnitId(id); if (!initial) { const u = units.find(x => x.id === id); if (u?.rentAmount) setRentAmount(String(u.rentAmount)); } };
-  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ unitId, tenantId, startDate, endDate, rentAmount: +rentAmount, deposit: +deposit, paymentDay: +paymentDay, notes, updateDefaultRent }); toast.success(initial ? 'تم تعديل العقد' : 'تم إنشاء العقد'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ unitId, tenantId, startDate, endDate, rentAmount: +rentAmount, discount: +discount || 0, deposit: +deposit, paymentDay: +paymentDay, notes, updateDefaultRent }); toast.success(initial ? 'تم تعديل العقد' : 'تم إنشاء العقد'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
     <div><Label>المبنى</Label><Select value={buildingId} onValueChange={(v) => { setBuildingId(v); setUnitId(''); }}><SelectTrigger><SelectValue placeholder="اختر المبنى أولاً" /></SelectTrigger><SelectContent>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
     <div><Label>الوحدة</Label><Select value={unitId} onValueChange={handleUnitChange}><SelectTrigger><SelectValue placeholder={buildingId ? 'اختر الوحدة' : 'اختر المبنى أولاً'} /></SelectTrigger><SelectContent>{filteredUnits.map(u => <SelectItem key={u.id} value={u.id}>وحدة {u.number}{u.status === 'rented' ? ' (مؤجرة)' : ''}{u.rentAmount ? ` — افتراضي ${u.rentAmount}` : ''}</SelectItem>)}</SelectContent></Select></div>
     {selectedUnit?.rentAmount && <p className="text-xs text-emerald-700 bg-emerald-50 p-2 rounded-lg">الإيجار الافتراضي للوحدة: <b>{selectedUnit.rentAmount} {CURRENCY}</b> — عدّل قيمة العقد المتفق عليها أدناه إن اختلفت، ولن تتأثر القيمة الافتراضية إلا إذا فعّلت الخيار الأخير</p>}
     <div><Label>المستأجر</Label><Select value={tenantId} onValueChange={setTenantId}><SelectTrigger><SelectValue placeholder="اختر المستأجر" /></SelectTrigger><SelectContent>{tenants.map(t => <SelectItem key={t.id} value={t.id}>{t.name} — {TENANT_TYPE_LABEL[t.tenantType || 'individual']?.label}</SelectItem>)}</SelectContent></Select></div>
     {tenants.find(t => t.id === tenantId)?.tenantType === 'company' && <p className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-100 p-2 rounded-lg">مستأجر شركة — التحصيل عادةً بشيك مجمّع للعمارة كاملة (زر «تحصيل شيك شركة» في صفحة المدفوعات)</p>}
     <div className="grid grid-cols-2 gap-3"><div><Label>تاريخ البداية</Label><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required /></div><div><Label>تاريخ النهاية</Label><Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} required /></div></div>
-    <div><Label>قيمة الإيجار المتفق عليها ({CURRENCY})</Label><Input type="number" value={rentAmount} onChange={e => setRentAmount(e.target.value)} required /></div>
+    <div className="grid grid-cols-2 gap-3"><div><Label>الإيجار الشهري قبل الخصم ({CURRENCY})</Label><Input type="number" value={rentAmount} onChange={e => setRentAmount(e.target.value)} required /></div><div><Label>الخصم الشهري ({CURRENCY})</Label><Input type="number" min="0" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="0" /></div></div>
+    {rentNum > 0 && (<div className={`rounded-xl border p-3 space-y-2 ${discNum > 0 ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-gray-50'}`}>
+      <p className="text-xs font-bold text-gray-700">بيان قيمة الإيجار — يوضح للعميل</p>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-white rounded-lg p-2 border border-gray-100"><p className="text-[10px] text-gray-500">القيمة السنوية قبل الخصم</p><p className="font-bold text-gray-800">{fmtKWD(rentNum * 12)} {CURRENCY}</p></div>
+        <div className="bg-white rounded-lg p-2 border border-gray-100"><p className="text-[10px] text-gray-500">القيمة السنوية بعد الخصم</p><p className="font-bold text-emerald-700">{fmtKWD(effRent * 12)} {CURRENCY}</p></div>
+        <div className="bg-white rounded-lg p-2 border border-gray-100"><p className="text-[10px] text-gray-500">القيمة الشهرية بعد الخصم</p><p className="font-bold text-emerald-700">{fmtKWD(effRent)} {CURRENCY}</p></div>
+        <div className="bg-white rounded-lg p-2 border border-gray-100"><p className="text-[10px] text-gray-500">قيمة الخصم</p><p className="font-bold text-red-600">{discNum > 0 ? `${fmtKWD(discNum)} شهرياً — ${fmtKWD(discNum * 12)} سنوياً` : 'بدون خصم'}</p></div>
+      </div>
+      {discNum >= rentNum && <p className="text-[11px] text-red-700 font-semibold">تنبيه: الخصم يساوي أو يزيد عن الإيجار — الإيجار الفعلي سيصبح صفراً</p>}
+    </div>)}
     <div className="grid grid-cols-2 gap-3"><div><Label>التأمين</Label><Input type="number" value={deposit} onChange={e => setDeposit(e.target.value)} /></div><div><Label>يوم الدفع الشهري</Label><Input type="number" min="1" max="28" value={paymentDay} onChange={e => setPaymentDay(e.target.value)} /></div></div>
     {!initial && selectedUnit?.rentAmount && (<div className="flex items-start gap-2 p-2.5 bg-blue-50 rounded-lg"><input type="checkbox" id="updDefaultRent" checked={updateDefaultRent} onChange={e => setUpdateDefaultRent(e.target.checked)} className="w-4 h-4 mt-0.5" /><Label htmlFor="updDefaultRent" className="text-xs cursor-pointer font-normal">تحديث الإيجار الافتراضي للوحدة إلى قيمة العقد ({rentAmount || 0} {CURRENCY}) — لن يتغير أي عقد سابق</Label></div>)}
     <div><Label>ملاحظات</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
@@ -1866,7 +1882,7 @@ function PaymentForm({ contracts, payments, buildings, onSave, initial, onClose 
     )}
     {selected && balance && (<div className="p-3 bg-blue-50 border border-blue-100 rounded-xl space-y-1 text-sm">
       <p className="font-semibold text-gray-800">{selected.tenant?.name} — وحدة {selected.unit?.number}{selected.unit?.building ? ` (${selected.unit.building.name})` : ''}</p>
-      <p className="text-gray-600">الإيجار الشهري: <b>{fmtKWD(selected.rentAmount)} {CURRENCY}</b> — مدفوعات مسجلة: {(selected.payments || []).length}</p>
+      <p className="text-gray-600">الإيجار الشهري: <b>{fmtKWD(effectiveRent(selected as any))} {CURRENCY}</b>{(selected.discount || 0) > 0 ? <span className="text-amber-700"> (قبل الخصم {fmtKWD(selected.rentAmount)} — خصم {fmtKWD(selected.discount)} — سجّل الدفعات بالقيمة بعد الخصم)</span> : ''} — مدفوعات مسجلة: {(selected.payments || []).length}</p>
       <p className="text-gray-600">المستحق حتى الآن: <b>{fmtKWD(balance.totalDue)}</b> — المدفوع فعلياً: <b className="text-emerald-700">{fmtKWD(balance.totalPaid)}</b> — <span className={balance.outstanding > 0 ? 'text-red-700 font-bold' : 'text-emerald-700 font-bold'}>المتبقي: {fmtKWD(balance.outstanding)} {CURRENCY}</span></p>
     </div>)}
     <div><Label>المبلغ ({CURRENCY})</Label><Input type="number" value={amount} onChange={e => setAmount(e.target.value)} required /></div>
@@ -2373,7 +2389,7 @@ function BuildingDetailSection({ user, building, buildings, units, tenants, cont
                 return (<TableRow key={u.id}>
                   <TableCell className="font-bold">{u.number}</TableCell>
                   <TableCell>{u.floor ?? '-'}</TableCell>
-                  <TableCell className="text-xs">{({ apartment: 'شقة', office: 'مكتب', shop: 'محل', warehouse: 'مستودع' } as any)[u.type || ''] || u.type || '-'}</TableCell>
+                  <TableCell className="text-xs">{UNIT_TYPE_LABEL[u.type || ''] || u.type || '-'}</TableCell>
                   <TableCell><Badge className={UNIT_STATUS_MAP[u.status]?.color}>{UNIT_STATUS_MAP[u.status]?.label || u.status}</Badge></TableCell>
                   <TableCell className="text-sm">{u.rentAmount ? `${fmtKWD(u.rentAmount)} ${CURRENCY}` : '-'}</TableCell>
                   <TableCell>{act?.tenant ? (<div className="flex items-center gap-1.5 flex-wrap"><span className="text-sm font-medium">{act.tenant.name}</span>{act.tenant.tenantType && <Badge className={`${TENANT_TYPE_LABEL[act.tenant.tenantType]?.color} text-[10px]`}>{TENANT_TYPE_LABEL[act.tenant.tenantType]?.label}</Badge>}</div>) : <span className="text-gray-400 text-sm">شاغرة</span>}</TableCell>
@@ -2409,7 +2425,7 @@ function BuildingDetailSection({ user, building, buildings, units, tenants, cont
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 flex-wrap"><Badge className={CONTRACT_STATUS_MAP[c.status]?.color}>{CONTRACT_STATUS_MAP[c.status]?.label || c.status}</Badge>{c.tenant?.tenantType && <Badge className={`${TENANT_TYPE_LABEL[c.tenant.tenantType]?.color} text-[10px]`}>{TENANT_TYPE_LABEL[c.tenant.tenantType]?.label}</Badge>}</div>
                     <p className="font-bold text-gray-900">{c.tenant?.name || 'بدون مستأجر'} — وحدة {c.unit?.number || '?'}</p>
-                    <p className="text-xs text-gray-500">إيجار شهري: {fmtKWD(c.rentAmount)} {CURRENCY} — من {new Date(c.startDate).toLocaleDateString('ar')} إلى {new Date(c.endDate).toLocaleDateString('ar')}</p>
+                    <p className="text-xs text-gray-500">إيجار شهري: {fmtKWD(effectiveRent(c as any))} {CURRENCY}{(c.discount || 0) > 0 ? ` (قبل الخصم ${fmtKWD(c.rentAmount)} — خصم ${fmtKWD(c.discount)})` : ''} — سنوي بعد الخصم: {fmtKWD(effectiveRent(c as any) * 12)} {CURRENCY} — من {new Date(c.startDate).toLocaleDateString('ar')} إلى {new Date(c.endDate).toLocaleDateString('ar')}</p>
                   </div>
                   {(() => { const bal = contractBalance(c as any, (c.payments || []) as any); return (
                     <div className="text-sm bg-blue-50 rounded-xl p-3 min-w-[180px]">

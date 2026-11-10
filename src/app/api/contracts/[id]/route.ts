@@ -49,6 +49,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           startDate: body.startDate ? new Date(body.startDate) : old.startDate,
           endDate: body.endDate ? new Date(body.endDate) : old.endDate,
           rentAmount: body.rentAmount !== undefined ? Number(body.rentAmount) : old.rentAmount,
+          discount: body.discount !== undefined && body.discount !== '' ? Number(body.discount) : old.discount,
           deposit: body.deposit !== undefined && body.deposit !== '' ? Number(body.deposit) : old.deposit,
           paymentDay: body.paymentDay ? Number(body.paymentDay) : old.paymentDay,
           status: newStatus,

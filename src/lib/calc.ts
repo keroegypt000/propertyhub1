@@ -20,9 +20,15 @@ export interface CalcContract {
   id: string;
   unitId: string;
   status: string;         // active, expired, terminated, renewed, vacated
-  rentAmount: number;     // الإيجار المتفق عليه في العقد
+  rentAmount: number;     // الإيجار الشهري قبل الخصم
+  discount?: number | null; // الخصم الشهري — الإيجار الفعلي = rentAmount - discount
   startDate: string | Date;
   endDate: string | Date;
+}
+
+/** الإيجار الشهري الفعلي بعد الخصم (لا ينزل عن صفر) */
+export function effectiveRent(c: Pick<CalcContract, 'rentAmount' | 'discount'>): number {
+  return Math.max(0, (c.rentAmount || 0) - (c.discount || 0));
 }
 
 export interface BuildingIncomeStats {
@@ -64,12 +70,12 @@ export function buildingIncomeStats(units: CalcUnit[], contracts: CalcContract[]
   const expectedMonthly = rentable.reduce((s, u) => s + (u.rentAmount || 0), 0);
   const vacantPotentialMonthly = vacant.reduce((s, u) => s + (u.rentAmount || 0), 0);
 
-  // التعاقدي: عقد نشط واحد كحد أقصى لكل وحدة (نأخذ الأحدث إذا تعددت)
+  // التعاقدي: عقد نشط واحد كحد أقصى لكل وحدة (نأخذ الأحدث إذا تعددت) — بالإيجار الفعلي بعد الخصم
   let contractedMonthly = 0;
   for (const u of bUnits) {
     const actives = activeContractsOfUnit(contracts, u.id)
       .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
-    if (actives.length > 0) contractedMonthly += actives[0].rentAmount || 0;
+    if (actives.length > 0) contractedMonthly += effectiveRent(actives[0]);
   }
 
   const expectedAnnual = expectedMonthly * 12;
@@ -183,7 +189,7 @@ export function contractBalance(
   if (ref.getDate() >= start.getDate() || months === 0) months += 1;
   months = Math.max(0, Math.min(months, (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1));
 
-  const totalDue = months * (contract.rentAmount || 0);
+  const totalDue = months * effectiveRent(contract);
   const totalPaid = payments
     .filter(p => p.status !== 'cancelled')
     .reduce((s, p) => s + (p.amount || 0), 0);
