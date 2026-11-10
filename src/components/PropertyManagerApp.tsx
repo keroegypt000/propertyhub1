@@ -451,6 +451,7 @@ export default function PropertyManagerApp() {
               return {
                 ...b, unitCount: bUnits.length,
                 expectedMonthly: bStats.expectedMonthly,
+                contractGross: bStats.contractGrossMonthly,
                 contractDiscount: bStats.contractDiscountMonthly,
                 contractNet: bStats.contractedMonthly,
                 collectedAnnual: coll.annual,
@@ -540,10 +541,10 @@ export default function PropertyManagerApp() {
                 return (
                 <Card className="border-0 shadow-lg"><CardContent className="p-5">
                   <div className="flex items-center gap-2 mb-3"><DollarSign size={20} className="text-emerald-600" /><h3 className="font-bold text-gray-900">لوحة الإيرادات — كل العمارات مجتمعة</h3></div>
-                  <p className="text-[11px] font-bold text-emerald-700 mb-2 flex items-center gap-1"><TrendingUp size={13} />الإيرادات المتوقعة</p>
+                  <p className="text-[11px] font-bold text-emerald-700 mb-2 flex items-center gap-1"><TrendingUp size={13} />إيرادات العقود — قبل الخصم / الخصم / الصافي</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
-                    <button type="button" onClick={() => go('buildings')} title="الانتقال إلى المباني — لوحة الإيرادات التفصيلية" className="p-3 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-center border border-emerald-100 hover:border-emerald-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">المتوقع شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(dExpected.expectedMonthly)} {CURRENCY}</p><p className="text-[10px] text-emerald-600 mt-1 opacity-70">عرض حسب العمارة ↩</p></button>
-                    <button type="button" onClick={() => go('buildings')} title="الانتقال إلى المباني — لوحة الإيرادات التفصيلية" className="p-3 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-center border border-emerald-100 hover:border-emerald-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">المتوقع سنوياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(dExpected.expectedAnnual)} {CURRENCY}</p><p className="text-[10px] text-emerald-600 mt-1 opacity-70">عرض حسب العمارة ↩</p></button>
+                    <button type="button" onClick={() => go('buildings')} title="مجموع إيجار العقود النشطة قبل الخصم — عرض حسب العمارة" className="p-3 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-center border border-emerald-100 hover:border-emerald-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">قبل الخصم شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(dExpected.contractGrossMonthly)} {CURRENCY}</p><p className="text-[10px] text-emerald-600 mt-1 opacity-70">سنوياً: {fmtKWD(dExpected.contractGrossMonthly * 12)} {CURRENCY} — العقود النشطة</p></button>
+                    <button type="button" onClick={() => go('buildings')} title="مجموع إيجار العقود النشطة سنوياً قبل الخصم — عرض حسب العمارة" className="p-3 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-center border border-emerald-100 hover:border-emerald-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">قبل الخصم سنوياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(dExpected.contractGrossMonthly * 12)} {CURRENCY}</p><p className="text-[10px] text-emerald-600 mt-1 opacity-70">شهرياً: {fmtKWD(dExpected.contractGrossMonthly)} {CURRENCY} — العقود النشطة</p></button>
                     <button type="button" onClick={() => go('contracts')} title="الانتقال إلى العقود — مصدر إجمالي الخصم" className="p-3 bg-orange-50 hover:bg-orange-100 rounded-xl text-center border border-orange-100 hover:border-orange-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">إجمالي الخصم شهرياً</p><p className="text-lg font-bold text-orange-700">{fmtKWD(dExpected.contractDiscountMonthly)} {CURRENCY}</p><p className="text-[10px] text-orange-600 mt-1 opacity-70">سنوياً: {fmtKWD(dExpected.contractDiscountMonthly * 12)} {CURRENCY} — العقود النشطة</p></button>
                     <button type="button" onClick={() => go('contracts')} title="الانتقال إلى العقود — الإيجار الفعلي الذي يصلك بعد الخصم" className="p-3 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-center border-2 border-emerald-400 hover:border-emerald-500 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">صافي الربح بعد الخصم شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(dExpected.contractedMonthly)} {CURRENCY}</p><p className="text-[10px] text-emerald-600 mt-1 opacity-70">سنوياً: {fmtKWD(dExpected.contractedAnnual)} {CURRENCY} — العقود النشطة</p></button>
                     <button type="button" onClick={() => go('units')} title="الانتقال إلى قائمة الوحدات" className="p-3 bg-blue-50 hover:bg-blue-100 rounded-xl text-center border border-blue-100 hover:border-blue-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">جميع الوحدات</p><p className="text-lg font-bold text-blue-700">{unitCount}</p><p className="text-[10px] text-blue-600 mt-1 opacity-70">قائمة الوحدات ↩</p></button>
@@ -558,7 +559,7 @@ export default function PropertyManagerApp() {
                     <button type="button" onClick={() => go('journal')} title="الانتقال إلى قيود اليومية — مصدر المصروفات (حسابات 5xxx)" className="p-3 bg-red-50 hover:bg-red-100 rounded-xl text-center border border-red-100 hover:border-red-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">المصروفات (قيود)</p><p className="text-lg font-bold text-red-700">{fmtKWD(dExpenses)} {CURRENCY}</p><p className="text-[10px] text-red-600 mt-1 opacity-70">قيود اليومية ↩</p></button>
                     <button type="button" onClick={() => go('trialBalance')} title="الانتقال إلى ميزان المراجعة — تجميع الإيرادات والمصروفات" className="p-3 bg-teal-50 hover:bg-teal-100 rounded-xl text-center border border-teal-100 hover:border-teal-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">صافي الإيجار (محصل − مصروفات)</p><p className={`text-lg font-bold ${dNet >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtKWD(dNet)} {CURRENCY}</p><p className="text-[10px] text-teal-600 mt-1 opacity-70">ميزان المراجعة ↩</p></button>
                   </div>
-                  <p className="text-[11px] text-gray-400 mt-2">المتوقع = مجموع الإيجار الافتراضي للوحدات القابلة للتأجير • إجمالي الخصم = مجموع الخصومات الشهرية على العقود النشطة • صافي الربح بعد الخصم = إيجار العقود النشطة الفعلي — القيمة التي تصلك • المحصل = الدفعات الفعلية المسددة حسب تاريخ الدفع • المتأخرات = المتبقي المستحق غير المحصل على العقود النشطة • المصروفات = مصروفات مسجلة بالقيود المحاسبية • صافي الإيجار = المحصل الكلي − المصروفات — العملة {CURRENCY}</p>
+                  <p className="text-[11px] text-gray-400 mt-2">قبل الخصم = مجموع إيجار العقود النشطة كما هي مكتوبة في العقود • إجمالي الخصم = مجموع الخصومات الشهرية على العقود النشطة • صافي الربح بعد الخصم = قبل الخصم − الخصم — اللي بتلمه فعلاً • المحصل = الدفعات الفعلية المسددة حسب تاريخ الدفع • المتأخرات = المتبقي المستحق غير المحصل على العقود النشطة • المصروفات = مصروفات مسجلة بالقيود المحاسبية • صافي الإيجار = المحصل الكلي − المصروفات — العملة {CURRENCY}</p>
                 </CardContent></Card>
                 );
               })()}
@@ -581,7 +582,7 @@ export default function PropertyManagerApp() {
 
               {/* مقارنة العمارات - نفس نظام لوحة الإيرادات */}
               <Card className="border-0 shadow-lg overflow-hidden">
-                <CardHeader className="pb-2"><CardTitle className="text-lg flex items-center gap-2"><Building2 size={20} className="text-blue-600" />مقارنة العمارات — متوقع / محصل / متأخرات / مصروفات / صافي</CardTitle></CardHeader>
+                <CardHeader className="pb-2"><CardTitle className="text-lg flex items-center gap-2"><Building2 size={20} className="text-blue-600" />مقارنة العمارات — قبل الخصم / الخصم / الصافي / محصل / متأخرات / مصروفات / صافي</CardTitle></CardHeader>
                 <CardContent>
                   {buildingComparison.length > 0 ? (
                     <div className="overflow-x-auto">
@@ -590,7 +591,7 @@ export default function PropertyManagerApp() {
                           <TableHead>الكود</TableHead>
                           <TableHead>العمارة</TableHead>
                           <TableHead>الوحدات</TableHead>
-                          <TableHead>المتوقع شهرياً</TableHead>
+                          <TableHead>قبل الخصم (عقود)</TableHead>
                           <TableHead>الخصم الشهري</TableHead>
                           <TableHead>صافي التعاقدي (بعد الخصم)</TableHead>
                           <TableHead>المحصل سنوياً</TableHead>
@@ -603,7 +604,7 @@ export default function PropertyManagerApp() {
                             <TableCell className="font-mono text-sm">{b.code || b.id.slice(0, 8)}</TableCell>
                             <TableCell className="font-medium">{b.name}</TableCell>
                             <TableCell>{b.unitCount}</TableCell>
-                            <TableCell className="text-emerald-700 font-semibold">{fmt(b.expectedMonthly)}</TableCell>
+                            <TableCell className="text-emerald-700 font-semibold">{fmt(b.contractGross)}</TableCell>
                             <TableCell className="text-orange-700 font-semibold">{fmt(b.contractDiscount)}</TableCell>
                             <TableCell className="text-emerald-700 font-bold">{fmt(b.contractNet)}</TableCell>
                             <TableCell className="text-indigo-700 font-semibold">{fmt(b.collectedAnnual)}</TableCell>
@@ -726,10 +727,10 @@ export default function PropertyManagerApp() {
                 return (
                 <Card className="border-0 shadow-lg"><CardContent className="p-5">
                   <div className="flex items-center gap-2 mb-3"><DollarSign size={20} className="text-emerald-600" /><h3 className="font-bold text-gray-900">لوحة الإيرادات — كل العمارات مجتمعة</h3></div>
-                  <p className="text-[11px] font-bold text-emerald-700 mb-2 flex items-center gap-1"><TrendingUp size={13} />الإيرادات المتوقعة</p>
+                  <p className="text-[11px] font-bold text-emerald-700 mb-2 flex items-center gap-1"><TrendingUp size={13} />إيرادات العقود — قبل الخصم / الخصم / الصافي</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
-                    <div className="p-3 bg-emerald-50 rounded-xl text-center border border-emerald-100"><p className="text-[11px] text-gray-600">المتوقع شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(t.expectedMonthly)} {CURRENCY}</p></div>
-                    <div className="p-3 bg-emerald-50 rounded-xl text-center border border-emerald-100"><p className="text-[11px] text-gray-600">المتوقع سنوياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(t.expectedAnnual)} {CURRENCY}</p></div>
+                    <div className="p-3 bg-emerald-50 rounded-xl text-center border border-emerald-100"><p className="text-[11px] text-gray-600">قبل الخصم شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(t.contractGrossMonthly)} {CURRENCY}</p><p className="text-[10px] text-emerald-600 mt-1 opacity-70">سنوياً: {fmtKWD(t.contractGrossMonthly * 12)} {CURRENCY} — العقود النشطة</p></div>
+                    <div className="p-3 bg-emerald-50 rounded-xl text-center border border-emerald-100"><p className="text-[11px] text-gray-600">قبل الخصم سنوياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(t.contractGrossMonthly * 12)} {CURRENCY}</p><p className="text-[10px] text-emerald-600 mt-1 opacity-70">شهرياً: {fmtKWD(t.contractGrossMonthly)} {CURRENCY} — العقود النشطة</p></div>
                     <div className="p-3 bg-orange-50 rounded-xl text-center border border-orange-100"><p className="text-[11px] text-gray-600">إجمالي الخصم شهرياً</p><p className="text-lg font-bold text-orange-700">{fmtKWD(t.contractDiscountMonthly)} {CURRENCY}</p><p className="text-[10px] text-orange-600 mt-1 opacity-70">سنوياً: {fmtKWD(t.contractDiscountMonthly * 12)} {CURRENCY} — العقود النشطة</p></div>
                     <div className="p-3 bg-emerald-50 rounded-xl text-center border-2 border-emerald-400"><p className="text-[11px] text-gray-600">صافي الربح بعد الخصم شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(t.contractedMonthly)} {CURRENCY}</p><p className="text-[10px] text-emerald-600 mt-1 opacity-70">سنوياً: {fmtKWD(t.contractedAnnual)} {CURRENCY} — العقود النشطة</p></div>
                     <div className="p-3 bg-blue-50 rounded-xl text-center border border-blue-100"><p className="text-[11px] text-gray-600">جميع الوحدات</p><p className="text-lg font-bold text-blue-700">{allUnitsCount}</p></div>
@@ -744,7 +745,7 @@ export default function PropertyManagerApp() {
                     <div className="p-3 bg-red-50 rounded-xl text-center border border-red-100"><p className="text-[11px] text-gray-600">المصروفات (قيود)</p><p className="text-lg font-bold text-red-700">{fmtKWD(expenses)} {CURRENCY}</p></div>
                     <div className="p-3 bg-teal-50 rounded-xl text-center border border-teal-100"><p className="text-[11px] text-gray-600">صافي الإيجار (محصل − مصروفات)</p><p className={`text-lg font-bold ${netRent >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtKWD(netRent)} {CURRENCY}</p></div>
                   </div>
-                  <p className="text-[11px] text-gray-400 mt-2">المتوقع = مجموع الإيجار الافتراضي للوحدات القابلة للتأجير (متاحة + مؤجرة) لجميع العمارات • إجمالي الخصم = مجموع الخصومات الشهرية على العقود النشطة • صافي الربح بعد الخصم = إيجار العقود النشطة الفعلي — القيمة التي تصلك • المحصل = الدفعات الفعلية المسددة (نقدية + شيكات شركات مجمّعة) حسب تاريخ الدفع • المتأخرات = المتبقي المستحق غير المحصل على العقود النشطة • المصروفات = مصروفات مسجلة بالقيود المحاسبية • صافي الإيجار = المحصل الكلي − المصروفات — العملة {CURRENCY}</p>
+                  <p className="text-[11px] text-gray-400 mt-2">قبل الخصم = مجموع إيجار العقود النشطة لجميع العمارات كما هي مكتوبة • إجمالي الخصم = مجموع الخصومات الشهرية • صافي الربح بعد الخصم = قبل الخصم − الخصم — اللي بتلمه فعلاً • المحصل = الدفعات الفعلية المسددة (نقدية + شيكات شركات مجمّعة) حسب تاريخ الدفع • المتأخرات = المتبقي المستحق غير المحصل على العقود النشطة • المصروفات = مصروفات مسجلة بالقيود المحاسبية • صافي الإيجار = المحصل الكلي − المصروفات — العملة {CURRENCY}</p>
                 </CardContent></Card>
                 ); })()}
               <div className="grid gap-4">
@@ -783,8 +784,8 @@ export default function PropertyManagerApp() {
                       const netRent = coll.total - exp;
                       return (
                       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-2 mt-4 pt-4 border-t border-gray-100">
-                        <div className="p-2 bg-emerald-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">المتوقع شهرياً</p><p className="font-bold text-emerald-700 text-sm">{fmtKWD(s.expectedMonthly)} {CURRENCY}</p></div>
-                        <div className="p-2 bg-emerald-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">المتوقع سنوياً</p><p className="font-bold text-emerald-700 text-sm">{fmtKWD(s.expectedAnnual)} {CURRENCY}</p></div>
+                        <div className="p-2 bg-emerald-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">قبل الخصم شهرياً</p><p className="font-bold text-emerald-700 text-sm">{fmtKWD(s.contractGrossMonthly)} {CURRENCY}</p></div>
+                        <div className="p-2 bg-emerald-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">قبل الخصم سنوياً</p><p className="font-bold text-emerald-700 text-sm">{fmtKWD(s.contractGrossMonthly * 12)} {CURRENCY}</p></div>
                         <div className="p-2 bg-orange-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">الخصم الشهري</p><p className="font-bold text-orange-700 text-sm">{fmtKWD(s.contractDiscountMonthly)} {CURRENCY}</p></div>
                         <div className="p-2 bg-emerald-50 rounded-lg text-center border border-emerald-200"><p className="text-[11px] text-gray-600">صافي بعد الخصم</p><p className="font-bold text-emerald-700 text-sm">{fmtKWD(s.contractedMonthly)} {CURRENCY}</p></div>
                         <div className="p-2 bg-indigo-50 rounded-lg text-center"><p className="text-[11px] text-gray-600">المحصل شهرياً</p><p className="font-bold text-indigo-700 text-sm">{fmtKWD(coll.monthly)} {CURRENCY}</p></div>
@@ -2452,10 +2453,10 @@ function BuildingDetailSection({ user, building, buildings, units, tenants, cont
             return (
             <Card className="border-0 shadow-lg"><CardContent className="p-5">
               <div className="flex items-center gap-2 mb-3"><DollarSign size={20} className="text-emerald-600" /><h3 className="font-bold text-gray-900">لوحة الإيرادات — {building.name}</h3></div>
-              <p className="text-[11px] font-bold text-emerald-700 mb-2 flex items-center gap-1"><TrendingUp size={13} />الإيرادات المتوقعة</p>
+              <p className="text-[11px] font-bold text-emerald-700 mb-2 flex items-center gap-1"><TrendingUp size={13} />إيرادات العقود — قبل الخصم / الخصم / الصافي</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
-                <div className="p-3 bg-emerald-50 rounded-xl text-center border border-emerald-100"><p className="text-[11px] text-gray-600">المتوقع شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(stats.expectedMonthly)} {CURRENCY}</p></div>
-                <div className="p-3 bg-emerald-50 rounded-xl text-center border border-emerald-100"><p className="text-[11px] text-gray-600">المتوقع سنوياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(stats.expectedAnnual)} {CURRENCY}</p></div>
+                <div className="p-3 bg-emerald-50 rounded-xl text-center border border-emerald-100"><p className="text-[11px] text-gray-600">قبل الخصم شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(stats.contractGrossMonthly)} {CURRENCY}</p><p className="text-[10px] text-emerald-600 mt-1 opacity-70">سنوياً: {fmtKWD(stats.contractGrossMonthly * 12)} {CURRENCY} — العقود النشطة</p></div>
+                <div className="p-3 bg-emerald-50 rounded-xl text-center border border-emerald-100"><p className="text-[11px] text-gray-600">قبل الخصم سنوياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(stats.contractGrossMonthly * 12)} {CURRENCY}</p><p className="text-[10px] text-emerald-600 mt-1 opacity-70">شهرياً: {fmtKWD(stats.contractGrossMonthly)} {CURRENCY} — العقود النشطة</p></div>
                 <div className="p-3 bg-orange-50 rounded-xl text-center border border-orange-100"><p className="text-[11px] text-gray-600">إجمالي الخصم شهرياً</p><p className="text-lg font-bold text-orange-700">{fmtKWD(stats.contractDiscountMonthly)} {CURRENCY}</p><p className="text-[10px] text-orange-600 mt-1 opacity-70">سنوياً: {fmtKWD(stats.contractDiscountMonthly * 12)} {CURRENCY}</p></div>
                 <div className="p-3 bg-emerald-50 rounded-xl text-center border-2 border-emerald-400"><p className="text-[11px] text-gray-600">صافي الربح بعد الخصم شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(stats.contractedMonthly)} {CURRENCY}</p><p className="text-[10px] text-emerald-600 mt-1 opacity-70">سنوياً: {fmtKWD(stats.contractedAnnual)} {CURRENCY}</p></div>
                 <div className="p-3 bg-blue-50 rounded-xl text-center border border-blue-100"><p className="text-[11px] text-gray-600">جميع الوحدات</p><p className="text-lg font-bold text-blue-700">{bUnits.length}</p></div>
@@ -2470,7 +2471,7 @@ function BuildingDetailSection({ user, building, buildings, units, tenants, cont
                 <div className="p-3 bg-red-50 rounded-xl text-center border border-red-100"><p className="text-[11px] text-gray-600">المصروفات (قيود)</p><p className="text-lg font-bold text-red-700">{fmtKWD(expenses)} {CURRENCY}</p></div>
                 <div className="p-3 bg-teal-50 rounded-xl text-center border border-teal-100"><p className="text-[11px] text-gray-600">صافي الإيجار (محصل − مصروفات)</p><p className={`text-lg font-bold ${netRent >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtKWD(netRent)} {CURRENCY}</p></div>
               </div>
-              <p className="text-[11px] text-gray-400 mt-2">المتوقع = مجموع الإيجار الافتراضي للوحدات القابلة للتأجير (متاحة + مؤجرة) في هذه العمارة • إجمالي الخصم = مجموع الخصومات الشهرية على عقودها النشطة • صافي الربح بعد الخصم = إيجار عقودها النشطة الفعلي — القيمة التي تصلك • المحصل = دفعات هذه العمارة المسددة فعلاً حسب تاريخ الدفع • المتأخرات = المتبقي المستحق غير المحصل على عقودها النشطة • المصروفات = مصروفاتها المسجلة بالقيود المحاسبية • صافي الإيجار = المحصل الكلي − المصروفات — العملة {CURRENCY}</p>
+              <p className="text-[11px] text-gray-400 mt-2">قبل الخصم = مجموع إيجار عقود هذه العمارة النشطة كما هي مكتوبة • إجمالي الخصم = مجموع الخصومات الشهرية عليها • صافي الربح بعد الخصم = قبل الخصم − الخصم — اللي بتلمه من العمارة دي فعلاً • المحصل = دفعات هذه العمارة المسددة فعلاً حسب تاريخ الدفع • المتأخرات = المتبقي المستحق غير المحصل على عقودها النشطة • المصروفات = مصروفاتها المسجلة بالقيود المحاسبية • صافي الإيجار = المحصل الكلي − المصروفات — العملة {CURRENCY}</p>
             </CardContent></Card>
             );
           })()}
