@@ -167,6 +167,8 @@ export default function PropertyManagerApp() {
   const [detailBuildingId, setDetailBuildingId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState('overview');
   const [contractFilter, setContractFilter] = useState('all');
+  // وصول سريع من كرت المستأجر إلى عقوده في صفحة العقود (فلتر مستأجر مستمر)
+  const [contractTenantId, setContractTenantId] = useState('');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const go = (s: Section) => { setSection(s); setMobileNavOpen(false); };
@@ -850,8 +852,17 @@ export default function PropertyManagerApp() {
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {tenants.filter(t => !searchQuery || t.name.includes(searchQuery) || (t.phone || '').includes(searchQuery) || (t.idNumber || '').includes(searchQuery)).map(t => (
-                  <Card key={t.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-4">
+                {tenants.filter(t => !searchQuery || t.name.includes(searchQuery) || (t.phone || '').includes(searchQuery) || (t.idNumber || '').includes(searchQuery)).map(t => {
+                  // عقود المستأجر: النشط أولًا ثم الأحدث — مصدر الوحدة والعقد على الكرت
+                  const tContracts = contracts.filter(c => c.tenantId === t.id).sort((a, b) => {
+                    const aA = ['active', 'renewed'].includes(a.status) ? 0 : 1;
+                    const bA = ['active', 'renewed'].includes(b.status) ? 0 : 1;
+                    if (aA !== bA) return aA - bA;
+                    return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
+                  });
+                  const tActive = tContracts.find(c => ['active', 'renewed'].includes(c.status));
+                  return (
+                  <Card key={t.id} className={`border-0 shadow-lg hover:shadow-xl transition-shadow ${tActive ? 'ring-1 ring-emerald-100' : 'opacity-95'}`}><CardContent className="p-4">
                     <div className="flex items-center gap-3 mb-3">
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${t.tenantType === 'company' ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700'}`}>{t.name.charAt(0)}</div>
                       <div><h3 className="font-bold text-gray-900">{t.name}</h3>
@@ -864,6 +875,32 @@ export default function PropertyManagerApp() {
                     <div className="space-y-1 text-sm text-gray-600">
                       {t.phone && <p className="flex items-center gap-1"><Phone size={14} />{t.phone}</p>}
                       {t.email && <p className="flex items-center gap-1"><Mail size={14} />{t.email}</p>}
+                    </div>
+                    {/* الوحدة والعقد — يوضح المستأجر ساكن فين وعلى أنهي عقد */}
+                    <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50/60 p-2.5">
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <p className="text-[11px] font-bold text-orange-700 flex items-center gap-1"><Home size={12} />الوحدة والعقد</p>
+                        {tContracts.length > 0 && (
+                          <button type="button" onClick={() => { setContractTenantId(t.id); go('contracts'); }} title="عرض كل عقود هذا المستأجر في صفحة العقود" className="text-[10px] font-semibold text-orange-600 hover:text-orange-800 hover:underline flex items-center gap-0.5 shrink-0">فتح العقود<ArrowRight size={10} className="rotate-180" /></button>
+                        )}
+                      </div>
+                      {tContracts.length === 0 ? (
+                        <p className="text-xs text-gray-400">لا يوجد عقد مسجل — المستأجر غير مرتبط بوحدة (أنشئ عقدًا من صفحة العقود)</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {tContracts.slice(0, 2).map(c => (
+                            <div key={c.id} className="bg-white rounded-lg p-2 border border-gray-100">
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <span className="text-xs font-bold text-gray-800 flex items-center gap-1"><Home size={11} className="text-teal-500" />وحدة {c.unit?.number || '؟'} — {c.unit?.building?.name || 'بدون عمارة'}</span>
+                                <Badge className={`${CONTRACT_STATUS_MAP[c.status]?.color || 'bg-gray-100'} text-[9px] px-1.5`}>{CONTRACT_STATUS_MAP[c.status]?.label || c.status}</Badge>
+                              </div>
+                              <p className="text-[10px] text-gray-500 mt-1 flex items-center gap-1"><Calendar size={9} />{new Date(c.startDate).toLocaleDateString('ar')} ← {new Date(c.endDate).toLocaleDateString('ar')}{c.unit?.floor != null ? ` — طابق ${c.unit.floor}` : ''}</p>
+                              <p className="text-[10px] font-semibold text-emerald-700">{fmtKWD(effectiveRent(c as any))} {CURRENCY} شهرياً{(c.discount || 0) > 0 ? <span className="font-normal text-gray-400"> (قبل الخصم {fmtKWD(c.rentAmount)})</span> : ''}</p>
+                            </div>
+                          ))}
+                          {tContracts.length > 2 && <p className="text-[10px] text-gray-400">+ {tContracts.length - 2} عقد قديم — في «سجل العميل»</p>}
+                        </div>
+                      )}
                     </div>
                     {/* Tenant uploads (civil ID, etc.) - with inline thumbnail preview */}
                     <div className="mt-3 space-y-2">
@@ -889,7 +926,8 @@ export default function PropertyManagerApp() {
                     {canWriteCheck('tenants') && <div className="flex gap-2 mt-3"><FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل المستأجر">{(close) => <TenantForm initial={t} onSave={async (data) => { await api(`/api/tenants/${t.id}`, 'PUT', data); autoRestore('تعديل مستأجر'); loadData('tenants'); }} onClose={close} />}</FormDialog><Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/tenants/${t.id}`, 'DELETE'); autoRestore('حذف مستأجر'); loadData('tenants'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button></div>}
                     <TenantHistoryDialog trigger={<Button variant="outline" size="sm" className="w-full mt-2 border-orange-200 text-orange-700 hover:bg-orange-50" title="سجل العميل الكامل: الدفعات والالتزام والعقود والقضايا"><History size={14} className="ml-1" />سجل العميل — الدفعات والالتزام والقضايا</Button>} tenant={t} contracts={contracts as any} payments={payments as any} legalCases={legalCases as any} />
                   </CardContent></Card>
-                ))}
+                  );
+                })}
                 {tenants.length === 0 && <EmptyState icon={<Users size={48} />} text="لا يوجد مستأجرين" />}
               </div>
             </div>
@@ -905,13 +943,19 @@ export default function PropertyManagerApp() {
                   {canWriteCheck('contracts') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة عقد</Button>} title="إضافة عقد جديد" maxWidth="max-w-lg">{(close) => <ContractForm units={units} tenants={tenants} buildings={buildings} onSave={async (data) => { await api('/api/contracts', 'POST', data); if (data.updateDefaultRent && data.unitId) { await api(`/api/units/${data.unitId}`, 'PUT', { rentAmount: data.rentAmount }); loadData('units'); } autoRestore('إضافة عقد'); loadData('contracts'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
-              <div className="flex gap-2 flex-wrap">
+              <div className="flex gap-2 flex-wrap items-center">
                 {[{ k: 'all', l: 'الكل' }, ...Object.entries(CONTRACT_STATUS_MAP).map(([k, v]) => ({ k, l: v.label }))].map(({ k, l }) => (
                   <button key={k} type="button" onClick={() => setContractFilter(k)} className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${contractFilter === k ? 'bg-orange-500 text-white border-orange-500 shadow' : 'bg-white text-gray-600 border-orange-200 hover:bg-orange-50'}`}>{l}</button>
                 ))}
+                {contractTenantId && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <Users size={12} />عقود: {tenants.find(t => t.id === contractTenantId)?.name || 'مستأجر'}
+                    <button type="button" onClick={() => setContractTenantId('')} title="إلغاء فلتر المستأجر" className="hover:text-emerald-900 font-bold">✕</button>
+                  </span>
+                )}
               </div>
               <div className="grid gap-4">
-                {contracts.filter(c => (contractFilter === 'all' || c.status === contractFilter) && (!searchQuery || (c.tenant?.name || '').includes(searchQuery) || (c.unit?.number || '').includes(searchQuery) || (c.unit?.building?.name || '').includes(searchQuery) || c.status.includes(searchQuery))).map(c => (
+                {contracts.filter(c => (contractFilter === 'all' || c.status === contractFilter) && (!contractTenantId || c.tenantId === contractTenantId) && (!searchQuery || (c.tenant?.name || '').includes(searchQuery) || (c.unit?.number || '').includes(searchQuery) || (c.unit?.building?.name || '').includes(searchQuery) || c.status.includes(searchQuery))).map(c => (
                   <Card key={c.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-5">
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       <div>
