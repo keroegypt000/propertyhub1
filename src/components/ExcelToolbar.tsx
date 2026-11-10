@@ -82,20 +82,26 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
   const [failures, setFailures] = useState<{ index: number; error: string }[]>([]);
   const [busyParse, setBusyParse] = useState(false);
   const [importing, setImporting] = useState(false);
+  // تنبيه قلب الحالات: عدد الوحدات المسجلة «مؤجرة» في النظام وسيقلبها الملف إلى غير مؤجرة
+  const [rentedFlips, setRentedFlips] = useState(0);
+  const [flipConfirmed, setFlipConfirmed] = useState(false);
 
   if (!def) return null;
   const validRows = parsed.filter(r => r.ok);
   const invalidRows = parsed.filter(r => !r.ok);
+  const flipBlocked = entity === 'units' && rentedFlips > 0 && !flipConfirmed;
   const needed = CONFIRM_ORDER[entity] || [];
   const orderHint = needed.length > 0
     ? `تأكد أولاً من وجود بيانات: ${needed.map(k => ENTITIES[k].label).join(' ← ')} (استوردها قبل هذه الورقة)`
     : 'لا يحتاج بيانات مرجعية — يمكنك الاستيراد مباشرة';
 
-  const reset = () => { setStep('pick'); setParsed([]); setFileName(''); setProgress(0); setImportStats({ ok: 0, fail: 0 }); setFailures([]); };
+  const reset = () => { setStep('pick'); setParsed([]); setFileName(''); setProgress(0); setImportStats({ ok: 0, fail: 0 }); setFailures([]); setRentedFlips(0); setFlipConfirmed(false); };
 
   // جلب البيانات المرجعية الحالية لحل المراجع (أسماء العمارات/الوحدات/المستأجرين/العقود)
   const fetchCtx = async (): Promise<ImportCtx> => {
-    const needs = def.ctxNeeds || [];
+    const needs = [...(def.ctxNeeds || [])];
+    // استيراد الوحدات يحتاج الوحدات الحالية لحساب تنبيه قلب الحالات (مؤجرة → متاحة)
+    if (entity === 'units' && !needs.includes('units')) needs.push('units');
     const [b, u, t, c] = await Promise.all([
       needs.includes('buildings') ? api('/api/buildings') : Promise.resolve([]),
       needs.includes('units') ? api('/api/units') : Promise.resolve([]),
@@ -123,6 +129,17 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
         }
       });
       setParsed(results);
+      // احسب كم وحدة مسجلة «مؤجرة» سيتغير حالتها إلى غير مؤجرة بسبب الملف — لعرض تنبيه التأكيد
+      if (entity === 'units') {
+        const flips = results.filter(r => {
+          const d = r.data;
+          if (!r.ok || !d || d.status === 'rented') return false;
+          const existing = ((ctx as any).units || []).find((x: any) => x.buildingId === d.buildingId && String(x.number).trim() === String(d.number).trim());
+          return existing?.status === 'rented';
+        }).length;
+        setRentedFlips(flips);
+        setFlipConfirmed(false);
+      }
       setStep('preview');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'تعذر قراءة الملف');
@@ -220,6 +237,17 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
                 </div>
                 {entity === 'units' && validRows.length > 0 && <UnitStatusChips counts={unitStatusSummary(validRows)} />}
 
+                {entity === 'units' && rentedFlips > 0 && (
+                  <label className={`flex items-start gap-2 p-3 rounded-xl border cursor-pointer transition ${flipConfirmed ? 'bg-amber-50 border-amber-300' : 'bg-red-50 border-red-300'}`}>
+                    <input type="checkbox" checked={flipConfirmed} onChange={e => setFlipConfirmed(e.target.checked)} className="mt-1 accent-red-600" />
+                    <span className="text-sm">
+                      <strong className="text-red-800">تنبيه قبل المتابعة:</strong>{' '}
+                      <span className="text-red-800">ملفك يقول «متاحة» (أو غير مؤجرة) لـ {rentedFlips} وحدة مسجلة حالياً «مؤجرة» في النظام — لو كملت الاستيراد هتقلب شاغرة وينقص عدّاد المؤجرة ونسبة الإشغال.</span>
+                      <span className="block text-xs text-gray-600 mt-1">لو دي حالات إخلاء حقيقية كمّل عادي. لو مش مقصودة، عدّل عمود «الحالة» في الملف إلى «مؤجرة» وارفعه تاني.</span>
+                    </span>
+                  </label>
+                )}
+
                 {validRows.length === 0 ? (
                   <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-800">لا توجد صفوف صالحة — تأكد من مطابقة أسماء الأعمدة للقالب ونزّل القالب للمقارنة.</div>
                 ) : (
@@ -296,8 +324,8 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
 
           <div className="flex justify-between gap-2 pt-3 border-t">
             {step === 'preview' && validRows.length > 0 ? (
-              <Button onClick={startImport} className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md">
-                <FileUp size={16} className="ml-2" />بدء استيراد {validRows.length} صف
+              <Button onClick={startImport} disabled={flipBlocked} title={flipBlocked ? 'أكّد مربع التنبيه الأحمر أعلاه أولاً' : undefined} className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
+                <FileUp size={16} className="ml-2" />{flipBlocked ? 'أكّد التنبيه أولاً' : `بدء استيراد ${validRows.length} صف`}
               </Button>
             ) : <span />}
             <Button variant="outline" onClick={() => { setOpen(false); reset(); }} disabled={importing}>{step === 'done' ? 'إغلاق' : 'إلغاء'}</Button>

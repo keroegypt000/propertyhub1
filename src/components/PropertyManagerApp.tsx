@@ -169,11 +169,15 @@ export default function PropertyManagerApp() {
   const [contractFilter, setContractFilter] = useState('all');
   // وصول سريع من كرت المستأجر إلى عقوده في صفحة العقود (فلتر مستأجر مستمر)
   const [contractTenantId, setContractTenantId] = useState('');
+  // وصول سريع من كرت الوحدة إلى عقد الوحدة في صفحة العقود (فلتر وحدة مستمر)
+  const [contractUnitId, setContractUnitId] = useState('');
+  // وصول سريع من العقد/المستأجر إلى الوحدة نفسها في صفحة الوحدات
+  const [unitFocusId, setUnitFocusId] = useState('');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const go = (s: Section) => { setSection(s); setMobileNavOpen(false); };
+  const go = (s: Section, presetSearch?: string) => { setSection(s); setSearchQuery(presetSearch ?? ''); setMobileNavOpen(false); };
   // فتح صفحة تفاصيل العمارة — النقر على كارت العمارة يفتحها بتبويب النظرة العامة
-  const goBuildingDetail = (id: string, tab = 'overview') => { setDetailBuildingId(id); setDetailTab(tab); setSection('buildingDetail'); setMobileNavOpen(false); };
+  const goBuildingDetail = (id: string, tab = 'overview') => { setDetailBuildingId(id); setDetailTab(tab); setSection('buildingDetail'); setSearchQuery(''); setMobileNavOpen(false); };
 
   const checkAuth = useCallback(async () => {
     try {
@@ -206,7 +210,7 @@ export default function PropertyManagerApp() {
         ]);
         setBuildings(b); setUnits(u); setContracts(c); setPayments(p); setJournalEntries(j as any);
       }
-      if (s === 'units') setUnits(await api<Unit[]>('/api/units'));
+      if (s === 'units') { setUnits(await api<Unit[]>('/api/units')); setContracts(await api<Contract[]>('/api/contracts').catch(() => [])); }
       if (s === 'tenants') {
         const [t, c, p, lc] = await Promise.all([
           api<Tenant[]>('/api/tenants'), api<Contract[]>('/api/contracts'),
@@ -273,7 +277,6 @@ export default function PropertyManagerApp() {
   }, []);
 
   useEffect(() => { if (user) loadData(section); }, [user, section, loadData]);
-  useEffect(() => { setSearchQuery(''); }, [section]);
 
   // البث الحي: تحديث لوحة التحكم تلقائيًا كل 60 ثانية
   useEffect(() => {
@@ -814,7 +817,16 @@ export default function PropertyManagerApp() {
           )}
 
           {/* Units */}
-          {section === 'units' && (
+          {section === 'units' && (() => {
+            const focusUnit = unitFocusId ? units.find(u => u.id === unitFocusId) : null;
+            // عقد الوحدة النشط — مصدر اسم المستأجر والعقد على كرت الوحدة
+            const unitContractsMap = new Map<string, any>();
+            for (const c of contracts) {
+              if (!['active', 'renewed'].includes(c.status)) continue;
+              const prev = unitContractsMap.get(c.unitId);
+              if (!prev || new Date(c.startDate).getTime() > new Date(prev.startDate).getTime()) unitContractsMap.set(c.unitId, c);
+            }
+            return (
             <div className="space-y-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الوحدات</h2>
                 <div className="flex flex-wrap items-center gap-2">
@@ -823,9 +835,17 @@ export default function PropertyManagerApp() {
                   {canWriteCheck('units') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة وحدة</Button>} title="إضافة وحدة جديدة">{(close) => <UnitForm buildings={buildings} onSave={async (data) => { await api('/api/units', 'POST', data); autoRestore('إضافة وحدة'); loadData('units'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
+              {focusUnit && (
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                  <Home size={12} />وحدة: {focusUnit.number} — {focusUnit.building?.name || ''}
+                  <button type="button" onClick={() => setUnitFocusId('')} title="إلغاء التركيز على الوحدة" className="hover:text-blue-900 font-bold">✕</button>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {units.filter(u => !searchQuery || u.number.includes(searchQuery) || (u.building?.name || '').includes(searchQuery) || u.status.includes(searchQuery)).map(u => (
-                  <Card key={u.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-4">
+                {units.filter(u => !unitFocusId || u.id === unitFocusId).filter(u => !searchQuery || u.number.includes(searchQuery) || (u.building?.name || '').includes(searchQuery) || u.status.includes(searchQuery)).map(u => {
+                  const uc = unitContractsMap.get(u.id);
+                  return (
+                  <Card key={u.id} className={`border-0 shadow-lg hover:shadow-xl transition-shadow ${uc ? 'ring-1 ring-emerald-100' : 'opacity-95'}`}><CardContent className="p-4">
                     <div className="flex items-center justify-between mb-3"><h3 className="font-bold text-gray-900">وحدة {u.number}</h3><Badge className={UNIT_STATUS_MAP[u.status]?.color || 'bg-gray-100'}>{UNIT_STATUS_MAP[u.status]?.label || u.status}</Badge></div>
                     <div className="space-y-1 text-sm text-gray-600">
                       {u.building && <p className="flex items-center gap-1"><Building2 size={14} />{u.building.name}</p>}
@@ -833,13 +853,39 @@ export default function PropertyManagerApp() {
                       {u.area && <p>المساحة: {u.area} م²</p>}
                       {u.rentAmount && <p className="font-semibold text-emerald-700">الإيجار: {u.rentAmount.toLocaleString('ar')} {CURRENCY}</p>}
                     </div>
+                    {/* المستأجر والعقد — ربط الوحدة بالمستأجر والعقد */}
+                    <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50/60 p-2.5">
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <p className="text-[11px] font-bold text-orange-700 flex items-center gap-1"><Users size={12} />المستأجر والعقد</p>
+                        {uc && (
+                          <button type="button" onClick={() => { setContractUnitId(u.id); setContractTenantId(''); go('contracts'); }} title="فتح عقد هذه الوحدة في صفحة العقود" className="text-[10px] font-semibold text-orange-600 hover:text-orange-800 hover:underline flex items-center gap-0.5 shrink-0">فتح العقد<ArrowRight size={10} className="rotate-180" /></button>
+                        )}
+                      </div>
+                      {uc ? (
+                        <div className="bg-white rounded-lg p-2 border border-gray-100">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-xs font-bold text-gray-800 flex items-center gap-1"><Users size={11} className="text-emerald-600" />{uc.tenant?.name || 'مستأجر غير معروف'}</span>
+                            <Badge className={`${CONTRACT_STATUS_MAP[uc.status]?.color || 'bg-gray-100'} text-[9px] px-1.5`}>{CONTRACT_STATUS_MAP[uc.status]?.label || uc.status}</Badge>
+                          </div>
+                          <p className="text-[10px] text-gray-500 mt-1 flex items-center gap-1"><Calendar size={9} />{new Date(uc.startDate).toLocaleDateString('ar')} ← {new Date(uc.endDate).toLocaleDateString('ar')}</p>
+                          <p className="text-[10px] font-semibold text-emerald-700">{fmtKWD(effectiveRent(uc as any))} {CURRENCY} شهرياً{(uc.discount || 0) > 0 ? <span className="font-normal text-gray-400"> (قبل الخصم {fmtKWD(uc.rentAmount)})</span> : ''}</p>
+                          {uc.tenant?.name && (
+                            <button type="button" onClick={() => go('tenants', uc.tenant?.name)} title="فتح كرت المستأجر في صفحة المستأجرين" className="mt-1.5 text-[10px] font-semibold text-orange-600 hover:text-orange-800 hover:underline flex items-center gap-0.5">كرت المستأجر<ArrowRight size={10} className="rotate-180" /></button>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400">لا يوجد عقد نشط — {['available'].includes(u.status) ? 'وحدة شاغرة' : 'مسجلة ' + (UNIT_STATUS_MAP[u.status]?.label || u.status) + ' بدون عقد (أنشئ عقدًا أو صحّح الحالة)'}</p>
+                      )}
+                    </div>
                     {canWriteCheck('units') && <div className="flex gap-2 mt-3"><FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الوحدة">{(close) => <UnitForm buildings={buildings} initial={u} onSave={async (data) => { await api(`/api/units/${u.id}`, 'PUT', data); autoRestore('تعديل وحدة'); loadData('units'); }} onClose={close} />}</FormDialog><Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/units/${u.id}`, 'DELETE'); autoRestore('حذف وحدة'); loadData('units'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button></div>}
                   </CardContent></Card>
-                ))}
+                  );
+                })}
                 {units.length === 0 && <EmptyState icon={<Home size={48} />} text="لا توجد وحدات مضافة" />}
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* Tenants */}
           {section === 'tenants' && (
@@ -891,7 +937,11 @@ export default function PropertyManagerApp() {
                           {tContracts.slice(0, 2).map(c => (
                             <div key={c.id} className="bg-white rounded-lg p-2 border border-gray-100">
                               <div className="flex items-center justify-between gap-2 flex-wrap">
-                                <span className="text-xs font-bold text-gray-800 flex items-center gap-1"><Home size={11} className="text-teal-500" />وحدة {c.unit?.number || '؟'} — {c.unit?.building?.name || 'بدون عمارة'}</span>
+                                {c.unitId ? (
+                                  <button type="button" onClick={() => { setUnitFocusId(c.unitId); go('units'); }} title="فتح هذه الوحدة في صفحة الوحدات" className="text-xs font-bold text-gray-800 hover:text-orange-700 flex items-center gap-1"><Home size={11} className="text-teal-500" />وحدة {c.unit?.number || '؟'} — {c.unit?.building?.name || 'بدون عمارة'}</button>
+                                ) : (
+                                  <span className="text-xs font-bold text-gray-800 flex items-center gap-1"><Home size={11} className="text-teal-500" />وحدة {c.unit?.number || '؟'} — {c.unit?.building?.name || 'بدون عمارة'}</span>
+                                )}
                                 <Badge className={`${CONTRACT_STATUS_MAP[c.status]?.color || 'bg-gray-100'} text-[9px] px-1.5`}>{CONTRACT_STATUS_MAP[c.status]?.label || c.status}</Badge>
                               </div>
                               <p className="text-[10px] text-gray-500 mt-1 flex items-center gap-1"><Calendar size={9} />{new Date(c.startDate).toLocaleDateString('ar')} ← {new Date(c.endDate).toLocaleDateString('ar')}{c.unit?.floor != null ? ` — طابق ${c.unit.floor}` : ''}</p>
@@ -953,9 +1003,15 @@ export default function PropertyManagerApp() {
                     <button type="button" onClick={() => setContractTenantId('')} title="إلغاء فلتر المستأجر" className="hover:text-emerald-900 font-bold">✕</button>
                   </span>
                 )}
+                {contractUnitId && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                    <Home size={12} />وحدة: {units.find(u => u.id === contractUnitId)?.number || '—'}
+                    <button type="button" onClick={() => setContractUnitId('')} title="إلغاء فلتر الوحدة" className="hover:text-blue-900 font-bold">✕</button>
+                  </span>
+                )}
               </div>
               <div className="grid gap-4">
-                {contracts.filter(c => (contractFilter === 'all' || c.status === contractFilter) && (!contractTenantId || c.tenantId === contractTenantId) && (!searchQuery || (c.tenant?.name || '').includes(searchQuery) || (c.unit?.number || '').includes(searchQuery) || (c.unit?.building?.name || '').includes(searchQuery) || c.status.includes(searchQuery))).map(c => (
+                {contracts.filter(c => (contractFilter === 'all' || c.status === contractFilter) && (!contractTenantId || c.tenantId === contractTenantId) && (!contractUnitId || c.unitId === contractUnitId) && (!searchQuery || (c.tenant?.name || '').includes(searchQuery) || (c.unit?.number || '').includes(searchQuery) || (c.unit?.building?.name || '').includes(searchQuery) || c.status.includes(searchQuery))).map(c => (
                   <Card key={c.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-5">
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       <div>
@@ -963,6 +1019,11 @@ export default function PropertyManagerApp() {
                         <div className="space-y-1 text-sm">
                           {c.unit && <p className="flex items-center gap-1"><Home size={14} className="text-gray-400" />وحدة {c.unit.number} - {c.unit.building?.name}</p>}
                           {c.tenant && <p className="flex items-center gap-1"><Users size={14} className="text-gray-400" />{c.tenant.name}</p>}
+                          {/* القفز السريع: من العقد إلى الوحدة والمستأجر */}
+                          <div className="flex gap-2 pt-1">
+                            {c.unit && <button type="button" onClick={() => { setUnitFocusId(c.unitId); go('units'); }} title="فتح هذه الوحدة في صفحة الوحدات" className="text-[10px] font-semibold text-orange-600 hover:text-orange-800 hover:underline flex items-center gap-0.5">الوحدة<ArrowRight size={10} className="rotate-180" /></button>}
+                            {c.tenant && <button type="button" onClick={() => go('tenants', c.tenant?.name)} title="فتح كرت المستأجر في صفحة المستأجرين" className="text-[10px] font-semibold text-orange-600 hover:text-orange-800 hover:underline flex items-center gap-0.5">المستأجر<ArrowRight size={10} className="rotate-180" /></button>}
+                          </div>
                           <p className="flex items-center gap-1"><Calendar size={14} className="text-gray-400" />{new Date(c.startDate).toLocaleDateString('ar')} - {new Date(c.endDate).toLocaleDateString('ar')}</p>
                           <p className="font-semibold text-emerald-700">الإيجار: {effectiveRent(c as any).toLocaleString('ar')} {CURRENCY} شهرياً{(c.discount || 0) > 0 ? <span className="text-xs font-normal text-gray-500"> (قبل الخصم {c.rentAmount.toLocaleString('ar')} — خصم {(c.discount || 0).toLocaleString('ar')})</span> : null}</p>
                           <p className="text-xs text-gray-500">سنوياً: {fmtKWD(effectiveRent(c as any) * 12)} {CURRENCY}{(c.discount || 0) > 0 ? ` (قبل الخصم ${fmtKWD(c.rentAmount * 12)} ${CURRENCY})` : ''}</p>

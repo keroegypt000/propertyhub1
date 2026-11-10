@@ -334,7 +334,7 @@ export const ENTITIES: Record<string, EntityDef> = {
       'العمارة': c.unit?.building?.name || '', 'رقم الوحدة': c.unit?.number || '', 'المستأجر': c.tenant?.name || '',
       'تاريخ البداية': c.startDate ? String(c.startDate).slice(0, 10) : '',
       'تاريخ النهاية': c.endDate ? String(c.endDate).slice(0, 10) : '',
-      'الإيجار': c.rentAmount ?? '', 'الخصم الشهري': c.discount ?? 0, 'مبلغ التأمين': c.deposit ?? '', 'يوم الدفع (1-31)': c.paymentDay ?? '',
+      'الإيجار الشهري': c.rentAmount ?? '', 'الخصم الشهري': c.discount ?? 0, 'مبلغ التأمين': c.deposit ?? '', 'يوم الدفع (1-31)': c.paymentDay ?? '',
       'الحالة': ({ active: 'نشط', expired: 'منتهي', terminated: 'ملغي', renewed: 'مجدد', vacated: 'إخلاء' } as any)[c.status] || c.status,
       'الشروط': c.terms || '', 'ملاحظات': c.notes || '',
     }),
