@@ -38,7 +38,9 @@ export interface BuildingIncomeStats {
   nonRentableUnits: number;
   expectedMonthly: number;      // متوقع شهرياً (افتراضي للوحدات القابلة للتأجير)
   expectedAnnual: number;
-  contractedMonthly: number;    // تعاقدي شهري (عقود نشطة)
+  contractGrossMonthly: number;   // التعاقدي الشهري قبل الخصم (مجموع إيجار العقود النشطة)
+  contractDiscountMonthly: number; // إجمالي الخصم الشهري (مجموع خصومات العقود النشطة)
+  contractedMonthly: number;    // تعاقدي شهري (عقود نشطة) — بعد الخصم = صافي الربح
   contractedAnnual: number;
   vacantPotentialMonthly: number; // إمكانات الشواغر شهرياً
   occupiedContractedMonthly: number; // تعاقدي من الوحدات المؤجرة
@@ -71,11 +73,16 @@ export function buildingIncomeStats(units: CalcUnit[], contracts: CalcContract[]
   const vacantPotentialMonthly = vacant.reduce((s, u) => s + (u.rentAmount || 0), 0);
 
   // التعاقدي: عقد نشط واحد كحد أقصى لكل وحدة (نأخذ الأحدث إذا تعددت) — بالإيجار الفعلي بعد الخصم
+  // + الإجمالي قبل الخصم لاشتقاق قيمة الخصم الإجمالية
   let contractedMonthly = 0;
+  let contractGrossMonthly = 0;
   for (const u of bUnits) {
     const actives = activeContractsOfUnit(contracts, u.id)
       .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
-    if (actives.length > 0) contractedMonthly += effectiveRent(actives[0]);
+    if (actives.length > 0) {
+      contractedMonthly += effectiveRent(actives[0]);
+      contractGrossMonthly += actives[0].rentAmount || 0;
+    }
   }
 
   const expectedAnnual = expectedMonthly * 12;
@@ -89,6 +96,8 @@ export function buildingIncomeStats(units: CalcUnit[], contracts: CalcContract[]
     nonRentableUnits: nonRentable.length,
     expectedMonthly,
     expectedAnnual,
+    contractGrossMonthly,
+    contractDiscountMonthly: Math.max(0, contractGrossMonthly - contractedMonthly),
     contractedMonthly,
     contractedAnnual,
     vacantPotentialMonthly,
@@ -102,7 +111,8 @@ export function buildingIncomeStats(units: CalcUnit[], contracts: CalcContract[]
 export function totalIncomeStats(units: CalcUnit[], contracts: CalcContract[], buildingIds: string[]): BuildingIncomeStats {
   const empty: BuildingIncomeStats = {
     rentableUnits: 0, vacantUnits: 0, occupiedUnits: 0, nonRentableUnits: 0,
-    expectedMonthly: 0, expectedAnnual: 0, contractedMonthly: 0, contractedAnnual: 0,
+    expectedMonthly: 0, expectedAnnual: 0, contractGrossMonthly: 0, contractDiscountMonthly: 0,
+    contractedMonthly: 0, contractedAnnual: 0,
     vacantPotentialMonthly: 0, occupiedContractedMonthly: 0, difference: 0, differencePct: 0,
   };
   return buildingIds.reduce((acc, id) => {
@@ -114,6 +124,8 @@ export function totalIncomeStats(units: CalcUnit[], contracts: CalcContract[], b
       nonRentableUnits: acc.nonRentableUnits + s.nonRentableUnits,
       expectedMonthly: acc.expectedMonthly + s.expectedMonthly,
       expectedAnnual: acc.expectedAnnual + s.expectedAnnual,
+      contractGrossMonthly: acc.contractGrossMonthly + s.contractGrossMonthly,
+      contractDiscountMonthly: acc.contractDiscountMonthly + s.contractDiscountMonthly,
       contractedMonthly: acc.contractedMonthly + s.contractedMonthly,
       contractedAnnual: acc.contractedAnnual + s.contractedAnnual,
       vacantPotentialMonthly: acc.vacantPotentialMonthly + s.vacantPotentialMonthly,
