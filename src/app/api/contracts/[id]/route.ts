@@ -64,7 +64,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         await tx.unit.update({ where: { id: old.unitId }, data: { status: 'available' } }).catch(() => null);
         await tx.unit.update({ where: { id: body.unitId }, data: { status: 'rented' } }).catch(() => null);
       } else if (newStatus !== old.status) {
-        await syncUnitOccupancy(updated.unitId, newStatus);
+        await syncUnitOccupancy(tx, updated.unitId, newStatus);
       }
       return updated;
     });

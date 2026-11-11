@@ -318,3 +318,32 @@ model RestorePoint {
 
   creator     User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
 }
+
+// === SUPPLIERS & CONTRACTORS (موردين ومقاولين) ===
+model Supplier {
+  id          String   @id @default(cuid())
+  name        String
+  type        String   @default("contractor") // contractor مقاول / supplier مورد
+  phone       String?
+  specialty   String?  // التخصص — سباكة/كهرباء/مصاعد/تشطيبات...
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  payments    SupplierPayment[]
+}
+
+model SupplierPayment {
+  id          String   @id @default(cuid())
+  supplierId  String
+  date        String   // YYYY-MM-DD
+  amount      Float
+  description String?  // بيان الدفعة — على أي شغلانة
+  buildingId  String?  // العمارة المرتبطة (اختياري)
+  method      String   @default("cash") // cash, transfer, check, card
+  accountCode String   @default("5206") // حساب المصروف من شجرة الحسابات
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  supplier    Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+}

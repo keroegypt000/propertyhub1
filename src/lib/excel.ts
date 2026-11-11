@@ -26,6 +26,70 @@ export interface ImportCtx {
   units: any[];
   tenants: any[];
   contracts: any[];
+  // بيانات إضافية تُجلب فقط في وضع «تحديث موجود» لمطابقة الصفوف بالسجلات الحالية
+  transactions?: any[];
+  loans?: any[];
+  maintenance?: any[];
+  accounts?: any[];
+}
+
+/** في وضع التحديث: ما الذي يجب جلبه لكل كيان ليعمل قسم المطابقة */
+export const UPDATE_CTX_EXTRA: Record<string, string[]> = {
+  buildings: ['buildings'],
+  units: ['units'],
+  tenants: ['tenants'],
+  contracts: ['contracts'],
+  payments: ['contracts'],
+  transactions: ['transactions'],
+  loans: ['loans'],
+  maintenance: ['maintenance'],
+  accounts: ['accounts'],
+};
+
+/**
+ * وضع «تحديث بيانات موجودة»: يطابق صف الملف مع سجل موجود في النظام بمفتاح طبيعي:
+ * العمارات: الكود أو الاسم | الوحدات: العمارة + رقم الوحدة | المستأجرين: الاسم
+ * العقود: العقد النشط على نفس الوحدة | المدفوعات: نفس العقد + نفس تاريخ الاستحقاق
+ * الحركات: تاريخ + مبلغ + بيان | القروض: الاسم + العمارة | الصيانة: العنوان + الوحدة | الحسابات: رقم الحساب
+ * يرجع { id } إن وجد مطابق (يُحدَّث بـ PUT) أو undefined (يُضاف جديد بـ POST)
+ */
+export function findExistingMatch(key: string, data: any, ctx: ImportCtx): { id: string } | undefined {
+  const L = ctx as any;
+  switch (key) {
+    case 'buildings':
+      return L.buildings?.find((b: any) =>
+        (data.code && b.code && normMatch(b.code) === normMatch(data.code)) ||
+        (data.name && b.name && normMatch(b.name) === normMatch(data.name)));
+    case 'units':
+      return L.units?.find((u: any) => u.buildingId === data.buildingId && String(u.number ?? '').trim() === String(data.number ?? '').trim());
+    case 'tenants':
+      return L.tenants?.find((t: any) => normMatch(t.name) === normMatch(data.name));
+    case 'contracts': {
+      // العقد النشط على نفس الوحدة — تحديثه بدل الرفض بـ «يوجد عقد نشط آخر»
+      const active = (L.contracts as any[] | undefined)?.find((c: any) => ['active', 'renewed'].includes(c.status) && c.unitId === data.unitId);
+      return active ? { id: active.id } : undefined;
+    }
+    case 'payments': {
+      const c = (L.contracts as any[] | undefined)?.find((x: any) => x.id === data.contractId);
+      const due = String(data.dueDate || '').slice(0, 10);
+      const p = (c?.payments || []).find((x: any) => String(x.dueDate || '').slice(0, 10) === due);
+      return p ? { id: p.id } : undefined;
+    }
+    case 'transactions':
+      return L.transactions?.find((x: any) =>
+        x.date === data.date &&
+        Math.round((x.amount || 0) * 1000) / 1000 === Math.round((data.amount || 0) * 1000) / 1000 &&
+        normMatch(x.category) === normMatch(data.category) &&
+        (x.buildingId || undefined) === (data.buildingId || undefined));
+    case 'loans':
+      return L.loans?.find((x: any) => normMatch(x.name) === normMatch(data.name) && (x.buildingId || undefined) === (data.buildingId || undefined));
+    case 'maintenance':
+      return L.maintenance?.find((x: any) => normMatch(x.title) === normMatch(data.title) && (x.unitId || undefined) === (data.unitId || undefined));
+    case 'accounts':
+      return L.accounts?.find((x: any) => String(x.code).trim() === String(data.code).trim());
+    default:
+      return undefined;
+  }
 }
 
 // ---------- أدوات تحليل ----------

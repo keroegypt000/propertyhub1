@@ -37,11 +37,11 @@ export async function validateContract(body: any, excludeContractId?: string): P
   return null; // سليم
 }
 
-/** مزامنة حالة إشغال الوحدة مع حالة العقد */
-export async function syncUnitOccupancy(unitId: string, contractStatus: string): Promise<void> {
+/** مزامنة حالة إشغال الوحدة مع حالة العقد — مرّر tx (عميل المعاملة) لتجنب deadlock على SQLite */
+export async function syncUnitOccupancy(txCtx: any, unitId: string, contractStatus: string): Promise<void> {
   if (['active', 'renewed'].includes(contractStatus)) {
-    await db.unit.updateMany({ where: { id: unitId, status: { not: 'maintenance' } }, data: { status: 'rented' } });
+    await txCtx.unit.updateMany({ where: { id: unitId, status: { not: 'maintenance' } }, data: { status: 'rented' } });
   } else if (['terminated', 'vacated', 'expired'].includes(contractStatus)) {
-    await db.unit.updateMany({ where: { id: unitId, status: 'rented' }, data: { status: 'available' } });
+    await txCtx.unit.updateMany({ where: { id: unitId, status: 'rented' }, data: { status: 'available' } });
   }
 }

@@ -144,6 +144,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   loanPayment: 'سداد قرض',
   transaction: 'حركة مالية',
   legalCase: 'مخالفة/قضية',
+  supplierPayment: 'دفعة مورد/مقاول',
 };
 
 /**

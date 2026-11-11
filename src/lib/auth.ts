@@ -14,7 +14,7 @@ export const ROLES: Record<string, string> = {
 export function canWrite(role: string, entity: string): boolean {
   if (role === 'admin' || role === 'manager') return true;
   // المحاسب: يستطيع التعديل في الأقسام المالية فقط (عقود، مدفوعات، إيرادات، مصروفات، قروض، حسابات، قيود)
-  if (role === 'accountant') return ['contracts', 'payments', 'transactions', 'loans', 'loanPayments', 'accounts', 'journal', 'files', 'legalCases'].includes(entity);
+  if (role === 'accountant') return ['contracts', 'payments', 'transactions', 'loans', 'loanPayments', 'accounts', 'journal', 'files', 'legalCases', 'suppliers'].includes(entity);
   // المحصّل: يستطيع تسجيل المدفوعات والصيانة فقط
   if (role === 'collector') return ['payments', 'maintenance', 'files'].includes(entity);
   // المشاهد: قراءة فقط

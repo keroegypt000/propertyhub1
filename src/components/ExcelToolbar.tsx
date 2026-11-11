@@ -15,7 +15,7 @@ import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ENTITIES, IMPORT_ORDER, exportEntity, downloadTemplate, readExcelFile, type ImportCtx } from '@/lib/excel';
+import { ENTITIES, IMPORT_ORDER, exportEntity, downloadTemplate, readExcelFile, findExistingMatch, UPDATE_CTX_EXTRA, type ImportCtx } from '@/lib/excel';
 
 const CONFIRM_ORDER: Record<string, string[]> = {
   units: ['buildings'],
@@ -78,10 +78,13 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
   const [parsed, setParsed] = useState<ParsedRow[]>([]);
   const [fileName, setFileName] = useState('');
   const [progress, setProgress] = useState(0);
-  const [importStats, setImportStats] = useState({ ok: 0, fail: 0 });
+  const [importStats, setImportStats] = useState({ ok: 0, fail: 0, updated: 0 });
   const [failures, setFailures] = useState<{ index: number; error: string }[]>([]);
   const [busyParse, setBusyParse] = useState(false);
   const [importing, setImporting] = useState(false);
+  // وضع الاستيراد: جديد = إنشاء فقط (المكرر يُرفض حماية) | تحديث = مطابقة ذكية: الموجود يُحدَّث والغير موجود يُضاف
+  const [mode, setMode] = useState<'create' | 'update'>('create');
+  const [ctx, setCtx] = useState<ImportCtx>({ buildings: [], units: [], tenants: [], contracts: [] });
   // تنبيه قلب الحالات: عدد الوحدات المسجلة «مؤجرة» في النظام وسيقلبها الملف إلى غير مؤجرة
   const [rentedFlips, setRentedFlips] = useState(0);
   const [flipConfirmed, setFlipConfirmed] = useState(false);
@@ -95,20 +98,26 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
     ? `تأكد أولاً من وجود بيانات: ${needed.map(k => ENTITIES[k].label).join(' ← ')} (استوردها قبل هذه الورقة)`
     : 'لا يحتاج بيانات مرجعية — يمكنك الاستيراد مباشرة';
 
-  const reset = () => { setStep('pick'); setParsed([]); setFileName(''); setProgress(0); setImportStats({ ok: 0, fail: 0 }); setFailures([]); setRentedFlips(0); setFlipConfirmed(false); };
+  const reset = () => { setStep('pick'); setParsed([]); setFileName(''); setProgress(0); setImportStats({ ok: 0, fail: 0, updated: 0 }); setFailures([]); setRentedFlips(0); setFlipConfirmed(false); setMode('create'); setCtx({ buildings: [], units: [], tenants: [], contracts: [] }); };
 
   // جلب البيانات المرجعية الحالية لحل المراجع (أسماء العمارات/الوحدات/المستأجرين/العقود)
+  // وفي وضع التحديث: جلب بيانات الكيان نفسه أيضًا لمطابقة الصفوف بالسجلات الموجودة
   const fetchCtx = async (): Promise<ImportCtx> => {
-    const needs = [...(def.ctxNeeds || [])];
+    const needs = new Set<string>([...(def.ctxNeeds || [])]);
     // استيراد الوحدات يحتاج الوحدات الحالية لحساب تنبيه قلب الحالات (مؤجرة → متاحة)
-    if (entity === 'units' && !needs.includes('units')) needs.push('units');
-    const [b, u, t, c] = await Promise.all([
-      needs.includes('buildings') ? api('/api/buildings') : Promise.resolve([]),
-      needs.includes('units') ? api('/api/units') : Promise.resolve([]),
-      needs.includes('tenants') ? api('/api/tenants') : Promise.resolve([]),
-      needs.includes('contracts') ? api('/api/contracts') : Promise.resolve([]),
+    if (entity === 'units') needs.add('units');
+    if (mode === 'update') (UPDATE_CTX_EXTRA[entity] || []).forEach(k => needs.add(k));
+    const [b, u, t, c, tx, lo, mt, ac] = await Promise.all([
+      needs.has('buildings') ? api('/api/buildings') : Promise.resolve([]),
+      needs.has('units') ? api('/api/units') : Promise.resolve([]),
+      needs.has('tenants') ? api('/api/tenants') : Promise.resolve([]),
+      needs.has('contracts') ? api('/api/contracts') : Promise.resolve([]),
+      needs.has('transactions') ? api('/api/transactions') : Promise.resolve([]),
+      needs.has('loans') ? api('/api/loans') : Promise.resolve([]),
+      needs.has('maintenance') ? api('/api/maintenance') : Promise.resolve([]),
+      needs.has('accounts') ? api('/api/accounts') : Promise.resolve([]),
     ]);
-    return { buildings: b, units: u, tenants: t, contracts: c };
+    return { buildings: b, units: u, tenants: t, contracts: c, transactions: tx, loans: lo, maintenance: mt, accounts: ac };
   };
 
   const handleFile = async (file: File) => {
@@ -117,12 +126,12 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
       const { rows: excelRows } = await readExcelFile(file, entity);
       if (excelRows.length === 0) throw new Error('الملف لا يحتوي صفوف بيانات');
       setFileName(file.name);
-      let ctx: ImportCtx = { buildings: [], units: [], tenants: [], contracts: [] };
-      try { ctx = await fetchCtx(); } catch { /* سياق فارغ — ستفشل المراجع برسائل واضحة */ }
+      let ctxData: ImportCtx = { buildings: [], units: [], tenants: [], contracts: [] };
+      try { ctxData = await fetchCtx(); setCtx(ctxData); } catch { /* سياق فارغ — ستفشل المراجع برسائل واضحة */ }
       const seen = new Set<string>();
       const results: ParsedRow[] = excelRows.map((r, i) => {
         try {
-          const res = def.parseRow(r, def.columns, ctx, seen);
+          const res = def.parseRow(r, def.columns, ctxData, seen);
           return { index: i + 1, ok: res.ok, data: res.data, error: res.error, raw: r };
         } catch (e: any) {
           return { index: i + 1, ok: false, error: e?.message || 'خطأ غير متوقع', raw: r };
@@ -134,7 +143,7 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
         const flips = results.filter(r => {
           const d = r.data;
           if (!r.ok || !d || d.status === 'rented') return false;
-          const existing = ((ctx as any).units || []).find((x: any) => x.buildingId === d.buildingId && String(x.number).trim() === String(d.number).trim());
+          const existing = ((ctxData as any).units || []).find((x: any) => x.buildingId === d.buildingId && String(x.number).trim() === String(d.number).trim());
           return existing?.status === 'rented';
         }).length;
         setRentedFlips(flips);
@@ -151,29 +160,36 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
   const startImport = async () => {
     setImporting(true);
     setStep('importing');
-    let ctx: ImportCtx = { buildings: [], units: [], tenants: [], contracts: [] };
-    try { ctx = await fetchCtx(); } catch { /* استمرار بسياق فارغ */ }
+    let ctxData: ImportCtx = { buildings: [], units: [], tenants: [], contracts: [] };
+    try { ctxData = await fetchCtx(); setCtx(ctxData); } catch { /* استمرار بسياق فارغ */ }
 
     const seen = new Set<string>();
     const todo = validRows;
-    let ok = 0, fail = 0;
+    let ok = 0, fail = 0, updated = 0;
     const fails: { index: number; error: string }[] = [];
     for (let i = 0; i < todo.length; i++) {
       const row = todo[i];
       try {
-        const re = def.parseRow(row.raw, def.columns, ctx, seen);
+        const re = def.parseRow(row.raw, def.columns, ctxData, seen);
         if (!re.ok || !re.data) throw new Error(re.error || 'صف غير صالح');
-        await api(def.apiPath, 'POST', re.data);
+        if (mode === 'update') {
+          // وضع التحديث: مطابقة ذكية — الموجود يُحدَّث (PUT) والغير موجود يُضاف (POST)
+          const m = findExistingMatch(def.key, re.data, ctxData);
+          if (m) { await api(`${def.apiPath}/${m.id}`, 'PUT', re.data); updated++; }
+          else { await api(def.apiPath, 'POST', re.data); ok++; }
+        } else {
+          await api(def.apiPath, 'POST', re.data);
+          ok++;
+        }
         if (def.key === 'buildings' && re.data.code) seen.add(re.data.code);
         if (def.key === 'tenants' && re.data.name) seen.add(re.data.name);
         if (def.key === 'accounts' && re.data.code) seen.add(re.data.code);
-        ok++;
       } catch (e) {
         fail++;
         fails.push({ index: row.index, error: e instanceof Error ? e.message : 'خطأ' });
       }
       setProgress(Math.round(((i + 1) / todo.length) * 100));
-      setImportStats({ ok, fail });
+      setImportStats({ ok, fail, updated });
       setFailures([...fails]);
     }
     setImporting(false);
@@ -182,6 +198,12 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
   };
 
   const previewRows = parsed.slice(0, 6);
+  // في وضع التحديث: عدّاد ما سيتم — صفوف ستُحدّث مقابل صفوف ستُضاف
+  const updateCounts = mode === 'update' ? validRows.reduce((acc, r) => {
+    if (!r.data) return acc;
+    if (findExistingMatch(def.key, r.data, ctx)) acc.upd++; else acc.add++;
+    return acc;
+  }, { upd: 0, add: 0 }) : null;
 
   return (
     <>
@@ -209,6 +231,21 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
           <div className="flex-1 overflow-auto -mx-1 px-1">
             {step === 'pick' && (
               <div className="space-y-4 py-2">
+                {/* وضع الاستيراد — فرق واضح بين إضافة بيانات جديدة وتحديث الموجودة */}
+                <div className="space-y-2">
+                  <p className="text-sm font-bold text-gray-700">① اختر نوع العملية:</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button type="button" onClick={() => setMode('create')} className={`text-right p-3 rounded-xl border-2 transition ${mode === 'create' ? 'border-orange-400 bg-orange-50 shadow-sm' : 'border-gray-200 bg-white hover:border-orange-200'}`}>
+                      <p className={`text-sm font-bold ${mode === 'create' ? 'text-orange-800' : 'text-gray-700'}`}>➕ استيراد بيانات جديدة</p>
+                      <p className="text-[11px] text-gray-500 mt-1">يضيف السجلات كسجلات جديدة — وأي صف مكرر (نفس الكود/الاسم/العقد النشط) يُرفض حمايةً من التكرار.</p>
+                    </button>
+                    <button type="button" onClick={() => setMode('update')} className={`text-right p-3 rounded-xl border-2 transition ${mode === 'update' ? 'border-blue-400 bg-blue-50 shadow-sm' : 'border-gray-200 bg-white hover:border-blue-200'}`}>
+                      <p className={`text-sm font-bold ${mode === 'update' ? 'text-blue-800' : 'text-gray-700'}`}>🔄 تحديث بيانات موجودة</p>
+                      <p className="text-[11px] text-gray-500 mt-1">مطابقة ذكية: الصف الموجود (بنفس الكود/الاسم/الوحدة...) يُحدّث بمحتوى الملف بدون تكرار — والغير موجود يُضاف جديد.</p>
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-500">مفاتيح المطابقة في وضع التحديث — العمارات: الكود أو الاسم • الوحدات: العمارة + رقم الوحدة • المستأجرين: الاسم • العقود: العقد النشط على نفس الوحدة • المدفوعات: العقد + تاريخ الاستحقاق</p>
+                </div>
                 <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-900">
                   <Info size={18} className="shrink-0 mt-0.5" />
                   <div className="space-y-1">
@@ -234,6 +271,9 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
                   <Badge className="bg-gray-100 text-gray-700">{fileName}</Badge>
                   <Badge className="bg-emerald-100 text-emerald-800"><CheckCircle2 size={12} className="ml-1" />{validRows.length} صف جاهز</Badge>
                   {invalidRows.length > 0 && <Badge className="bg-red-100 text-red-800"><XCircle size={12} className="ml-1" />{invalidRows.length} صف به مشكلة (سيُتجاهل)</Badge>}
+                  {mode === 'update' && updateCounts && <Badge className="bg-blue-100 text-blue-800">سيتم تحديث: {updateCounts.upd}</Badge>}
+                  {mode === 'update' && updateCounts && <Badge className="bg-teal-100 text-teal-800">سيتم إضافة جديد: {updateCounts.add}</Badge>}
+                  {mode === 'create' && <Badge className="bg-orange-100 text-orange-800">وضع: بيانات جديدة</Badge>}
                 </div>
                 {entity === 'units' && validRows.length > 0 && <UnitStatusChips counts={unitStatusSummary(validRows)} />}
 
@@ -292,8 +332,9 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
               <div className="space-y-4 py-6">
                 <div className="flex items-center justify-center gap-2 text-orange-700 font-semibold"><Loader2 size={20} className="animate-spin" />جاري الاستيراد... {progress}%</div>
                 <Progress value={progress} className="h-3" />
-                <div className="flex justify-center gap-3 text-sm">
-                  <Badge className="bg-emerald-100 text-emerald-800">نجح: {importStats.ok}</Badge>
+                <div className="flex justify-center gap-3 text-sm flex-wrap">
+                  <Badge className="bg-emerald-100 text-emerald-800">أُضيف جديد: {importStats.ok}</Badge>
+                  {importStats.updated > 0 && <Badge className="bg-blue-100 text-blue-800">تم تحديث: {importStats.updated}</Badge>}
                   {importStats.fail > 0 && <Badge className="bg-red-100 text-red-800">فشل: {importStats.fail}</Badge>}
                 </div>
               </div>
@@ -305,7 +346,9 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
                   <CheckCircle2 size={28} className="text-emerald-600 shrink-0" />
                   <div>
                     <p className="font-bold text-emerald-900">انتهى الاستيراد</p>
-                    <p className="text-sm text-emerald-800">تم إضافة {importStats.ok} سجل بنجاح{importStats.fail > 0 ? ` — وفشل ${importStats.fail} صف` : ''}.</p>
+                    <p className="text-sm text-emerald-800">{mode === 'update'
+                      ? `تم تحديث ${importStats.updated} سجل موجود${importStats.ok > 0 ? ` وإضافة ${importStats.ok} جديد` : ''}${importStats.fail > 0 ? ` — وفشل ${importStats.fail} صف` : ''}.`
+                      : `تم إضافة ${importStats.ok} سجل بنجاح${importStats.fail > 0 ? ` — وفشل ${importStats.fail} صف` : ''}.`}</p>
                   </div>
                 </div>
                 {entity === 'units' && validRows.length > 0 && <UnitStatusChips counts={unitStatusSummary(validRows)} />}
@@ -317,7 +360,7 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
                     </div>
                   </ScrollArea>
                 )}
-                <p className="text-xs text-gray-400">ملاحظة: {entity === 'units' ? 'الوحدات الموجودة بنفس رقم العمارة تُحدَّث بياناتها وحالتها تلقائيًا بدون تكرار — أعد استيراد نفس الملف بعد تعديل الحالات لتصحيحها.' : 'صفوف «مكرر» تفشل إذا كان الكود/الاسم موجودًا مسبقًا — هذا مقصود لحماية بياناتك من التكرار.'}</p>
+                <p className="text-xs text-gray-400">ملاحظة: {entity === 'units' ? 'الوحدات الموجودة بنفس رقم العمارة تُحدَّث بياناتها وحالتها تلقائيًا بدون تكرار — أعد استيراد نفس الملف بعد تعديل الحالات لتصحيحها.' : 'صفوف «مكرر» تفشل إذا كان الكود/الاسم موجودًا مسبقًا — هذا مقصود لحماية بياناتك من التكرار — لو عايز تحدّث بيانات موجودة استخدم وضع «تحديث بيانات موجودة» من أول خطوة.'}</p>
               </div>
             )}
           </div>
@@ -325,7 +368,7 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
           <div className="flex justify-between gap-2 pt-3 border-t">
             {step === 'preview' && validRows.length > 0 ? (
               <Button onClick={startImport} disabled={flipBlocked} title={flipBlocked ? 'أكّد مربع التنبيه الأحمر أعلاه أولاً' : undefined} className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
-                <FileUp size={16} className="ml-2" />{flipBlocked ? 'أكّد التنبيه أولاً' : `بدء استيراد ${validRows.length} صف`}
+                <FileUp size={16} className="ml-2" />{mode === 'update' ? `بدء التحديث (${updateCounts ? `تحديث ${updateCounts.upd} + إضافة ${updateCounts.add}` : `${validRows.length} صف`})` : `بدء استيراد ${validRows.length} صف`}
               </Button>
             ) : <span />}
             <Button variant="outline" onClick={() => { setOpen(false); reset(); }} disabled={importing}>{step === 'done' ? 'إغلاق' : 'إلغاء'}</Button>
