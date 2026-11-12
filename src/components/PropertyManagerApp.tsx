@@ -177,11 +177,34 @@ export default function PropertyManagerApp() {
   const [contractUnitId, setContractUnitId] = useState('');
   // وصول سريع من العقد/المستأجر إلى الوحدة نفسها في صفحة الوحدات
   const [unitFocusId, setUnitFocusId] = useState('');
+  // ===== فلاتر الصفحات — تُضبط من لوحة التحكم (روابط عميقة) أو من داخل كل صفحة =====
+  const [unitStatusFilter, setUnitStatusFilter] = useState('all');       // all | available | rented | maintenance | reserved
+  const [unitBuildingFilter, setUnitBuildingFilter] = useState('all');   // all | buildingId
+  const [buildingCityFilter, setBuildingCityFilter] = useState('all');   // all | city
+  const [contractBuildingFilter, setContractBuildingFilter] = useState('all'); // all | buildingId
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState('all'); // all | pending | paid | partial | overdue | cancelled
+  const [maintStatusFilter, setMaintStatusFilter] = useState('all');     // all | open_active | open | in_progress | completed | cancelled
+  const [maintPriorityFilter, setMaintPriorityFilter] = useState('all'); // all | low | medium | high | urgent
+  const [tenantTypeFilter, setTenantTypeFilter] = useState('all');       // all | individual | company
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   // عدد سجلات كل قسم — يغذي شارات القائمة الجانبية (endpoint خفيف واحد /api/counts)
   const [counts, setCounts] = useState<Record<string, number>>({});
-  const go = (s: Section, presetSearch?: string) => { setSection(s); setSearchQuery(presetSearch ?? ''); setMobileNavOpen(false); };
+  // التنقل العادي (القائمة الجانبية) يعيد فلاتر القسم الهدف لوضعها الافتراضي
+  // الفلاتر العابرة للأقسام القديمة (unitFocusId وcontractTenantId وcontractUnitId وcontractFilter) تبقى كما هي لعدم كسر الروابط السريعة الموجودة
+  const go = (s: Section, presetSearch?: string) => {
+    setSection(s); setSearchQuery(presetSearch ?? ''); setMobileNavOpen(false);
+    if (s === 'units') { setUnitStatusFilter('all'); setUnitBuildingFilter('all'); }
+    if (s === 'buildings') setBuildingCityFilter('all');
+    if (s === 'contracts') setContractBuildingFilter('all');
+    if (s === 'payments') setPaymentStatusFilter('all');
+    if (s === 'maintenance') { setMaintStatusFilter('all'); setMaintPriorityFilter('all'); }
+    if (s === 'tenants') setTenantTypeFilter('all');
+  };
+  // روابط عميقة من لوحة التحكم — تفتح الصفحة بفلتر جاهز (تُضبط بعد إعادة الضبط في go فتغلبها)
+  const goUnits = (status = 'all', buildingId = 'all') => { go('units'); setUnitStatusFilter(status); setUnitBuildingFilter(buildingId); };
+  const goMaintenance = (status = 'all') => { go('maintenance'); setMaintStatusFilter(status); };
+  const goPayments = (status = 'all') => { go('payments'); setPaymentStatusFilter(status); };
   // فتح صفحة تفاصيل العمارة — النقر على كارت العمارة يفتحها بتبويب النظرة العامة
   const goBuildingDetail = (id: string, tab = 'overview') => { setDetailBuildingId(id); setDetailTab(tab); setSection('buildingDetail'); setSearchQuery(''); setMobileNavOpen(false); };
 
@@ -394,6 +417,15 @@ export default function PropertyManagerApp() {
   };
   const isAdmin = user.role === 'admin' || user.role === 'manager';
 
+  // ===== القوائم المفلترة — مصدر واحد للفلاتر تستهلكه الصفحات ولوحة التحكم معًا =====
+  const buildingCities = Array.from(new Set(buildings.map(b => (b.city || '').trim()).filter(Boolean))).sort();
+  const filteredBuildings = buildings.filter(b => (buildingCityFilter === 'all' || (b.city || '').trim() === buildingCityFilter) && (!searchQuery || b.name.includes(searchQuery) || (b.code || '').includes(searchQuery) || (b.city || '').includes(searchQuery) || (b.address || '').includes(searchQuery)));
+  const filteredUnits = units.filter(u => (!unitFocusId || u.id === unitFocusId) && (unitStatusFilter === 'all' || u.status === unitStatusFilter) && (unitBuildingFilter === 'all' || u.buildingId === unitBuildingFilter) && (!searchQuery || u.number.includes(searchQuery) || (u.building?.name || '').includes(searchQuery) || u.status.includes(searchQuery)));
+  const filteredContracts = contracts.filter(c => (contractFilter === 'all' || c.status === contractFilter) && (!contractTenantId || c.tenantId === contractTenantId) && (!contractUnitId || c.unitId === contractUnitId) && (contractBuildingFilter === 'all' || c.unit?.buildingId === contractBuildingFilter) && (!searchQuery || (c.tenant?.name || '').includes(searchQuery) || (c.unit?.number || '').includes(searchQuery) || (c.unit?.building?.name || '').includes(searchQuery) || c.status.includes(searchQuery)));
+  const filteredPayments = payments.filter(p => (paymentStatusFilter === 'all' || p.status === paymentStatusFilter) && (!searchQuery || p.status.includes(searchQuery) || (p.method || '').includes(searchQuery) || String(p.amount).includes(searchQuery)));
+  const filteredMaintenance = maintenance.filter(m => (maintStatusFilter === 'all' || (maintStatusFilter === 'open_active' ? ['open', 'in_progress'].includes(m.status) : m.status === maintStatusFilter)) && (maintPriorityFilter === 'all' || m.priority === maintPriorityFilter) && (!searchQuery || m.title.includes(searchQuery) || m.status.includes(searchQuery) || m.priority.includes(searchQuery)));
+  const filteredTenants = tenants.filter(t => (tenantTypeFilter === 'all' || (t.tenantType || 'individual') === tenantTypeFilter) && (tenantStatusFilter === 'all' || (tenantStatusFilter === 'current') === contracts.some(c => c.tenantId === t.id && ['active', 'renewed'].includes(c.status))) && (!searchQuery || t.name.includes(searchQuery) || (t.phone || '').includes(searchQuery) || (t.idNumber || '').includes(searchQuery)));
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 lg:flex">
       {/* Mobile Top Bar */}
@@ -531,10 +563,10 @@ export default function PropertyManagerApp() {
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
                 {[
                   { icon: <Building2 size={22} />, label: 'عدد العمارات', num: buildingCount, decimals: 0, color: 'from-orange-500 to-amber-500', dest: 'المباني', onClick: () => go('buildings') },
-                  { icon: <Home size={22} />, label: 'عدد الوحدات', num: unitCount, decimals: 0, color: 'from-blue-500 to-indigo-500', dest: 'الوحدات', onClick: () => go('units') },
-                  { icon: <Home size={22} />, label: 'وحدات شاغرة', num: vacantUnits, decimals: 0, color: 'from-teal-500 to-cyan-500', dest: 'الوحدات', onClick: () => go('units') },
-                  { icon: <Activity size={22} />, label: 'نسبة الإشغال', num: occupancyRate, decimals: 0, suffix: '%', color: 'from-emerald-500 to-green-500', dest: 'الوحدات', onClick: () => go('units') },
-                  { icon: <Wrench size={22} />, label: 'صيانة مفتوحة', num: openMaintCount, decimals: 0, color: 'from-amber-500 to-yellow-500', dest: 'طلبات الصيانة', onClick: () => go('maintenance') },
+                  { icon: <Home size={22} />, label: 'عدد الوحدات', num: unitCount, decimals: 0, color: 'from-blue-500 to-indigo-500', dest: 'الوحدات', onClick: () => goUnits('all') },
+                  { icon: <Home size={22} />, label: 'وحدات شاغرة', num: vacantUnits, decimals: 0, color: 'from-teal-500 to-cyan-500', dest: 'الوحدات الشاغرة', onClick: () => goUnits('available') },
+                  { icon: <Activity size={22} />, label: 'نسبة الإشغال', num: occupancyRate, decimals: 0, suffix: '%', color: 'from-emerald-500 to-green-500', dest: 'الوحدات المؤجرة', onClick: () => goUnits('rented') },
+                  { icon: <Wrench size={22} />, label: 'صيانة مفتوحة', num: openMaintCount, decimals: 0, color: 'from-amber-500 to-yellow-500', dest: 'طلبات الصيانة المفتوحة', onClick: () => goMaintenance('open_active') },
                   { icon: <Briefcase size={22} />, label: 'رصيد القروض', num: loanBalance, decimals: 2, suffix: ' د.ك', color: 'from-purple-500 to-violet-500', dest: 'القروض', onClick: () => go('loans') },
                 ].map((stat, i) => (
                   <Card key={i} onClick={stat.onClick} title={`اضغط للانتقال إلى ${stat.dest}`} className="border-0 shadow-lg overflow-hidden hover:shadow-xl hover:-translate-y-0.5 active:scale-[0.98] transition-all cursor-pointer group">
@@ -568,14 +600,14 @@ export default function PropertyManagerApp() {
                     <button type="button" onClick={() => go('buildings')} title="مجموع إيجار العقود النشطة سنوياً قبل الخصم — عرض حسب العمارة" className="p-3 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-center border border-emerald-100 hover:border-emerald-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">قبل الخصم سنوياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(dExpected.contractGrossMonthly * 12)} {CURRENCY}</p><p className="text-[10px] text-emerald-600 mt-1 opacity-70">شهرياً: {fmtKWD(dExpected.contractGrossMonthly)} {CURRENCY} — العقود النشطة</p></button>
                     <button type="button" onClick={() => go('contracts')} title="الانتقال إلى العقود — مصدر إجمالي الخصم" className="p-3 bg-orange-50 hover:bg-orange-100 rounded-xl text-center border border-orange-100 hover:border-orange-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">إجمالي الخصم شهرياً</p><p className="text-lg font-bold text-orange-700">{fmtKWD(dExpected.contractDiscountMonthly)} {CURRENCY}</p><p className="text-[10px] text-orange-600 mt-1 opacity-70">سنوياً: {fmtKWD(dExpected.contractDiscountMonthly * 12)} {CURRENCY} — العقود النشطة</p></button>
                     <button type="button" onClick={() => go('contracts')} title="الانتقال إلى العقود — الإيجار الفعلي الذي يصلك بعد الخصم" className="p-3 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-center border-2 border-emerald-400 hover:border-emerald-500 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">صافي الربح بعد الخصم شهرياً</p><p className="text-lg font-bold text-emerald-700">{fmtKWD(dExpected.contractedMonthly)} {CURRENCY}</p><p className="text-[10px] text-emerald-600 mt-1 opacity-70">سنوياً: {fmtKWD(dExpected.contractedAnnual)} {CURRENCY} — العقود النشطة</p></button>
-                    <button type="button" onClick={() => go('units')} title="الانتقال إلى قائمة الوحدات" className="p-3 bg-blue-50 hover:bg-blue-100 rounded-xl text-center border border-blue-100 hover:border-blue-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">جميع الوحدات</p><p className="text-lg font-bold text-blue-700">{unitCount}</p><p className="text-[10px] text-blue-600 mt-1 opacity-70">قائمة الوحدات ↩</p></button>
-                    <button type="button" onClick={() => go('units')} title="الانتقال إلى قائمة الوحدات (المؤجرة)" className="p-3 bg-teal-50 hover:bg-teal-100 rounded-xl text-center border border-teal-100 hover:border-teal-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">الوحدات المؤجرة</p><p className="text-lg font-bold text-teal-700">{rentedUnits}</p><p className="text-[10px] text-teal-600 mt-1 opacity-70">قائمة الوحدات ↩</p></button>
-                    <button type="button" onClick={() => go('units')} title="الانتقال إلى قائمة الوحدات (تحت الصيانة)" className="p-3 bg-amber-50 hover:bg-amber-100 rounded-xl text-center border border-amber-100 hover:border-amber-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">وحدات تحت الصيانة</p><p className="text-lg font-bold text-amber-700">{units.filter(u => u.status === 'maintenance').length}</p><p className="text-[10px] text-amber-600 mt-1 opacity-70">قائمة الوحدات ↩</p></button>
+                    <button type="button" onClick={() => goUnits('all')} title="الانتقال إلى قائمة الوحدات" className="p-3 bg-blue-50 hover:bg-blue-100 rounded-xl text-center border border-blue-100 hover:border-blue-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">جميع الوحدات</p><p className="text-lg font-bold text-blue-700">{unitCount}</p><p className="text-[10px] text-blue-600 mt-1 opacity-70">قائمة الوحدات ↩</p></button>
+                    <button type="button" onClick={() => goUnits('rented')} title="الانتقال إلى قائمة الوحدات المؤجرة" className="p-3 bg-teal-50 hover:bg-teal-100 rounded-xl text-center border border-teal-100 hover:border-teal-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">الوحدات المؤجرة</p><p className="text-lg font-bold text-teal-700">{rentedUnits}</p><p className="text-[10px] text-teal-600 mt-1 opacity-70">الوحدات المؤجرة ↩</p></button>
+                    <button type="button" onClick={() => goUnits('maintenance')} title="الانتقال إلى قائمة الوحدات تحت الصيانة" className="p-3 bg-amber-50 hover:bg-amber-100 rounded-xl text-center border border-amber-100 hover:border-amber-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">وحدات تحت الصيانة</p><p className="text-lg font-bold text-amber-700">{units.filter(u => u.status === 'maintenance').length}</p><p className="text-[10px] text-amber-600 mt-1 opacity-70">وحدات الصيانة ↩</p></button>
                   </div>
                   <p className="text-[11px] font-bold text-indigo-700 mt-4 mb-2 flex items-center gap-1"><ReceiptText size={13} />الإيرادات الفعلية والمصروفات</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                    <button type="button" onClick={() => go('payments')} title="الانتقال إلى المدفوعات — مصدر المحصل" className="p-3 bg-indigo-50 hover:bg-indigo-100 rounded-xl text-center border border-indigo-100 hover:border-indigo-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">المحصل شهرياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.monthly)} {CURRENCY}</p><p className="text-[10px] text-indigo-600 mt-1 opacity-70">سجل المدفوعات ↩</p></button>
-                    <button type="button" onClick={() => go('payments')} title="الانتقال إلى المدفوعات — مصدر المحصل" className="p-3 bg-indigo-50 hover:bg-indigo-100 rounded-xl text-center border border-indigo-100 hover:border-indigo-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">المحصل سنوياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.annual)} {CURRENCY}</p><p className="text-[10px] text-indigo-600 mt-1 opacity-70">سجل المدفوعات ↩</p></button>
+                    <button type="button" onClick={() => goPayments('paid')} title="الانتقال إلى المدفوعات المسددة — مصدر المحصل" className="p-3 bg-indigo-50 hover:bg-indigo-100 rounded-xl text-center border border-indigo-100 hover:border-indigo-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">المحصل شهرياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.monthly)} {CURRENCY}</p><p className="text-[10px] text-indigo-600 mt-1 opacity-70">المدفوعات المسددة ↩</p></button>
+                    <button type="button" onClick={() => goPayments('paid')} title="الانتقال إلى المدفوعات المسددة — مصدر المحصل" className="p-3 bg-indigo-50 hover:bg-indigo-100 rounded-xl text-center border border-indigo-100 hover:border-indigo-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">المحصل سنوياً</p><p className="text-lg font-bold text-indigo-700">{fmtKWD(coll.annual)} {CURRENCY}</p><p className="text-[10px] text-indigo-600 mt-1 opacity-70">المدفوعات المسددة ↩</p></button>
                     <button type="button" onClick={() => { setContractFilter('active'); go('contracts'); }} title="الانتقال إلى العقود النشطة — مصدر المتأخرات (رصيد كل عقد)" className="p-3 bg-amber-50 hover:bg-amber-100 rounded-xl text-center border border-amber-100 hover:border-amber-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">المتأخرات (متبقي مستحق)</p><p className={`text-lg font-bold ${dArrears > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(dArrears)} {CURRENCY}</p><p className="text-[10px] text-amber-600 mt-1 opacity-70">أرصدة العقود النشطة ↩</p></button>
                     <button type="button" onClick={() => go('journal')} title="الانتقال إلى قيود اليومية — مصدر المصروفات (حسابات 5xxx)" className="p-3 bg-red-50 hover:bg-red-100 rounded-xl text-center border border-red-100 hover:border-red-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">المصروفات (قيود)</p><p className="text-lg font-bold text-red-700">{fmtKWD(dExpenses)} {CURRENCY}</p><p className="text-[10px] text-red-600 mt-1 opacity-70">قيود اليومية ↩</p></button>
                     <button type="button" onClick={() => go('trialBalance')} title="الانتقال إلى ميزان المراجعة — تجميع الإيرادات والمصروفات" className="p-3 bg-teal-50 hover:bg-teal-100 rounded-xl text-center border border-teal-100 hover:border-teal-300 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] transition-all cursor-pointer"><p className="text-[11px] text-gray-600">صافي الإيجار (محصل − مصروفات)</p><p className={`text-lg font-bold ${dNet >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtKWD(dNet)} {CURRENCY}</p><p className="text-[10px] text-teal-600 mt-1 opacity-70">ميزان المراجعة ↩</p></button>
@@ -591,7 +623,7 @@ export default function PropertyManagerApp() {
                   <CardHeader className="pb-0"><CardTitle className="text-lg flex items-center gap-2"><TrendingUp size={20} className="text-emerald-600" />حركة الحركات المالية المسجلة — آخر 6 أشهر<span className="text-[11px] font-normal text-emerald-600 mr-auto">فتح الحركات ↩</span></CardTitle></CardHeader>
                   <CardContent><MonthlyTrendChart transactions={transactions} /></CardContent>
                 </Card>
-                <Card className="border-0 shadow-lg cursor-pointer hover:shadow-xl transition-shadow" onClick={() => go('units')} title="اضغط للانتقال إلى الوحدات">
+                <Card className="border-0 shadow-lg cursor-pointer hover:shadow-xl transition-shadow" onClick={() => goUnits('all')} title="اضغط للانتقال إلى الوحدات">
                   <CardHeader className="pb-0"><CardTitle className="text-lg flex items-center gap-2"><Home size={20} className="text-blue-600" />حالات الوحدات<span className="text-[11px] font-normal text-blue-600 mr-auto">فتح الوحدات ↩</span></CardTitle></CardHeader>
                   <CardContent><UnitsDonutChart units={units} /></CardContent>
                 </Card>
@@ -728,13 +760,26 @@ export default function PropertyManagerApp() {
           {/* Buildings */}
           {section === 'buildings' && (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المباني</h2><PageCount n={buildings.length} label="عمارة" />
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المباني</h2><PageCount n={filteredBuildings.length} label="عمارة" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="buildings" rows={buildings} canWrite={canWriteCheck('buildings')} onImported={() => { loadData('buildings'); toast.success('تم تحديث قائمة العمارات'); }} />
                   {canWriteCheck('buildings') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة مبنى</Button>} title="إضافة مبنى جديد">{(close) => <BuildingForm onSave={async (data) => { await api('/api/buildings', 'POST', data); autoRestore('إضافة مبنى'); loadData('buildings'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
+              {/* فلتر المدينة */}
+              {buildingCities.length > 0 && (
+                <div className="flex gap-2 flex-wrap items-center">
+                  <span className="text-xs text-gray-500 flex items-center gap-1"><MapPin size={13} />المدينة:</span>
+                  <Select value={buildingCityFilter} onValueChange={setBuildingCityFilter}>
+                    <SelectTrigger className="h-9 w-[170px] text-xs border-orange-200 bg-white rounded-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">كل المدن ({buildings.length})</SelectItem>
+                      {buildingCities.map(city => <SelectItem key={city} value={city}>{city} ({buildings.filter(b => (b.city || '').trim() === city).length})</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               {/* لوحة الإيرادات — السطر الأول المتوقع وتحته الإيرادات الفعلية والمصروفات والمتأخرات وصافي الإيجار — كل العمارات مجتمعة */}
               {buildings.length > 0 && (() => {
                 const t = totalIncomeStats(units as any, contracts as any, buildings.map(b => b.id));
@@ -770,7 +815,7 @@ export default function PropertyManagerApp() {
                 </CardContent></Card>
                 ); })()}
               <div className="grid gap-4">
-                {buildings.filter(b => !searchQuery || b.name.includes(searchQuery) || (b.code || '').includes(searchQuery) || (b.city || '').includes(searchQuery) || (b.address || '').includes(searchQuery)).map(b => (
+                {filteredBuildings.map(b => (
                   <Card key={b.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow cursor-pointer group" onClick={() => goBuildingDetail(b.id)} role="button" aria-label={`فتح صفحة العمارة ${b.name}`}>
                   <CardContent className="p-5">
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -820,7 +865,7 @@ export default function PropertyManagerApp() {
                     <p className="text-[11px] text-orange-500 mt-3 flex items-center gap-1"><ArrowRight size={12} className="rotate-180" />اضغط على كارت العمارة لفتح صفحتها الكاملة: الوحدات والمستأجرين، العقود، المستندات القانونية، المالية، والقضايا</p>
                   </CardContent></Card>
                 ))}
-                {buildings.length === 0 && <EmptyState icon={<Building2 size={48} />} text="لا توجد مباني مضافة" />}
+                {filteredBuildings.length === 0 && (buildings.length === 0 ? <EmptyState icon={<Building2 size={48} />} text="لا توجد مباني مضافة" /> : <EmptyState icon={<Search size={48} />} text="لا توجد مباني مطابقة للفلاتر أو البحث" />)}
               </div>
             </div>
           )}
@@ -863,12 +908,25 @@ export default function PropertyManagerApp() {
             }
             return (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الوحدات</h2><PageCount n={units.length} label="وحدة" />
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الوحدات</h2><PageCount n={filteredUnits.length} label="وحدة" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="units" rows={units} canWrite={canWriteCheck('units')} onImported={() => { loadData('units'); toast.success('تم تحديث قائمة الوحدات'); }} />
                   {canWriteCheck('units') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة وحدة</Button>} title="إضافة وحدة جديدة">{(close) => <UnitForm buildings={buildings} onSave={async (data) => { await api('/api/units', 'POST', data); autoRestore('إضافة وحدة'); loadData('units'); }} onClose={close} />}</FormDialog>)}
                 </div>
+              </div>
+              {/* فلاتر الوحدات: الحالة + العمارة — تُضبط تلقائيًا عند القدوم من لوحة التحكم */}
+              <div className="flex gap-2 flex-wrap items-center">
+                {[{ k: 'all', l: 'الكل' }, ...Object.entries(UNIT_STATUS_MAP).map(([k, v]) => ({ k, l: v.label }))].map(({ k, l }) => (
+                  <button key={k} type="button" onClick={() => setUnitStatusFilter(k)} className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${unitStatusFilter === k ? 'bg-orange-500 text-white border-orange-500 shadow' : 'bg-white text-gray-600 border-orange-200 hover:bg-orange-50'}`}>{l}{k === 'all' ? ` (${units.length})` : ` (${units.filter(u => u.status === k).length})`}</button>
+                ))}
+                <Select value={unitBuildingFilter} onValueChange={setUnitBuildingFilter}>
+                  <SelectTrigger className="h-9 w-[160px] text-xs border-orange-200 bg-white rounded-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">كل العمارات ({units.length} وحدة)</SelectItem>
+                    {buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name} ({units.filter(u => u.buildingId === b.id).length})</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
               {focusUnit && (
                 <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
@@ -877,7 +935,7 @@ export default function PropertyManagerApp() {
                 </div>
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {units.filter(u => !unitFocusId || u.id === unitFocusId).filter(u => !searchQuery || u.number.includes(searchQuery) || (u.building?.name || '').includes(searchQuery) || u.status.includes(searchQuery)).map(u => {
+                {filteredUnits.map(u => {
                   const uc = unitContractsMap.get(u.id);
                   return (
                   <Card key={u.id} className={`border-0 shadow-lg hover:shadow-xl transition-shadow ${uc ? 'ring-1 ring-emerald-100' : 'opacity-95'}`}><CardContent className="p-4">
@@ -916,7 +974,7 @@ export default function PropertyManagerApp() {
                   </CardContent></Card>
                   );
                 })}
-                {units.length === 0 && <EmptyState icon={<Home size={48} />} text="لا توجد وحدات مضافة" />}
+                {filteredUnits.length === 0 && (units.length === 0 ? <EmptyState icon={<Home size={48} />} text="لا توجد وحدات مضافة" /> : <EmptyState icon={<Search size={48} />} text="لا توجد وحدات مطابقة للفلاتر أو البحث — جرّب تعديل الفلاتر" />)}
               </div>
             </div>
             );
@@ -925,7 +983,7 @@ export default function PropertyManagerApp() {
           {/* Tenants */}
           {section === 'tenants' && (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المستأجرين</h2><PageCount n={tenants.length} label="مستأجر" />
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المستأجرين</h2><PageCount n={filteredTenants.length} label="مستأجر" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="tenants" rows={tenants} canWrite={canWriteCheck('tenants')} onImported={() => { loadData('tenants'); toast.success('تم تحديث قائمة المستأجرين'); }} />
@@ -936,9 +994,13 @@ export default function PropertyManagerApp() {
                 {[{ k: 'all', l: 'الكل' }, { k: 'current', l: 'مستأجرون حالياً' }, { k: 'former', l: 'مستأجرون سابقون' }].map(({ k, l }) => (
                   <button key={k} type="button" onClick={() => setTenantStatusFilter(k as any)} className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${tenantStatusFilter === k ? 'bg-orange-500 text-white border-orange-500 shadow' : 'bg-white text-gray-600 border-orange-200 hover:bg-orange-50'}`}>{l}</button>
                 ))}
+                <span className="text-gray-300">|</span>
+                {[{ k: 'all', l: 'كل الأنواع' }, { k: 'individual', l: 'فرد / عائلة' }, { k: 'company', l: 'شركة' }].map(({ k, l }) => (
+                  <button key={k} type="button" onClick={() => setTenantTypeFilter(k as any)} className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${tenantTypeFilter === k ? 'bg-indigo-500 text-white border-indigo-500 shadow' : 'bg-white text-gray-600 border-indigo-200 hover:bg-indigo-50'}`}>{l}{k === 'all' ? '' : ` (${tenants.filter(t => (t.tenantType || 'individual') === k).length})`}</button>
+                ))}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {tenants.filter(t => !searchQuery || t.name.includes(searchQuery) || (t.phone || '').includes(searchQuery) || (t.idNumber || '').includes(searchQuery)).filter(t => tenantStatusFilter === 'all' || (tenantStatusFilter === 'current') === contracts.some(c => c.tenantId === t.id && ['active', 'renewed'].includes(c.status))).map(t => {
+                {filteredTenants.map(t => {
                   // عقود المستأجر: النشط أولًا ثم الأحدث — مصدر الوحدة والعقد على الكرت
                   const tContracts = contracts.filter(c => c.tenantId === t.id).sort((a, b) => {
                     const aA = ['active', 'renewed'].includes(a.status) ? 0 : 1;
@@ -1019,7 +1081,7 @@ export default function PropertyManagerApp() {
                   </CardContent></Card>
                   );
                 })}
-                {tenants.length === 0 && <EmptyState icon={<Users size={48} />} text="لا يوجد مستأجرين" />}
+                {filteredTenants.length === 0 && (tenants.length === 0 ? <EmptyState icon={<Users size={48} />} text="لا يوجد مستأجرين" /> : <EmptyState icon={<Search size={48} />} text="لا يوجد مستأجرين مطابقين للفلاتر أو البحث" />)}
               </div>
             </div>
           )}
@@ -1027,7 +1089,7 @@ export default function PropertyManagerApp() {
           {/* Contracts */}
           {section === 'contracts' && (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">العقود</h2><PageCount n={contracts.length} label="عقد" />
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">العقود</h2><PageCount n={filteredContracts.length} label="عقد" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="contracts" rows={contracts} canWrite={canWriteCheck('contracts')} onImported={() => { loadData('contracts'); toast.success('تم تحديث قائمة العقود'); }} />
@@ -1038,6 +1100,14 @@ export default function PropertyManagerApp() {
                 {[{ k: 'all', l: 'الكل' }, ...Object.entries(CONTRACT_STATUS_MAP).map(([k, v]) => ({ k, l: v.label }))].map(({ k, l }) => (
                   <button key={k} type="button" onClick={() => setContractFilter(k)} className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${contractFilter === k ? 'bg-orange-500 text-white border-orange-500 shadow' : 'bg-white text-gray-600 border-orange-200 hover:bg-orange-50'}`}>{l}{k === 'all' ? ` (${contracts.length})` : ` (${contracts.filter((c: any) => c.status === k).length})`}</button>
                 ))}
+                {/* فلتر العمارة — يُضبط تلقائيًا عند القدوم من روابط العمارة */}
+                <Select value={contractBuildingFilter} onValueChange={setContractBuildingFilter}>
+                  <SelectTrigger className="h-8 w-[150px] text-xs border-orange-200 bg-white rounded-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">كل العمارات</SelectItem>
+                    {buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
                 {contractTenantId && (
                   <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                     <Users size={12} />عقود: {tenants.find(t => t.id === contractTenantId)?.name || 'مستأجر'}
@@ -1052,7 +1122,7 @@ export default function PropertyManagerApp() {
                 )}
               </div>
               <div className="grid gap-4">
-                {contracts.filter(c => (contractFilter === 'all' || c.status === contractFilter) && (!contractTenantId || c.tenantId === contractTenantId) && (!contractUnitId || c.unitId === contractUnitId) && (!searchQuery || (c.tenant?.name || '').includes(searchQuery) || (c.unit?.number || '').includes(searchQuery) || (c.unit?.building?.name || '').includes(searchQuery) || c.status.includes(searchQuery))).map(c => (
+                {filteredContracts.map(c => (
                   <Card key={c.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-5">
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       <div>
@@ -1086,17 +1156,16 @@ export default function PropertyManagerApp() {
                     {c.attachments && c.attachments.length > 0 && (<div className="mt-3 flex flex-wrap gap-2">{c.attachments.map(f => (<span key={f.id} className="inline-flex items-center gap-1"><FilePreviewDialog fileId={f.id} fileName={f.originalName} mimeType={f.mimeType} showThumbnail /><span className="text-xs text-gray-600 max-w-[60px] truncate" title={f.originalName}>{f.originalName}</span></span>))}</div>)}
                   </CardContent></Card>
                 ))}
-                {contracts.length === 0 && <EmptyState icon={<FileText size={48} />} text="لا توجد عقود" />}
+                {filteredContracts.length === 0 && (contracts.length === 0 ? <EmptyState icon={<FileText size={48} />} text="لا توجد عقود" /> : <EmptyState icon={<Search size={48} />} text="لا توجد عقود مطابقة للفلاتر أو البحث" />)}
               </div>
             </div>
           )}
 
           {/* Payments */}
           {section === 'payments' && (() => {
-            const filteredPayments = payments.filter(p => !searchQuery || p.status.includes(searchQuery) || (p.method || '').includes(searchQuery) || String(p.amount).includes(searchQuery));
             return (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المدفوعات</h2><PageCount n={payments.length} label="دفعة" />
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المدفوعات</h2><PageCount n={filteredPayments.length} label="دفعة" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="payments" rows={payments} canWrite={canWriteCheck('payments')} onImported={() => { loadData('payments'); toast.success('تم تحديث المدفوعات'); }} />
@@ -1104,6 +1173,12 @@ export default function PropertyManagerApp() {
                   {canWriteCheck('payments') && (<FormDialog trigger={<Button variant="outline" className="border-emerald-300 text-emerald-700 bg-emerald-50" title="حدد عدة عملاء وسجل دفعاتهم مرة واحدة"><Users size={16} className="ml-1" />تسجيل دفعات متعددة</Button>} title="تسجيل دفعات متعددة — تحصيل جماعي" maxWidth="max-w-3xl">{(close) => <MultiPaymentForm contracts={contracts} buildings={buildings} onSave={async (data) => { const r: any = await api('/api/payments/multi', 'POST', data); toast.success(`تم تسجيل ${r.count} دفعة بإجمالي ${fmtKWD(r.totalAmount)} ${CURRENCY} مع توليد القيود${r.partialCount ? ` — منها ${r.partialCount} جزئية` : ''}`); if (r.entryWarnings?.length) toast.warning(`تنبيه محاسبي: ${r.entryWarnings[0]}`); autoRestore('تسجيل دفعات متعددة'); loadData('payments'); }} onClose={close} />}</FormDialog>)}
                   {canWriteCheck('payments') && (<FormDialog trigger={<Button variant="outline" className="border-indigo-300 text-indigo-700 bg-indigo-50" title="شيك واحد للعمارة كاملة يوزع على عقود الشركات"><Landmark size={16} className="ml-1" />تحصيل شيك شركة (مجمّع)</Button>} title="تحصيل شيك شركة — عمارة كاملة" maxWidth="max-w-lg">{(close) => <CompanyCheckForm buildings={buildings} contracts={contracts as any} onSave={async (data) => { const r: any = await api('/api/payments/bulk', 'POST', data); toast.success(`تم توزيع ${r.totalAmount} ${CURRENCY} على ${r.paymentsCount} عقد شركة في ${r.buildingName} مع توليد القيود`); autoRestore('تحصيل شيك شركة مجمّع'); loadData('payments'); }} onClose={close} />}</FormDialog>)}
                 </div>
+              </div>
+              {/* فلتر حالة الدفعات — يُضبط تلقائيًا عند القدوم من لوحة التحكم (المحصل → مدفوع) */}
+              <div className="flex gap-2 flex-wrap items-center">
+                {[{ k: 'all', l: 'الكل' }, ...Object.entries(PAYMENT_STATUS_MAP).map(([k, v]) => ({ k, l: v.label }))].map(({ k, l }) => (
+                  <button key={k} type="button" onClick={() => setPaymentStatusFilter(k)} className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${paymentStatusFilter === k ? 'bg-orange-500 text-white border-orange-500 shadow' : 'bg-white text-gray-600 border-orange-200 hover:bg-orange-50'}`}>{l}{k === 'all' ? ` (${payments.length})` : ` (${payments.filter(p => p.status === k).length})`}</button>
+                ))}
               </div>
               {/* Desktop table */}
               <div className="hidden md:block">
@@ -1145,7 +1220,7 @@ export default function PropertyManagerApp() {
                   </CardContent></Card>
                 ))}
               </div>
-              {payments.length === 0 && <EmptyState icon={<DollarSign size={48} />} text="لا توجد مدفوعات" />}
+              {filteredPayments.length === 0 && (payments.length === 0 ? <EmptyState icon={<DollarSign size={48} />} text="لا توجد مدفوعات" /> : <EmptyState icon={<Search size={48} />} text="لا توجد دفعات مطابقة للفلتر أو البحث" />)}
             </div>
             );
           })()}
@@ -1230,15 +1305,27 @@ export default function PropertyManagerApp() {
           {/* Maintenance */}
           {section === 'maintenance' && (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">طلبات الصيانة</h2><PageCount n={maintenance.length} label="طلب" />
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">طلبات الصيانة</h2><PageCount n={filteredMaintenance.length} label="طلب" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="maintenance" rows={maintenance} canWrite={canWriteCheck('maintenance')} onImported={() => { loadData('maintenance'); toast.success('تم تحديث طلبات الصيانة'); }} />
                   {canWriteCheck('maintenance') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />طلب صيانة</Button>} title="طلب صيانة جديد">{(close) => <MaintenanceForm buildings={buildings} units={units} onSave={async (data) => { await api('/api/maintenance', 'POST', data); autoRestore('طلب صيانة'); loadData('maintenance'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
+              {/* فلاتر الصيانة: الحالة + الأولوية — تُضبط تلقائيًا عند القدوم من لوحة التحكم (صيانة مفتوحة → مفتوحة الآن) */}
+              <div className="flex gap-2 flex-wrap items-center">
+                {[{ k: 'all', l: 'الكل' }, { k: 'open_active', l: 'مفتوحة الآن' }, ...Object.entries(MAINT_STATUS_MAP).map(([k, v]) => ({ k, l: v.label }))].map(({ k, l }) => (
+                  <button key={k} type="button" onClick={() => setMaintStatusFilter(k)} className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${maintStatusFilter === k ? 'bg-orange-500 text-white border-orange-500 shadow' : 'bg-white text-gray-600 border-orange-200 hover:bg-orange-50'}`}>{l}{k === 'all' ? ` (${maintenance.length})` : (k === 'open_active' ? ` (${maintenance.filter(m => ['open', 'in_progress'].includes(m.status)).length})` : ` (${maintenance.filter(m => m.status === k).length})`)}</button>
+                ))}
+              </div>
+              <div className="flex gap-2 flex-wrap items-center">
+                <span className="text-xs text-gray-500">الأولوية:</span>
+                {[{ k: 'all', l: 'الكل' }, ...Object.entries(PRIORITY_MAP).map(([k, v]) => ({ k, l: v.label }))].map(({ k, l }) => (
+                  <button key={k} type="button" onClick={() => setMaintPriorityFilter(k)} className={`px-3 py-1 rounded-full text-[11px] font-semibold border transition ${maintPriorityFilter === k ? 'bg-amber-500 text-white border-amber-500 shadow' : 'bg-white text-gray-600 border-amber-200 hover:bg-amber-50'}`}>{l}{k === 'all' ? '' : ` (${maintenance.filter(m => m.priority === k).length})`}</button>
+                ))}
+              </div>
               <div className="grid gap-4">
-                {maintenance.filter(m => !searchQuery || m.title.includes(searchQuery) || m.status.includes(searchQuery) || m.priority.includes(searchQuery)).map(m => (
+                {filteredMaintenance.map(m => (
                   <Card key={m.id} className="border-0 shadow-lg"><CardContent className="p-4">
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       <div>
@@ -1270,7 +1357,7 @@ export default function PropertyManagerApp() {
                     </div>
                   </CardContent></Card>
                 ))}
-                {maintenance.length === 0 && <EmptyState icon={<Wrench size={48} />} text="لا توجد طلبات صيانة" />}
+                {filteredMaintenance.length === 0 && (maintenance.length === 0 ? <EmptyState icon={<Wrench size={48} />} text="لا توجد طلبات صيانة" /> : <EmptyState icon={<Search size={48} />} text="لا توجد طلبات مطابقة للفلاتر أو البحث" />)}
               </div>
             </div>
           )}
@@ -3078,6 +3165,9 @@ function LegalCasesSection({ cases, buildings, units, tenants, canWrite, uploadF
   uploadFile: (file: File, category: string, meta?: any) => Promise<any>;
   refresh: () => void; openBuilding: (id: string) => void;
 }) {
+  const [caseStatusFilter, setCaseStatusFilter] = useState('all');
+  // قائمة القضايا بعد فلتر الحالة — تُستخدم في العدّاد وقائمة الكروت
+  const filteredCases = cases.filter(c => caseStatusFilter === 'all' || c.status === caseStatusFilter);
   const open = cases.filter(c => c.status === 'open' || c.status === 'in_progress');
   const paid = cases.filter(c => c.status === 'paid');
   const totalFines = cases.reduce((s, c) => s + (c.amount || 0), 0);
@@ -3089,13 +3179,19 @@ function LegalCasesSection({ cases, buildings, units, tenants, canWrite, uploadF
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold text-gray-900">المخالفات البلدية والقضايا</h2><PageCount n={cases.length} label="قضية" />
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900">المخالفات البلدية والقضايا</h2><PageCount n={filteredCases.length} label="قضية" />
           <p className="text-sm text-gray-500 mt-0.5">متابعة المخالفات والقضايا القانونية وغراماتها</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={undefined as any} readOnly className="pr-9 w-full sm:w-48 border-orange-200" /></div>
           {canWrite('legalCases') && <FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />مخالفة/قضية جديدة</Button>} title="مخالفة أو قضية جديدة">{(close) => <LegalCaseForm buildings={buildings} units={units} tenants={tenants} onSave={async (data) => { const r: any = await api('/api/legal-cases', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); refresh(); }} onClose={close} />}</FormDialog>}
         </div>
+      </div>
+      {/* فلتر حالة القضايا */}
+      <div className="flex gap-2 flex-wrap items-center">
+        {[{ k: 'all', l: 'الكل' }, ...Object.entries(CASE_STATUS_MAP).map(([k, v]) => ({ k, l: v.label }))].map(({ k, l }) => (
+          <button key={k} type="button" onClick={() => setCaseStatusFilter(k)} className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${caseStatusFilter === k ? 'bg-orange-500 text-white border-orange-500 shadow' : 'bg-white text-gray-600 border-orange-200 hover:bg-orange-50'}`}>{l}{k === 'all' ? ` (${cases.length})` : ` (${cases.filter(c => c.status === k).length})`}</button>
+        ))}
       </div>
       {/* ملخص */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -3118,8 +3214,8 @@ function LegalCasesSection({ cases, buildings, units, tenants, canWrite, uploadF
         </div>
       )}
       <div className="grid gap-3">
-        {cases.map(c => <LegalCaseCard key={c.id} c={c} buildings={buildings} units={units} tenants={tenants} canWrite={canWrite} uploadFile={uploadFile} refresh={refresh} openBuilding={openBuilding} />)}
-        {cases.length === 0 && <EmptyState icon={<Gavel size={48} />} text="لا توجد مخالفات أو قضايا مسجلة" />}
+        {filteredCases.map(c => <LegalCaseCard key={c.id} c={c} buildings={buildings} units={units} tenants={tenants} canWrite={canWrite} uploadFile={uploadFile} refresh={refresh} openBuilding={openBuilding} />)}
+        {filteredCases.length === 0 && (cases.length === 0 ? <EmptyState icon={<Gavel size={48} />} text="لا توجد مخالفات أو قضايا مسجلة" /> : <EmptyState icon={<Search size={48} />} text="لا توجد قضايا مطابقة للفلتر المحدد" />)}
       </div>
     </div>
   );
