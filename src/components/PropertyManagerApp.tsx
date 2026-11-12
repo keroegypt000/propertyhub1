@@ -1065,7 +1065,7 @@ export default function PropertyManagerApp() {
                       <div className="flex flex-col gap-2 items-end">
                         {(() => { const list = c.attachments || []; const last = list[list.length - 1]; return last ? <FilePreviewDialog fileId={last.id} fileName={last.originalName} mimeType={last.mimeType} triggerLabel="عرض العقد" /> : null; })()}
                         {canWriteCheck('contracts') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل العقد" maxWidth="max-w-lg">{(close) => <ContractForm units={units} tenants={tenants} buildings={buildings} initial={c} onSave={async (data) => { await api(`/api/contracts/${c.id}`, 'PUT', data); if (data.updateDefaultRent && data.unitId) { await api(`/api/units/${data.unitId}`, 'PUT', { rentAmount: data.rentAmount }); loadData('units'); } autoRestore('تعديل عقد'); loadData('contracts'); }} onClose={close} />}</FormDialog>}
-                        {['active', 'renewed'].includes(c.status) && canWriteCheck('contracts') && (<FormDialog trigger={<Button variant="ghost" size="sm" className="text-amber-600 hover:bg-amber-50" title="إخلاء وإنهاء العقد — المستأجر يخرج والوحدة ترجع متاحة"><LogOut size={14} /></Button>} title={`إخلاء وإنهاء العقد — وحدة ${c.unit?.number || '؟'}`}>{(close) => <EvictContractForm contract={c} onSave={async (data) => { await api(`/api/contracts/${c.id}`, 'PUT', data); autoRestore('إخلاء عقد'); loadData('contracts'); }} onClose={close} />}</FormDialog>)}
+                        {['active', 'renewed'].includes(c.status) && canWriteCheck('contracts') && (<FormDialog trigger={<Button variant="ghost" size="sm" className="text-amber-600 hover:bg-amber-50" title="إخلاء فوري وإنهاء العقد — خروج مبكر أو نهاية المدة، مع تسوية المستحقات وتحرير الوحدة"><LogOut size={14} /></Button>} title={`إخلاء فوري وإنهاء العقد — وحدة ${c.unit?.number || '؟'}`}>{(close) => <EvictContractForm contract={c} onSave={async (data) => { const r = await api<any>(`/api/contracts/${c.id}/evict`, 'POST', data); autoRestore('إخلاء عقد'); loadData('payments'); return r; }} onClose={close} />}</FormDialog>)}
                         {canWriteCheck('files') && (
                           <FileUploadButton className="border-orange-200 text-orange-700" icon={<Camera size={14} className="ml-1" />} onPick={async (file) => {
                             try { const saved: any = await uploadFile(file, 'contract', { contractId: c.id }); if (saved?.warning) { toast.warning(saved.warning); } else { toast.success('تم رفع الملف'); } loadData('contracts'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); }
@@ -2279,33 +2279,93 @@ function SupplierPaymentForm({ suppliers, buildings, accounts, initialSupplierId
   </form>);
 }
 
-// ============ إخلاء وإنهاء العقد — الوحدة ترجع متاحة والمستأجر يبقى محفوظًا بسجله الكامل ============
+// ============ إخلاء فوري وإنهاء العقد — يدعم الخروج المبكر قبل نهاية العقد مع التسوية المالية ============
 // الإخلاء مش حذف: العقد يتحول لحالة «إخلاء» بتاريخ الإخلاء، الوحدة تقل متاحة، والدفعات والقيود بتفضل كلها محفوظة
-function EvictContractForm({ contract, onSave, onClose }: { contract: Contract; onSave: (data: any) => Promise<void>; onClose?: () => void }) {
+// الخروج المبكر: الرصيد يتحسب حتى تاريخ الإخلاء + غرامة اختيارية + تسوية (تحصيل فوري / إعفاء / لاحقًا)
+function EvictContractForm({ contract, onSave, onClose }: { contract: Contract; onSave: (data: any) => Promise<any>; onClose?: () => void }) {
   const [saving, setSaving] = useState(false);
   const [vacatedDate, setVacatedDate] = useState(new Date().toISOString().slice(0, 10));
   const [refund, setRefund] = useState('');
-  const [notes, setNotes] = useState(contract.notes || '');
-  const bal = (() => { try { return contractBalance(contract as any, (contract.payments || []) as any); } catch { return null; } })();
-  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({
-    unitId: contract.unitId, tenantId: contract.tenantId,
-    startDate: contract.startDate ? new Date(contract.startDate).toISOString().slice(0, 10) : undefined,
-    endDate: contract.endDate ? new Date(contract.endDate).toISOString().slice(0, 10) : undefined,
-    rentAmount: contract.rentAmount, discount: contract.discount ?? 0, deposit: contract.deposit ?? 0,
-    status: 'vacated', vacatedDate, refund: refund !== '' ? +refund : undefined, notes,
-  }); toast.success('تم إخلاء الوحدة — العقد منتهي والمستأجر محفوظ في سجله'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+  const [penalty, setPenalty] = useState('');
+  const [settlement, setSettlement] = useState<'collect' | 'waive' | 'none'>('collect');
+  const [method, setMethod] = useState('cash');
+  const [notes, setNotes] = useState('');
+
+  const end = contract.endDate ? new Date(contract.endDate) : null;
+  const vd = new Date(vacatedDate);
+  const isEarly = !!end && vd < end; // خروج مبكر قبل نهاية العقد
+  const monthsLeft = end && isEarly ? Math.max(0, (end.getFullYear() - vd.getFullYear()) * 12 + (end.getMonth() - vd.getMonth())) : 0;
+  const monthsLeftTxt = monthsLeft === 1 ? 'شهر واحد' : monthsLeft === 2 ? 'شهرين' : monthsLeft > 2 ? `${monthsLeft} أشهر` : '';
+
+  // الرصيد حتى تاريخ الإخلاء (وليس حتى نهاية العقد) — يتحرك مباشرة مع تغيير التاريخ
+  const bal = (() => { try { return contractBalance(contract as any, (contract.payments || []) as any, vd); } catch { return null; } })();
+  const penaltyN = isEarly && penalty !== '' ? Math.max(0, +penalty || 0) : 0;
+  const settleTotal = bal ? Math.round((bal.outstanding + penaltyN) * 1000) / 1000 : 0;
+  const hasDue = settleTotal > 0.0005;
+
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try {
+    const res = await onSave({
+      vacatedDate,
+      refund: refund !== '' ? +refund : undefined,
+      penalty: penaltyN,
+      settlement: hasDue ? settlement : 'none',
+      method,
+      notes,
+    });
+    const msg = res?.settlementPayment
+      ? `تم الإخلاء وتحصيل تسوية ${fmtKWD(res.settleAmount)} ${CURRENCY} — العقد منتهي والوحدة رجعت متاحة`
+      : (hasDue && settlement === 'waive')
+      ? 'تم الإخلاء — وُثّق إعفاء المستأجر من المتبقي في ملاحظات العقد'
+      : 'تم إخلاء الوحدة — العقد منتهي والمستأجر محفوظ في سجله';
+    toast.success(msg); onClose?.();
+  } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
     <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-xs text-amber-900 space-y-1">
-      <p className="font-bold flex items-center gap-2"><LogOut size={14} />إخلاء وإنهاء العقد</p>
+      <p className="font-bold flex items-center gap-2"><LogOut size={14} />إخلاء فوري وإنهاء العقد</p>
       <p>الوحدة {contract.unit?.number || '؟'} — {contract.unit?.building?.name || '-'} — المستأجر: {contract.tenant?.name || '-'}</p>
       <p>هحصل الآتي: العقد يتحول لحالة «إخلاء» ويتوثق تاريخ الإخلاء، والوحدة ترجع «متاحة» لتأجيرها لمستأجر جديد بعقد جديد، وكل دفعات وسجل المستأجر القديم يفضل محفوظ بالكامل في «سجل العميل».</p>
     </div>
-    {bal && <p className="text-sm text-gray-700">رصيد العقد وقت الإخلاء — المستحق: <b>{fmtKWD(bal.totalDue)}</b> — المدفوع: <b className="text-emerald-700">{fmtKWD(bal.totalPaid)}</b> — المتبقي: <b className={bal.outstanding > 0 ? 'text-red-600' : 'text-emerald-600'}>{fmtKWD(bal.outstanding)} {CURRENCY}</b></p>}
+    <div className={`rounded-xl border p-2.5 text-xs font-bold flex items-center gap-2 ${isEarly ? 'bg-orange-50 border-orange-200 text-orange-800' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
+      {isEarly
+        ? <><AlertTriangle size={14} />خروج مبكر: تاريخ الإخلاء قبل نهاية العقد{monthsLeftTxt ? ` بـ ${monthsLeftTxt}` : ''} — الحساب سيُقفل حتى تاريخ الإخلاء وليس حتى نهاية العقد</>
+        : <><CheckCircle2 size={14} />إنهاء عند/بعد نهاية مدة العقد — إقفال طبيعي للحساب</>}
+    </div>
+    {bal && <p className="text-sm text-gray-700">رصيد العقد حتى تاريخ الإخلاء — المستحق: <b>{fmtKWD(bal.totalDue)}</b> — المدفوع: <b className="text-emerald-700">{fmtKWD(bal.totalPaid)}</b> — المتبقي: <b className={bal.outstanding > 0 ? 'text-red-600' : 'text-emerald-600'}>{fmtKWD(bal.outstanding)} {CURRENCY}</b></p>}
     <div className="grid grid-cols-2 gap-3">
       <div><Label>تاريخ الإخلاء *</Label><Input type="date" value={vacatedDate} onChange={e => setVacatedDate(e.target.value)} required /></div>
       <div><Label>مردود التأمين ({CURRENCY})</Label><Input type="number" step="0.001" min="0" value={refund} onChange={e => setRefund(e.target.value)} placeholder={contract.deposit ? `التأمين المسجل: ${fmtKWD(contract.deposit)}` : 'اختياري'} /></div>
     </div>
-    <div><Label>ملاحظات الإخلاء (حالة الشقة — سبب الخروج — بقايا حساب)</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
-    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-amber-500 to-orange-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'تأكيد الإخلاء وإنهاء العقد'}</Button>
+    {isEarly && <div><Label>غرامة الإنهاء المبكر ({CURRENCY}) — اختياري</Label><Input type="number" step="0.001" min="0" value={penalty} onChange={e => setPenalty(e.target.value)} placeholder="حسب الاتفاق في العقد — اتركه فارغًا لبدون غرامة" /></div>}
+    {hasDue ? (
+      <div className="bg-red-50 border border-red-100 rounded-xl p-3 space-y-2.5">
+        <p className="text-sm font-bold text-red-800">مستحق عند الإخلاء: {fmtKWD(settleTotal)} {CURRENCY}{penaltyN > 0 ? ` (متبقي ${fmtKWD(bal!.outstanding)} + غرامة إنهاء مبكر ${fmtKWD(penaltyN)})` : ''}</p>
+        <div className="space-y-1.5">
+          {([
+            { v: 'collect', t: `تحصيل ${fmtKWD(settleTotal)} ${CURRENCY} الآن مع الإخلاء — دفعة تسوية بقيد محاسبي`, I: ReceiptText },
+            { v: 'waive', t: `إعفاء المستأجر من ${fmtKWD(settleTotal)} ${CURRENCY} — يُوثَّق في ملاحظات العقد`, I: CheckCircle2 },
+            { v: 'none', t: 'بدون تسوية الآن — المتبقي يفضل مسجلًا على المستأجر', I: Clock },
+          ] as const).map(o => (
+            <label key={o.v} className={`flex items-center gap-2 rounded-lg border p-2 text-xs cursor-pointer transition ${settlement === o.v ? 'border-emerald-400 bg-emerald-50 text-emerald-900 font-bold' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}>
+              <input type="radio" name="evict-settlement" checked={settlement === o.v} onChange={() => setSettlement(o.v)} className="accent-emerald-600" />
+              <o.I size={13} className="shrink-0" />{o.t}
+            </label>
+          ))}
+        </div>
+        {settlement === 'collect' && (
+          <div><Label>وسيلة تحصيل التسوية</Label><Select value={method} onValueChange={setMethod}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>
+            <SelectItem value="cash">نقدي — الصندوق</SelectItem>
+            <SelectItem value="transfer">تحويل بنكي</SelectItem>
+            <SelectItem value="check">شيك</SelectItem>
+            <SelectItem value="card">بطاقة</SelectItem>
+          </SelectContent></Select></div>
+        )}
+      </div>
+    ) : (
+      <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl p-2.5 font-bold flex items-center gap-2"><CheckCircle2 size={14} />الحساب مسدّد بالكامل حتى تاريخ الإخلاء — لا مستحقات على المستأجر (يبقى مردود التأمين إن وجد)</p>
+    )}
+    <div><Label>ملاحظات الإخلاء (حالة الشقة — سبب الخروج)</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="مثال: الشقة بحالة جيدة — خروج مبكر لسفر المستأجر" /></div>
+    <Button type="submit" disabled={saving} className="w-full bg-gradient-to-l from-amber-500 to-orange-500 text-white font-bold">
+      {saving ? 'جاري الحفظ...' : hasDue && settlement === 'collect' ? `تأكيد الإخلاء وتحصيل ${fmtKWD(settleTotal)} ${CURRENCY}` : 'تأكيد الإخلاء وإنهاء العقد'}
+    </Button>
   </form>);
 }
 
