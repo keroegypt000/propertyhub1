@@ -51,7 +51,10 @@ export async function POST(request: NextRequest) {
         terms: body.terms || null,
         notes: body.notes || null,
       }});
-      await tx.unit.update({ where: { id: body.unitId }, data: { status: 'rented' } }).catch(() => null);
+      // الإشغال: عقد نشط/مجدد → الوحدة مؤجرة (ما عدا الصيانة) — أما العقد التاريخي (منتهي/ملغي) فلا يغيّر حالة الوحدة الحالية
+      if (['active', 'renewed'].includes(created.status)) {
+        await tx.unit.updateMany({ where: { id: body.unitId, status: { not: 'maintenance' } }, data: { status: 'rented' } }).catch(() => null);
+      }
       return created;
     });
 

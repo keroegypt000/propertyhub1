@@ -3,6 +3,8 @@
 // =============================================================
 // شريط أدوات Excel لكل صفحة: تصدير + قالب فارغ + معالج استيراد
 // المعالج: اختيار ملف → معاينة وتحقق → استيراد مع تقدم مباشر → ملخص نتائج
+// الاستيراد ذكي دائمًا (Upsert): الصف الموجود مسبقًا في النظام يتحدّث بمحتوى الملف
+// والصف الجديد يُضاف — فرفع نفس الملف أكثر من مرة آمن ولا يكرر البيانات.
 // الاستيراد يرسل الصفوف بالتسلسل إلى واجهات النظام نفسها — فتُطبّق كل قواعد
 // التحقق وتوليد القيود المحاسبية التلقائية كما لو أُدخلت يدويًا.
 // =============================================================
@@ -52,6 +54,13 @@ function UnitStatusChips({ counts }: { counts: Record<string, number> | null }) 
   );
 }
 
+/** تحديث نسخة السياق المحلية بعد الكتابة حتى تطابق الصفوف التالية أحدث حالة (منع تكرار داخل نفس الملف) */
+function syncCtxItem(ctx: any, key: string, item: any) {
+  if (!item?.id || !Array.isArray(ctx?.[key])) return;
+  const i = ctx[key].findIndex((x: any) => x.id === item.id);
+  if (i >= 0) ctx[key][i] = { ...ctx[key][i], ...item }; else ctx[key].push(item);
+}
+
 async function api<T = any>(url: string, method = 'GET', body?: any): Promise<T> {
   const headers: Record<string, string> = {};
   if (body) headers['Content-Type'] = 'application/json';
@@ -82,8 +91,7 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
   const [failures, setFailures] = useState<{ index: number; error: string }[]>([]);
   const [busyParse, setBusyParse] = useState(false);
   const [importing, setImporting] = useState(false);
-  // وضع الاستيراد: جديد = إنشاء فقط (المكرر يُرفض حماية) | تحديث = مطابقة ذكية: الموجود يُحدَّث والغير موجود يُضاف
-  const [mode, setMode] = useState<'create' | 'update'>('create');
+  // الاستيراد ذكي دائمًا: الصف الموجود مسبقًا يتحدّث بمحتوى الملف (بدون تكرار) والصف الجديد يُضاف
   const [ctx, setCtx] = useState<ImportCtx>({ buildings: [], units: [], tenants: [], contracts: [] });
   // تنبيه قلب الحالات: عدد الوحدات المسجلة «مؤجرة» في النظام وسيقلبها الملف إلى غير مؤجرة
   const [rentedFlips, setRentedFlips] = useState(0);
@@ -98,15 +106,12 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
     ? `تأكد أولاً من وجود بيانات: ${needed.map(k => ENTITIES[k].label).join(' ← ')} (استوردها قبل هذه الورقة)`
     : 'لا يحتاج بيانات مرجعية — يمكنك الاستيراد مباشرة';
 
-  const reset = () => { setStep('pick'); setParsed([]); setFileName(''); setProgress(0); setImportStats({ ok: 0, fail: 0, updated: 0 }); setFailures([]); setRentedFlips(0); setFlipConfirmed(false); setMode('create'); setCtx({ buildings: [], units: [], tenants: [], contracts: [] }); };
+  const reset = () => { setStep('pick'); setParsed([]); setFileName(''); setProgress(0); setImportStats({ ok: 0, fail: 0, updated: 0 }); setFailures([]); setRentedFlips(0); setFlipConfirmed(false); setCtx({ buildings: [], units: [], tenants: [], contracts: [] }); };
 
-  // جلب البيانات المرجعية الحالية لحل المراجع (أسماء العمارات/الوحدات/المستأجرين/العقود)
-  // وفي وضع التحديث: جلب بيانات الكيان نفسه أيضًا لمطابقة الصفوف بالسجلات الموجودة
+  // جلب البيانات المرجعية الحالية لحل المراجع + بيانات الكيان نفسه لمطابقة الصفوف بالسجلات الموجودة
+  // (المطابقة الذكية: الموجود يتحدّث والجديد يُضاف)
   const fetchCtx = async (): Promise<ImportCtx> => {
-    const needs = new Set<string>([...(def.ctxNeeds || [])]);
-    // استيراد الوحدات يحتاج الوحدات الحالية لحساب تنبيه قلب الحالات (مؤجرة → متاحة)
-    if (entity === 'units') needs.add('units');
-    if (mode === 'update') (UPDATE_CTX_EXTRA[entity] || []).forEach(k => needs.add(k));
+    const needs = new Set<string>([...(def.ctxNeeds || []), ...(UPDATE_CTX_EXTRA[entity] || [])]);
     const [b, u, t, c, tx, lo, mt, ac] = await Promise.all([
       needs.has('buildings') ? api('/api/buildings') : Promise.resolve([]),
       needs.has('units') ? api('/api/units') : Promise.resolve([]),
@@ -172,14 +177,16 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
       try {
         const re = def.parseRow(row.raw, def.columns, ctxData, seen);
         if (!re.ok || !re.data) throw new Error(re.error || 'صف غير صالح');
-        if (mode === 'update') {
-          // وضع التحديث: مطابقة ذكية — الموجود يُحدَّث (PUT) والغير موجود يُضاف (POST)
-          const m = findExistingMatch(def.key, re.data, ctxData);
-          if (m) { await api(`${def.apiPath}/${m.id}`, 'PUT', re.data); updated++; }
-          else { await api(def.apiPath, 'POST', re.data); ok++; }
+        // مطابقة ذكية: الموجود يُحدَّث (PUT) والغير موجود يُضاف (POST) — رفع نفس الملف أكثر من مرة آمن بدون تكرار
+        const m = findExistingMatch(def.key, re.data, ctxData);
+        if (m) {
+          const upd = await api(`${def.apiPath}/${m.id}`, 'PUT', re.data);
+          updated++;
+          syncCtxItem(ctxData as any, def.key, { ...(upd || {}), ...re.data, id: m.id });
         } else {
-          await api(def.apiPath, 'POST', re.data);
+          const created = await api(def.apiPath, 'POST', re.data);
           ok++;
+          syncCtxItem(ctxData as any, def.key, { ...(created || {}), ...re.data });
         }
         if (def.key === 'buildings' && re.data.code) seen.add(re.data.code);
         if (def.key === 'tenants' && re.data.name) seen.add(re.data.name);
@@ -198,12 +205,12 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
   };
 
   const previewRows = parsed.slice(0, 6);
-  // في وضع التحديث: عدّاد ما سيتم — صفوف ستُحدّث مقابل صفوف ستُضاف
-  const updateCounts = mode === 'update' ? validRows.reduce((acc, r) => {
+  // عدّاد ما سيتم — صفوف ستُحدّث مقابل صفوف ستُضاف (المطابقة ذكية دائمًا)
+  const updateCounts = validRows.reduce((acc, r) => {
     if (!r.data) return acc;
     if (findExistingMatch(def.key, r.data, ctx)) acc.upd++; else acc.add++;
     return acc;
-  }, { upd: 0, add: 0 }) : null;
+  }, { upd: 0, add: 0 });
 
   return (
     <>
@@ -225,36 +232,27 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-orange-900"><FileUp size={20} />استيراد {def.label} من Excel</DialogTitle>
-            <DialogDescription>استورد بياناتك القديمة دفعة واحدة بدل الإدخال عنصر عنصر</DialogDescription>
+            <DialogDescription>استورد بياناتك دفعة واحدة بدل الإدخال عنصر عنصر — الموجود يتحدّث والجديد يُضاف</DialogDescription>
           </DialogHeader>
 
           <div className="flex-1 overflow-auto -mx-1 px-1">
             {step === 'pick' && (
               <div className="space-y-4 py-2">
-                {/* وضع الاستيراد — فرق واضح بين إضافة بيانات جديدة وتحديث الموجودة */}
-                <div className="space-y-2">
-                  <p className="text-sm font-bold text-gray-700">① اختر نوع العملية:</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <button type="button" onClick={() => setMode('create')} className={`text-right p-3 rounded-xl border-2 transition ${mode === 'create' ? 'border-orange-400 bg-orange-50 shadow-sm' : 'border-gray-200 bg-white hover:border-orange-200'}`}>
-                      <p className={`text-sm font-bold ${mode === 'create' ? 'text-orange-800' : 'text-gray-700'}`}>➕ استيراد بيانات جديدة</p>
-                      <p className="text-[11px] text-gray-500 mt-1">يضيف السجلات كسجلات جديدة — وأي صف مكرر (نفس الكود/الاسم/العقد النشط) يُرفض حمايةً من التكرار.</p>
-                    </button>
-                    <button type="button" onClick={() => setMode('update')} className={`text-right p-3 rounded-xl border-2 transition ${mode === 'update' ? 'border-blue-400 bg-blue-50 shadow-sm' : 'border-gray-200 bg-white hover:border-blue-200'}`}>
-                      <p className={`text-sm font-bold ${mode === 'update' ? 'text-blue-800' : 'text-gray-700'}`}>🔄 تحديث بيانات موجودة</p>
-                      <p className="text-[11px] text-gray-500 mt-1">مطابقة ذكية: الصف الموجود (بنفس الكود/الاسم/الوحدة...) يُحدّث بمحتوى الملف بدون تكرار — والغير موجود يُضاف جديد.</p>
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-gray-500">مفاتيح المطابقة في وضع التحديث — العمارات: الكود أو الاسم • الوحدات: العمارة + رقم الوحدة • المستأجرين: الاسم • العقود: العقد النشط على نفس الوحدة • المدفوعات: العقد + تاريخ الاستحقاق</p>
+                {/* الاستيراد الذكي: تحديث الموجود + إضافة الجديد في تشغيلة واحدة */}
+                <div className="p-3 rounded-xl border-2 border-orange-200 bg-orange-50">
+                  <p className="text-sm font-bold text-orange-800">استيراد ذكي — الموجود يتحدّث والجديد يُضاف</p>
+                  <p className="text-[11px] text-gray-600 mt-1">كل صف في الملف: لو مطابق لسجل موجود في النظام يتحدّث بمحتوى الملف بدون تكرار، ولو جديد يُضاف فورًا — يعني تقدر ترفع نفس الملف كل ما تتغير بياناتك وهو يعرف الموجود ويحدّثه وينزّ الجديد بس.</p>
                 </div>
                 <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-900">
                   <Info size={18} className="shrink-0 mt-0.5" />
                   <div className="space-y-1">
-                    <p><strong>إيه الفرق؟</strong> «<strong>قالب فارغ</strong>» = ملف Excel فاضي بالأعمدة الصحيحة تعبّيه بنفسك • «<strong>تصدير Excel</strong>» = نسخة ببياناتك الموجودة حاليًا (تنفع تعدّلها وترفعها هنا في وضع «تحديث») • «<strong>استيراد</strong>» = رفع الملف للنظام.</p>
+                    <p><strong>إيه الفرق؟</strong> «<strong>قالب فارغ</strong>» = ملف Excel فاضي بالأعمدة الصحيحة تعبّيه بنفسك • «<strong>تصدير Excel</strong>» = نسخة ببياناتك الموجودة حاليًا (عدّلها وارفعها هنا — الموجود يتحدّث والجديد يُضاف) • «<strong>استيراد</strong>» = رفع الملف للنظام.</p>
                     <p className="text-xs text-blue-700">ملف القالب فيه ورقة «اقرأني» فيها الشرح — وصف الإرشاد وصف المثال بيتتجاهلوا تلقائيًا عند الرفع.</p>
                     <p className="text-xs text-blue-700">{orderHint}</p>
                     <p className="text-xs text-blue-700">التواريخ تقبل <span dir="ltr">2025-01-31</span> أو <span dir="ltr">31/01/2025</span> — والأرقام عادية أو عربية (٠-٩).</p>
                   </div>
                 </div>
+                <p className="text-[11px] text-gray-500">مفاتيح المطابقة — العمارات: الكود أو الاسم • الوحدات: العمارة + رقم الوحدة • المستأجرين: الاسم • العقود: نفس الوحدة + نفس التواريخ (أو العقد النشط المتقاطع مع فترة الصف) • المدفوعات: العقد + تاريخ الاستحقاق</p>
                 <label className="block">
                   <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
                   <div className="border-2 border-dashed border-orange-300 rounded-2xl p-8 text-center cursor-pointer hover:bg-orange-50 transition">
@@ -272,9 +270,8 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
                   <Badge className="bg-gray-100 text-gray-700">{fileName}</Badge>
                   <Badge className="bg-emerald-100 text-emerald-800"><CheckCircle2 size={12} className="ml-1" />{validRows.length} صف جاهز</Badge>
                   {invalidRows.length > 0 && <Badge className="bg-red-100 text-red-800"><XCircle size={12} className="ml-1" />{invalidRows.length} صف به مشكلة (سيُتجاهل)</Badge>}
-                  {mode === 'update' && updateCounts && <Badge className="bg-blue-100 text-blue-800">سيتم تحديث: {updateCounts.upd}</Badge>}
-                  {mode === 'update' && updateCounts && <Badge className="bg-teal-100 text-teal-800">سيتم إضافة جديد: {updateCounts.add}</Badge>}
-                  {mode === 'create' && <Badge className="bg-orange-100 text-orange-800">وضع: بيانات جديدة</Badge>}
+                  {updateCounts.upd > 0 && <Badge className="bg-blue-100 text-blue-800">سيتم تحديث: {updateCounts.upd}</Badge>}
+                  {updateCounts.add > 0 && <Badge className="bg-teal-100 text-teal-800">سيتم إضافة جديد: {updateCounts.add}</Badge>}
                 </div>
                 {entity === 'units' && validRows.length > 0 && <UnitStatusChips counts={unitStatusSummary(validRows)} />}
 
@@ -347,9 +344,11 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
                   <CheckCircle2 size={28} className="text-emerald-600 shrink-0" />
                   <div>
                     <p className="font-bold text-emerald-900">انتهى الاستيراد</p>
-                    <p className="text-sm text-emerald-800">{mode === 'update'
-                      ? `تم تحديث ${importStats.updated} سجل موجود${importStats.ok > 0 ? ` وإضافة ${importStats.ok} جديد` : ''}${importStats.fail > 0 ? ` — وفشل ${importStats.fail} صف` : ''}.`
-                      : `تم إضافة ${importStats.ok} سجل بنجاح${importStats.fail > 0 ? ` — وفشل ${importStats.fail} صف` : ''}.`}</p>
+                    <p className="text-sm text-emerald-800">{[
+                      importStats.updated > 0 ? `تم تحديث ${importStats.updated} سجل موجود` : '',
+                      importStats.ok > 0 ? `أُضيف ${importStats.ok} سجل جديد` : '',
+                      importStats.fail > 0 ? `وفشل ${importStats.fail} صف` : '',
+                    ].filter(Boolean).join(' — ') || 'لم يتم استيراد أي صف'}.</p>
                   </div>
                 </div>
                 {entity === 'units' && validRows.length > 0 && <UnitStatusChips counts={unitStatusSummary(validRows)} />}
@@ -361,7 +360,7 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
                     </div>
                   </ScrollArea>
                 )}
-                <p className="text-xs text-gray-400">ملاحظة: {entity === 'units' ? 'الوحدات الموجودة بنفس رقم العمارة تُحدَّث بياناتها وحالتها تلقائيًا بدون تكرار — أعد استيراد نفس الملف بعد تعديل الحالات لتصحيحها.' : 'صفوف «مكرر» تفشل إذا كان الكود/الاسم موجودًا مسبقًا — هذا مقصود لحماية بياناتك من التكرار — لو عايز تحدّث بيانات موجودة استخدم وضع «تحديث بيانات موجودة» من أول خطوة.'}</p>
+                <p className="text-xs text-gray-400">ملاحظة: {entity === 'units' ? 'الوحدات الموجودة بنفس رقم العمارة تُحدَّث بياناتها وحالتها تلقائيًا بدون تكرار — أعد استيراد نفس الملف بعد تعديل الحالات لتصحيحها.' : 'المطابقة ذكية — الصف الموجود مسبقًا يتحدّث بمحتوى الملف والصف الجديد يُضاف، فتقدر ترفع نفس الملف بعد كل تعديل بدون تكرار البيانات.'}</p>
               </div>
             )}
           </div>
@@ -369,7 +368,7 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
           <div className="flex justify-between gap-2 pt-3 border-t">
             {step === 'preview' && validRows.length > 0 ? (
               <Button onClick={startImport} disabled={flipBlocked} title={flipBlocked ? 'أكّد مربع التنبيه الأحمر أعلاه أولاً' : undefined} className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
-                <FileUp size={16} className="ml-2" />{mode === 'update' ? `بدء التحديث (${updateCounts ? `تحديث ${updateCounts.upd} + إضافة ${updateCounts.add}` : `${validRows.length} صف`})` : `بدء استيراد ${validRows.length} صف`}
+                <FileUp size={16} className="ml-2" />{updateCounts.upd > 0 ? `بدء الاستيراد (تحديث ${updateCounts.upd} + إضافة ${updateCounts.add})` : `بدء استيراد ${validRows.length} صف`}
               </Button>
             ) : <span />}
             <Button variant="outline" onClick={() => { setOpen(false); reset(); }} disabled={importing}>{step === 'done' ? 'إغلاق' : 'إلغاء'}</Button>

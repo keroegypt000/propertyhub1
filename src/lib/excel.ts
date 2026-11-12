@@ -49,7 +49,7 @@ export const UPDATE_CTX_EXTRA: Record<string, string[]> = {
 /**
  * وضع «تحديث بيانات موجودة»: يطابق صف الملف مع سجل موجود في النظام بمفتاح طبيعي:
  * العمارات: الكود أو الاسم | الوحدات: العمارة + رقم الوحدة | المستأجرين: الاسم
- * العقود: العقد النشط على نفس الوحدة | المدفوعات: نفس العقد + نفس تاريخ الاستحقاق
+ * العقود: نفس الوحدة + نفس تاريخي البداية/النهاية، أو العقد النشط المتقاطع مع فترة الصف | المدفوعات: نفس العقد + نفس تاريخ الاستحقاق
  * الحركات: تاريخ + مبلغ + بيان | القروض: الاسم + العمارة | الصيانة: العنوان + الوحدة | الحسابات: رقم الحساب
  * يرجع { id } إن وجد مطابق (يُحدَّث بـ PUT) أو undefined (يُضاف جديد بـ POST)
  */
@@ -65,9 +65,24 @@ export function findExistingMatch(key: string, data: any, ctx: ImportCtx): { id:
     case 'tenants':
       return L.tenants?.find((t: any) => normMatch(t.name) === normMatch(data.name));
     case 'contracts': {
-      // العقد النشط على نفس الوحدة — تحديثه بدل الرفض بـ «يوجد عقد نشط آخر»
-      const active = (L.contracts as any[] | undefined)?.find((c: any) => ['active', 'renewed'].includes(c.status) && c.unitId === data.unitId);
-      return active ? { id: active.id } : undefined;
+      const list = (L.contracts as any[] | undefined) || [];
+      const dS = String(data.startDate || '').slice(0, 10);
+      const dE = String(data.endDate || '').slice(0, 10);
+      // 1) مطابقة تامة: نفس الوحدة + نفس تاريخي البداية والنهاية (أي حالة غير ملغاة/مخلّاة) → تحديث نفس العقد بدون تكرار
+      //    تجعل رفع نفس الملف أكثر من مرة آمنًا: الصف الموجود يتحدّث بدل الفشل بـ «يوجد عقد نشط آخر»
+      const exact = list.find((c: any) => c.unitId === data.unitId
+        && !['terminated', 'vacated'].includes(c.status)
+        && String(c.startDate || '').slice(0, 10) === dS
+        && String(c.endDate || '').slice(0, 10) === dE);
+      if (exact) return { id: exact.id };
+      // 2) عقد نشط حاليًا على نفس الوحدة وفترة صف الملف تتقاطع معه → تحديث العقد الحالي (تصحيح قيم/تواريخ الفترة الجارية)
+      //    أما صف بفترة مختلفة تمامًا (قديمة أو تجديد مستقبلي) فلا يُطابق — ويقرر API العقود قبوله أو رفضه بقاعدة عدم التداخل
+      const active = list.find((c: any) => ['active', 'renewed'].includes(c.status)
+        && c.unitId === data.unitId
+        && String(c.startDate || '').slice(0, 10) <= dE
+        && String(c.endDate || '').slice(0, 10) >= dS);
+      if (active) return { id: active.id };
+      return undefined; // صف جديد فعلاً على وحدة بلا عقد نشط متقاطع → يُضاف
     }
     case 'payments': {
       const c = (L.contracts as any[] | undefined)?.find((x: any) => x.id === data.contractId);
@@ -160,6 +175,13 @@ function norm(s: any): string {
     .trim().replace(/\s+/g, ' ');
 }
 
+/** نص اختياري منظف: فارغ أو رموز بمعنى «لا يوجد» شائعة في ملفات العملاء (* - — _ ×) → undefined */
+function normOpt(v: any): string | undefined {
+  const s = norm(v);
+  if (!s || /^[\*_\-—–_=\s]+$/.test(s)) return undefined;
+  return s;
+}
+
 /** تطبيع أقوى للمطابقة فقط (لا يُخزن): يشيل التشكيل والتطويل ويوحد الهمزات والتاء المربوطة */
 function normMatch(s: any): string {
   return norm(s)
@@ -206,12 +228,17 @@ function findUnit(ctx: ImportCtx, buildingRef: any, number: any) {
   const numStr = norm(number);
   if (!numStr) return undefined;
   const b = buildingRef ? findBuilding(ctx, buildingRef) : undefined;
-  const candidates = ctx.units.filter((u: any) => {
+  const inBuilding = (u: any) => !b || u.buildingId === b.id;
+  // 1) تطابق تام على رقم الوحدة أولاً (مع تفضيل العمارة المحددة) — المطابقة الجزئية كانت تُخطئ:
+  //    «14» كانت تلتقط الوحدة «1» لأن "14".includes("1") → صفان مختلفان يروحان لنفس الوحدة
+  const exact = ctx.units.filter((u: any) => String(u.number ?? '').trim() === numStr);
+  if (exact.length) return exact.find(inBuilding) || exact[0];
+  // 2) لا يوجد رقم مطابق تمامًا → مطابقة مرنة (يحتوي) مع تفضيل العمارة
+  const fuzzy = ctx.units.filter((u: any) => {
     const un = String(u.number ?? '').trim();
-    return un === numStr || (un !== '' && (un.includes(numStr) || numStr.includes(un)));
+    return un !== '' && (un.includes(numStr) || numStr.includes(un));
   });
-  if (b) return candidates.find((u: any) => u.buildingId === b.id) || candidates[0];
-  return candidates[0];
+  return fuzzy.find(inBuilding) || fuzzy[0];
 }
 function findTenant(ctx: ImportCtx, name: any) {
   const s = normMatch(name);
@@ -281,8 +308,8 @@ export const ENTITIES: Record<string, EntityDef> = {
         floors: toInt(g(row, columns, 'floors')),
         unitsCount: toInt(g(row, columns, 'unitsCount')),
         value: toNumber(g(row, columns, 'value')),
-        license: norm(g(row, columns, 'license')) || undefined,
-        notes: norm(g(row, columns, 'notes')) || undefined,
+        license: normOpt(g(row, columns, 'license')) || undefined,
+        notes: normOpt(g(row, columns, 'notes')) || undefined,
       } };
     },
   },
@@ -331,7 +358,7 @@ export const ENTITIES: Record<string, EntityDef> = {
         type: mapValue(g(row, columns, 'type'), DICTS.unitType) || undefined,
         status,
         rentAmount: toNumber(g(row, columns, 'rentAmount')),
-        notes: norm(g(row, columns, 'notes')) || undefined,
+        notes: normOpt(g(row, columns, 'notes')) || undefined,
       } };
     },
   },
@@ -363,15 +390,15 @@ export const ENTITIES: Record<string, EntityDef> = {
       if (!name) return { ok: false, error: 'اسم المستأجر مطلوب' };
       return { ok: true, data: {
         name,
-        phone: norm(g(row, columns, 'phone')) || undefined,
-        email: norm(g(row, columns, 'email')) || undefined,
-        idNumber: norm(g(row, columns, 'idNumber')) || undefined,
+        phone: normOpt(g(row, columns, 'phone')) || undefined,
+        email: normOpt(g(row, columns, 'email')) || undefined,
+        idNumber: normOpt(g(row, columns, 'idNumber')) || undefined,
         idType: mapValue(g(row, columns, 'idType'), DICTS.idType) || undefined,
-        address: norm(g(row, columns, 'address')) || undefined,
-        emergencyContact: norm(g(row, columns, 'emergencyContact')) || undefined,
-        guarantor: norm(g(row, columns, 'guarantor')) || undefined,
-        guarantorPhone: norm(g(row, columns, 'guarantorPhone')) || undefined,
-        notes: norm(g(row, columns, 'notes')) || undefined,
+        address: normOpt(g(row, columns, 'address')) || undefined,
+        emergencyContact: normOpt(g(row, columns, 'emergencyContact')) || undefined,
+        guarantor: normOpt(g(row, columns, 'guarantor')) || undefined,
+        guarantorPhone: normOpt(g(row, columns, 'guarantorPhone')) || undefined,
+        notes: normOpt(g(row, columns, 'notes')) || undefined,
       } };
     },
   },
@@ -424,8 +451,8 @@ export const ENTITIES: Record<string, EntityDef> = {
         deposit: toNumber(g(row, columns, 'deposit')) ?? 0,
         paymentDay: toInt(g(row, columns, 'paymentDay')),
         status: mapValue(g(row, columns, 'status'), DICTS.contractStatus) || 'active',
-        terms: norm(g(row, columns, 'terms')) || undefined,
-        notes: norm(g(row, columns, 'notes')) || undefined,
+        terms: normOpt(g(row, columns, 'terms')) || undefined,
+        notes: normOpt(g(row, columns, 'notes')) || undefined,
       } };
     },
   },
@@ -475,8 +502,8 @@ export const ENTITIES: Record<string, EntityDef> = {
         month: toMonthStr(g(row, columns, 'month')) || undefined,
         status: mapValue(g(row, columns, 'status'), DICTS.paymentStatus) || 'paid',
         method: mapValue(g(row, columns, 'method'), DICTS.payMethod) || 'cash',
-        reference: norm(g(row, columns, 'reference')) || undefined,
-        notes: norm(g(row, columns, 'notes')) || undefined,
+        reference: normOpt(g(row, columns, 'reference')) || undefined,
+        notes: normOpt(g(row, columns, 'notes')) || undefined,
       } };
     },
   },
@@ -597,13 +624,13 @@ export const ENTITIES: Record<string, EntityDef> = {
       }
       return { ok: true, data: {
         title, unitId: unitId || undefined,
-        description: norm(g(row, columns, 'description')) || undefined,
+        description: normOpt(g(row, columns, 'description')) || undefined,
         category: mapValue(g(row, columns, 'category'), DICTS.maintCategory) || 'other',
         priority: mapValue(g(row, columns, 'priority'), DICTS.priority) || 'medium',
         status: mapValue(g(row, columns, 'status'), DICTS.maintStatus) || 'open',
         estimatedCost: toNumber(g(row, columns, 'estimatedCost')),
         cost: toNumber(g(row, columns, 'cost')),
-        assignedTo: norm(g(row, columns, 'assignedTo')) || undefined,
+        assignedTo: normOpt(g(row, columns, 'assignedTo')) || undefined,
       } };
     },
   },
