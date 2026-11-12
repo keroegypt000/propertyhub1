@@ -1,7 +1,7 @@
 'use client';
 
 // =============================================================
-// شريط أدوات Excel لكل صفحة: تصدير + قالب فارغ + معالج استيراد
+// شريط أدوات Excel لكل صفحة: تصدير (يعمل كقالب طبيعي عند قائمة فاضية) + معالج استيراد
 // المعالج: اختيار ملف → معاينة وتحقق → استيراد مع تقدم مباشر → ملخص نتائج
 // الاستيراد ذكي دائمًا (Upsert): الصف الموجود مسبقًا في النظام يتحدّث بمحتوى الملف
 // والصف الجديد يُضاف — فرفع نفس الملف أكثر من مرة آمن ولا يكرر البيانات.
@@ -17,7 +17,7 @@ import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ENTITIES, IMPORT_ORDER, exportEntity, downloadTemplate, readExcelFile, findExistingMatch, UPDATE_CTX_EXTRA, type ImportCtx } from '@/lib/excel';
+import { ENTITIES, IMPORT_ORDER, exportEntity, readExcelFile, findExistingMatch, UPDATE_CTX_EXTRA, type ImportCtx } from '@/lib/excel';
 
 const CONFIRM_ORDER: Record<string, string[]> = {
   units: ['buildings'],
@@ -129,7 +129,7 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
     setBusyParse(true);
     try {
       const { rows: excelRows } = await readExcelFile(file, entity);
-      if (excelRows.length === 0) throw new Error('الملف لا يحتوي صفوف بيانات — لو ده القالب الفارغ عبّئ بياناتك فيه ثم أعد الرفع');
+      if (excelRows.length === 0) throw new Error('الملف لا يحتوي صفوف بيانات — لو نزّلته من «تصدير Excel» والقائمة كانت فاضية عبّئ بياناتك فيه ثم أعد الرفع');
       setFileName(file.name);
       let ctxData: ImportCtx = { buildings: [], units: [], tenants: [], contracts: [] };
       try { ctxData = await fetchCtx(); setCtx(ctxData); } catch { /* سياق فارغ — ستفشل المراجع برسائل واضحة */ }
@@ -214,12 +214,9 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
 
   return (
     <>
-      {/* أزرار التصدير والقالب */}
-      <Button variant="outline" size="sm" className="border-emerald-200 text-emerald-700 hover:bg-emerald-50" onClick={() => { exportEntity(entity, rows); toast.success('تم تنزيل ملف الإكسل'); }} disabled={rows.length === 0} title="تصدير البيانات الحالية إلى Excel">
+      {/* زر التصدير — دائمًا متاح: ببيانات أو بأعمدة الاستيراد فقط لو القائمة فاضية */}
+      <Button variant="outline" size="sm" className="border-emerald-200 text-emerald-700 hover:bg-emerald-50" onClick={() => { exportEntity(entity, rows); toast.success(rows.length === 0 ? 'الملف نزل بأعمدة الاستيراد فقط (القائمة فاضية) — عبّئ بياناتك فيه وارفعه من زر «استيراد»' : 'تم تنزيل ملف الإكسل'); }} title="تصدير البيانات الحالية إلى Excel — ولو القائمة فاضية ينزل ملف بالأعمدة فقط عبّئه واستورده">
         <FileDown size={16} className="ml-1" />تصدير Excel
-      </Button>
-      <Button variant="outline" size="sm" className="border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => { downloadTemplate(entity); toast.success('تم تنزيل قالب فارغ — عبّئه ثم استورده (بياناتك الموجودة تنزل من زر «تصدير Excel»)'); }} title="قالب فارغ للتعبئة — أعمدته مطابقة للاستيراد، ومفيهوش بياناتك (بياناتك تنزل من تصدير Excel)">
-        <FileSpreadsheet size={16} className="ml-1" />قالب فارغ
       </Button>
       {canWrite && importEnabled && (
         <Button variant="outline" size="sm" className="border-orange-200 text-orange-700 hover:bg-orange-50" onClick={() => { reset(); setOpen(true); }} title="استيراد بيانات من ملف Excel">
@@ -246,8 +243,8 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
                 <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-900">
                   <Info size={18} className="shrink-0 mt-0.5" />
                   <div className="space-y-1">
-                    <p><strong>إيه الفرق؟</strong> «<strong>قالب فارغ</strong>» = ملف Excel فاضي بالأعمدة الصحيحة تعبّيه بنفسك • «<strong>تصدير Excel</strong>» = نسخة ببياناتك الموجودة حاليًا (عدّلها وارفعها هنا — الموجود يتحدّث والجديد يُضاف) • «<strong>استيراد</strong>» = رفع الملف للنظام.</p>
-                    <p className="text-xs text-blue-700">ملف القالب فيه ورقة «اقرأني» فيها الشرح — وصف الإرشاد وصف المثال بيتتجاهلوا تلقائيًا عند الرفع.</p>
+                    <p><strong>إيه الفرق؟</strong> «<strong>تصدير Excel</strong>» = نسخة ببياناتك الموجودة بنفس أعمدة الاستيراد بالظبط (عدّلها وارفعها هنا — الموجود يتحدّث والجديد يُضاف) • ولو القائمة فاضية بيطلع الملف بالأعمدة فقط — عبّئ بياناتك فيه وارفعه • «<strong>استيراد</strong>» = رفع الملف للنظام.</p>
+                    <p className="text-xs text-blue-700">أعمدة الملف: {def.columns.map(c => c.header).join(' • ')} — ولو عمود مش موجود في ملفك أصلًا، قيمه القديمة تفضل زي ما هي بدون مسح.</p>
                     <p className="text-xs text-blue-700">{orderHint}</p>
                     <p className="text-xs text-blue-700">التواريخ تقبل <span dir="ltr">2025-01-31</span> أو <span dir="ltr">31/01/2025</span> — والأرقام عادية أو عربية (٠-٩).</p>
                   </div>

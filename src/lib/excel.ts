@@ -182,6 +182,15 @@ function normOpt(v: any): string | undefined {
   return s;
 }
 
+/** حقل نصي اختياري في الاستيراد الذكي — تحديث كل الحقول بأمان:
+ *  العمود موجود في الملف والخلية فاضية (أو *) → '' → يُمسح الحقل عند تحديث الموجود
+ *  العمود غير موجود في الملف أصلًا → undefined → يُحتفظ بالقيمة القديمة (ملف جزئي بالأعمدة المطلوبة فقط) */
+function optText(row: Record<string, any>, columns: ExcelColumn[], key: string): string | undefined {
+  const col = columns.find(c => c.key === key);
+  if (!col || !Object.prototype.hasOwnProperty.call(row, col.header)) return undefined;
+  return normOpt(row[col.header]) ?? '';
+}
+
 /** تطبيع أقوى للمطابقة فقط (لا يُخزن): يشيل التشكيل والتطويل ويوحد الهمزات والتاء المربوطة */
 function normMatch(s: any): string {
   return norm(s)
@@ -303,13 +312,13 @@ export const ENTITIES: Record<string, EntityDef> = {
       return { ok: true, data: {
         name,
         code: code || name,
-        address: norm(g(row, columns, 'address')) || undefined,
-        city: norm(g(row, columns, 'city')) || undefined,
+        address: optText(row, columns, 'address'),
+        city: optText(row, columns, 'city'),
         floors: toInt(g(row, columns, 'floors')),
         unitsCount: toInt(g(row, columns, 'unitsCount')),
         value: toNumber(g(row, columns, 'value')),
-        license: normOpt(g(row, columns, 'license')) || undefined,
-        notes: normOpt(g(row, columns, 'notes')) || undefined,
+        license: optText(row, columns, 'license'),
+        notes: optText(row, columns, 'notes'),
       } };
     },
   },
@@ -358,7 +367,7 @@ export const ENTITIES: Record<string, EntityDef> = {
         type: mapValue(g(row, columns, 'type'), DICTS.unitType) || undefined,
         status,
         rentAmount: toNumber(g(row, columns, 'rentAmount')),
-        notes: normOpt(g(row, columns, 'notes')) || undefined,
+        notes: optText(row, columns, 'notes'),
       } };
     },
   },
@@ -390,15 +399,15 @@ export const ENTITIES: Record<string, EntityDef> = {
       if (!name) return { ok: false, error: 'اسم المستأجر مطلوب' };
       return { ok: true, data: {
         name,
-        phone: normOpt(g(row, columns, 'phone')) || undefined,
-        email: normOpt(g(row, columns, 'email')) || undefined,
-        idNumber: normOpt(g(row, columns, 'idNumber')) || undefined,
+        phone: optText(row, columns, 'phone'),
+        email: optText(row, columns, 'email'),
+        idNumber: optText(row, columns, 'idNumber'),
         idType: mapValue(g(row, columns, 'idType'), DICTS.idType) || undefined,
-        address: normOpt(g(row, columns, 'address')) || undefined,
-        emergencyContact: normOpt(g(row, columns, 'emergencyContact')) || undefined,
-        guarantor: normOpt(g(row, columns, 'guarantor')) || undefined,
-        guarantorPhone: normOpt(g(row, columns, 'guarantorPhone')) || undefined,
-        notes: normOpt(g(row, columns, 'notes')) || undefined,
+        address: optText(row, columns, 'address'),
+        emergencyContact: optText(row, columns, 'emergencyContact'),
+        guarantor: optText(row, columns, 'guarantor'),
+        guarantorPhone: optText(row, columns, 'guarantorPhone'),
+        notes: optText(row, columns, 'notes'),
       } };
     },
   },
@@ -451,8 +460,8 @@ export const ENTITIES: Record<string, EntityDef> = {
         deposit: toNumber(g(row, columns, 'deposit')) ?? 0,
         paymentDay: toInt(g(row, columns, 'paymentDay')),
         status: mapValue(g(row, columns, 'status'), DICTS.contractStatus) || 'active',
-        terms: normOpt(g(row, columns, 'terms')) || undefined,
-        notes: normOpt(g(row, columns, 'notes')) || undefined,
+        terms: optText(row, columns, 'terms'),
+        notes: optText(row, columns, 'notes'),
       } };
     },
   },
@@ -502,8 +511,8 @@ export const ENTITIES: Record<string, EntityDef> = {
         month: toMonthStr(g(row, columns, 'month')) || undefined,
         status: mapValue(g(row, columns, 'status'), DICTS.paymentStatus) || 'paid',
         method: mapValue(g(row, columns, 'method'), DICTS.payMethod) || 'cash',
-        reference: normOpt(g(row, columns, 'reference')) || undefined,
-        notes: normOpt(g(row, columns, 'notes')) || undefined,
+        reference: optText(row, columns, 'reference'),
+        notes: optText(row, columns, 'notes'),
       } };
     },
   },
@@ -543,8 +552,8 @@ export const ENTITIES: Record<string, EntityDef> = {
       return { ok: true, data: {
         date, type, category, amount,
         buildingId: b?.id || undefined,
-        account: norm(g(row, columns, 'account')) || undefined,
-        cashAccount: norm(g(row, columns, 'cashAccount')) || undefined,
+        account: optText(row, columns, 'account'),
+        cashAccount: optText(row, columns, 'cashAccount'),
       } };
     },
   },
@@ -624,13 +633,13 @@ export const ENTITIES: Record<string, EntityDef> = {
       }
       return { ok: true, data: {
         title, unitId: unitId || undefined,
-        description: normOpt(g(row, columns, 'description')) || undefined,
+        description: optText(row, columns, 'description'),
         category: mapValue(g(row, columns, 'category'), DICTS.maintCategory) || 'other',
         priority: mapValue(g(row, columns, 'priority'), DICTS.priority) || 'medium',
         status: mapValue(g(row, columns, 'status'), DICTS.maintStatus) || 'open',
         estimatedCost: toNumber(g(row, columns, 'estimatedCost')),
         cost: toNumber(g(row, columns, 'cost')),
-        assignedTo: normOpt(g(row, columns, 'assignedTo')) || undefined,
+        assignedTo: optText(row, columns, 'assignedTo'),
       } };
     },
   },
@@ -710,45 +719,27 @@ export function downloadExcel(rows: Record<string, any>[], sheetName: string, fi
   XLSX.writeFile(wb, filename);
 }
 
-/** تنزيل قالب فارغ للكيان: ورقة «اقرأني» إرشادية + صف رؤوس + صف إرشادي + صف مثال */
-export function downloadTemplate(entityKey: string) {
-  const def = ENTITIES[entityKey];
-  if (!def) return;
-  const guide = def.columns.map(c => c.note || '');
-  const example = def.columns.map(c => c.example || '');
-  const ws = XLSX.utils.aoa_to_sheet([
-    def.columns.map(c => c.header),
-    guide,
-    example,
-  ]);
-  ws['!cols'] = def.columns.map(c => ({ wch: c.width || 16 }));
-  ws['!views'] = [{ RTL: true }];
+/** ملف صف العناوين فقط — يُستخدم عند تصدير قائمة فاضية فيغدو قالبًا طبيعيًا تعبّيه وتستورده */
+export function downloadHeaders(headers: string[], sheetName: string, filename: string) {
+  const ws = XLSX.utils.aoa_to_sheet([headers]);
+  ws['!cols'] = headers.map(() => ({ wch: 18 }));
+  ws['!views'] = [{ RTL: true }]; // ورقة عربية من اليمين لليسار
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, def.sheetName.slice(0, 31));
-  // ورقة إرشادية ثانية توضح الغرض من القالب وفرقه عن التصدير والاستيراد — لا تُقرأ عند الاستيراد (الاستيراد يقرأ الورقة الأولى فقط)
-  const info = [
-    [`قالب ${def.label} — اقرأني`],
-    [''],
-    ['ما هذا الملف؟', `قالب فارغ لتعبئة بيانات ${def.label} بنفسك — أعمدته مطابقة تمامًا لما يقرأه الاستيراد.`],
-    ['الفرق بين القالب والتصدير', 'القالب = ملف فارغ تعبئه للاستيراد • التصدير = نسخة ببياناتك الموجودة في النظام (تنفع تعدّلها وترفعها في وضع «تحديث بيانات موجودة»).'],
-    ['طريقة الاستخدام', '1) اكتب بياناتك ابتداءً من الصف الرابع، أو امسح صف الإرشاد وصف المثال. 2) لا تغيّر أسماء الأعمدة في الصف الأول ولا ترتيبها. 3) احفظ الملف وارفعه من زر «استيراد» في صفحة ' + def.label + '.'],
-    ['صف الإرشاد وصف المثال', 'الصف اللي فيه ملاحظات الأعمدة والصف اللي فيه المثال يتجاهلهم الاستيراد تلقائيًا — تقدر تمسحهم أو تسيبهم.'],
-    ['التواريخ', 'تقبل 2025-01-31 أو 31/01/2025'],
-    ['الأرقام', 'عادية أو عربية (٠-٩) مع أو بدون فواصل آلاف'],
-  ];
-  const wsInfo = XLSX.utils.aoa_to_sheet(info);
-  wsInfo['!cols'] = [{ wch: 26 }, { wch: 80 }];
-  wsInfo['!views'] = [{ RTL: true }];
-  XLSX.utils.book_append_sheet(wb, wsInfo, 'اقرأني'.slice(0, 31));
-  XLSX.writeFile(wb, `قالب-${def.label}.xlsx`);
+  XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+  XLSX.writeFile(wb, filename);
 }
 
-/** تصدير بيانات كيان باستخدام تعريفه */
+/** تصدير بيانات كيان باستخدام تعريفه — وقائمة فاضية تنتج ملف بالأعمدة فقط (بديل القالب) */
 export function exportEntity(entityKey: string, records: any[]) {
   const def = ENTITIES[entityKey];
   if (!def) return;
+  const filename = `${def.label}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  if (!records.length) {
+    downloadHeaders(def.columns.map(c => c.header), def.sheetName, filename);
+    return;
+  }
   const rows = records.map(r => def.exportRow(r));
-  downloadExcel(rows, def.sheetName, `${def.label}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  downloadExcel(rows, def.sheetName, filename);
 }
 
 /** قراءة ملف إكسل وإرجاع صفوف مفتاحها رأس العمود العربي (يتجاهل صف الإرشاد وصف المثال في القالب) */
