@@ -418,6 +418,68 @@ export function buildingFinancialReportHtml(params: {
 </div></div>`;
 }
 
+// ---------- كشف وحدات ومستأجري عمارة (قابل للطباعة) ----------
+export interface BuildingUnitsRow {
+  number: string;
+  floor: string;
+  type: string;
+  status: string;
+  defaultRent: number | null; // الإيجار الافتراضي المسجل على الوحدة
+  actualRent: number | null;  // الإيجار الفعلي من العقد النشط بعد الخصم
+  tenant: string;
+  tenantType: string;
+  outstanding: number | null; // المتبقي على العقد النشط
+}
+
+export function buildingUnitsDocHtml(params: {
+  building: any;
+  rows: BuildingUnitsRow[];
+  currency?: string;
+}): string {
+  const currency = params.currency || 'د.ك';
+  const b = params.building;
+  const sumDefault = params.rows.reduce((s, r) => s + (r.defaultRent || 0), 0);
+  const sumActual = params.rows.reduce((s, r) => s + (r.actualRent || 0), 0);
+  const sumOutstanding = params.rows.reduce((s, r) => s + Math.max(0, r.outstanding || 0), 0);
+  const rented = params.rows.filter(r => r.tenant && r.tenant !== 'شاغرة').length;
+  const money = (v: number | null) => (v == null ? '<span style="color:#9ca3af;">-</span>' : fmt3(v));
+  const body = params.rows.map((r, i) =>
+    `<tr>
+      <td class="num">${i + 1}</td>
+      <td class="num"><b>${esc(r.number)}</b></td>
+      <td class="num">${esc(r.floor)}</td>
+      <td>${esc(r.type)}</td>
+      <td>${esc(r.status)}</td>
+      <td class="num">${money(r.defaultRent)}</td>
+      <td class="num">${money(r.actualRent)}</td>
+      <td class="r"><b>${esc(r.tenant)}</b>${r.tenantType ? ` <span style="color:#9ca3af;font-size:10.5px;">(${esc(r.tenantType)})</span>` : ''}</td>
+      <td class="num" style="${(r.outstanding || 0) > 0 ? 'color:#b91c1c;' : ''}">${r.outstanding == null ? '<span style="color:#9ca3af;">-</span>' : (r.outstanding > 0 ? fmt3(r.outstanding) : 'سُدد ✓')}</td>
+    </tr>`).join('');
+  return `<style>${DOC_CSS}</style>
+<div class="vdoc"><div class="v-sheet">
+  <div class="v-head">
+    <div class="v-brand">${LOGO_SVG}<div><div class="v-brand-name">PropertyHub</div><div class="v-brand-sub">نظام إدارة الأملاك والعقارات</div></div></div>
+    <div class="v-titlebox"><div class="v-kind">كشف الوحدات والمستأجرين</div>
+    <div class="v-meta"><span>العمارة: <b>${esc(b.name || '')}</b></span>${b.code ? `<span>كود: <b>${esc(b.code)}</b></span>` : ''}${b.address ? `<span>${esc(b.address)}</span>` : ''}${b.city ? `<span>${esc(b.city)}</span>` : ''}</div></div>
+  </div>
+  <div class="v-body">
+    <div class="v-meta" style="justify-content:flex-start;margin-bottom:8px;"><span>عدد الوحدات: <b>${params.rows.length}</b></span><span>المؤجرة: <b>${rented}</b></span><span>الشاغرة: <b>${params.rows.length - rented}</b></span><span>العملة: <b>${esc(currency)}</b></span></div>
+    <table class="v-table" style="font-size:12px;">
+      <thead><tr><th style="width:26px">#</th><th style="width:52px">الوحدة</th><th style="width:42px">الطابق</th><th style="width:58px">النوع</th><th style="width:62px">الحالة</th><th style="width:88px">الإيجار الافتراضي</th><th style="width:88px">الإيجار الفعلي</th><th>المستأجر الحالي</th><th style="width:88px">المتبقي عليه</th></tr></thead>
+      <tbody>${body || `<tr><td colspan="9" style="color:#9ca3af;">لا توجد وحدات في هذه العمارة بعد</td></tr>`}</tbody>
+      <tfoot><tr><td colspan="5">الإجمالي — ${params.rows.length} وحدة</td><td class="num">${fmt3(sumDefault)}</td><td class="num">${fmt3(sumActual)}</td><td></td><td class="num" style="color:#b91c1c;">${fmt3(sumOutstanding)}</td></tr></tfoot>
+    </table>
+    <div class="v-note">الإيجار الافتراضي = القيمة المسجلة على الوحدة • الإيجار الفعلي = إيجار العقد النشط المتفق عليه بعد الخصم (وحدات بلا عقد نشط تظهر "-") • المتبقي عليه = رصيد المستحق غير المحصل على العقد النشط حتى تاريخ الطباعة — إجمالي الأرصدة المستحقة: <b>${fmt3(sumOutstanding)} ${esc(currency)}</b></div>
+  </div>
+  <div class="v-sigs">
+    <div class="v-sig"><div class="line"></div>أمين المبنى</div>
+    <div class="v-sig"><div class="line"></div>المحاسب</div>
+    <div class="v-sig"><div class="line"></div>المدير</div>
+  </div>
+  <div class="v-foot"><span>أُنشئ آليًا بواسطة نظام PropertyHub</span><span>طُبع في ${esc(nowStr())}</span></div>
+</div></div>`;
+}
+
 // ---------- حوار المعاينة + الطباعة ----------
 export function VoucherDialog({ trigger, title, docHtml }: {
   trigger: React.ReactNode;

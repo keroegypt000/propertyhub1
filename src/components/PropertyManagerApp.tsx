@@ -9,7 +9,7 @@ import {
   paymentReceiptHtml, loanReceiptHtml, loanPaymentVoucherHtml,
   maintenanceVoucherHtml, transactionVoucherHtml,
   journalEntryDocHtml, journalBookDocHtml, trialBalanceDocHtml, TBRow,
-  buildingFinancialReportHtml,
+  buildingFinancialReportHtml, buildingUnitsDocHtml,
 } from '@/components/print-docs';
 import {
   Building2, Home, Users, FileText, DollarSign, Wrench, Shield, Clock,
@@ -31,7 +31,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableFooter, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 
 // Types
@@ -2752,6 +2752,15 @@ function BuildingDetailSection({ user, building, buildings, units, tenants, cont
   const bContractIds = new Set(bContracts.map(c => c.id));
   const bPayments = payments.filter(p => bContractIds.has(p.contractId));
   const activeContracts = bContracts.filter(c => c.status === 'active' || c.status === 'renewed');
+  // صفوف جدول الوحدات — نفس الحسابات للديسكتوب والموبايل ومستند الطباعة
+  const unitRows = bUnits.map(u => {
+    const act = activeContracts.filter(c => c.unitId === u.id).sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())[0];
+    const bal = act ? contractBalance(act as any, (act.payments || []) as any) : null;
+    return { u, act, bal };
+  });
+  const sumDefaultRent = bUnits.reduce((s, u) => s + (u.rentAmount || 0), 0);
+  const sumActualRent = unitRows.reduce((s, r) => s + (r.act ? effectiveRent(r.act as any) : 0), 0);
+  const sumOutstanding = unitRows.reduce((s, r) => s + (r.bal ? Math.max(0, r.bal.outstanding) : 0), 0);
   const bMaintenance = maintenance.filter(m => m.unit?.buildingId === building.id || m.buildingId === building.id);
   const bTransactions = transactions.filter((t: any) => t.buildingId === building.id);
   const bEntries = journalEntries.filter((e: any) => e.buildingId === building.id);
@@ -2872,39 +2881,70 @@ function BuildingDetailSection({ user, building, buildings, units, tenants, cont
       {tab === 'units' && (
         <div className="space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <p className="text-sm text-gray-500">{bUnits.length} وحدة — {bUnits.filter(u => u.status === 'rented').length} مؤجرة</p>
-            {canWrite('units') && <FormDialog trigger={<Button size="sm" className="bg-gradient-to-l from-orange-500 to-amber-500 text-white"><Plus size={14} className="ml-1" />إضافة وحدة لهذه العمارة</Button>} title="إضافة وحدة جديدة">{(close) => <UnitForm buildings={buildings} initial={{ buildingId: building.id } as any} onSave={async (data) => { await api('/api/units', 'POST', data); refresh(); }} onClose={close} />}</FormDialog>}
+            <p className="text-sm text-gray-500">{bUnits.length} وحدة — {bUnits.filter(u => u.status === 'rented').length} مؤجرة — إجمالي المتبقي: <b className={sumOutstanding > 0 ? 'text-red-600' : 'text-emerald-600'}>{fmtKWD(sumOutstanding)} {CURRENCY}</b></p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <VoucherDialog trigger={<Button size="sm" variant="outline" className="border-orange-200 text-orange-700"><Printer size={14} className="ml-1" />طباعة المستند</Button>} title={`كشف الوحدات والمستأجرين — ${building.name}`}
+                docHtml={buildingUnitsDocHtml({ building, currency: CURRENCY, rows: unitRows.map(r => ({
+                  number: r.u.number,
+                  floor: r.u.floor != null ? String(r.u.floor) : '-',
+                  type: UNIT_TYPE_LABEL[r.u.type || ''] || r.u.type || '-',
+                  status: UNIT_STATUS_MAP[r.u.status]?.label || r.u.status || '',
+                  defaultRent: r.u.rentAmount ?? null,
+                  actualRent: r.act ? effectiveRent(r.act as any) : null,
+                  tenant: r.act?.tenant?.name || 'شاغرة',
+                  tenantType: r.act?.tenant?.tenantType ? (TENANT_TYPE_LABEL[r.act.tenant.tenantType]?.label || '') : '',
+                  outstanding: r.bal ? r.bal.outstanding : null,
+                })) })} />
+              {canWrite('units') && <FormDialog trigger={<Button size="sm" className="bg-gradient-to-l from-orange-500 to-amber-500 text-white"><Plus size={14} className="ml-1" />إضافة وحدة لهذه العمارة</Button>} title="إضافة وحدة جديدة">{(close) => <UnitForm buildings={buildings} initial={{ buildingId: building.id } as any} onSave={async (data) => { await api('/api/units', 'POST', data); refresh(); }} onClose={close} />}</FormDialog>}
+            </div>
           </div>
           {/* ديسكتوب */}
           <div className="hidden md:block">
             <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
-              <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>الوحدة</TableHead><TableHead>الطابق</TableHead><TableHead>النوع</TableHead><TableHead>الحالة</TableHead><TableHead>الإيجار الافتراضي</TableHead><TableHead>المستأجر الحالي</TableHead><TableHead>المتبقي عليه</TableHead></TableRow></TableHeader>
-              <TableBody>{bUnits.map(u => {
-                const act = activeContracts.filter(c => c.unitId === u.id).sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())[0];
-                const bal = act ? contractBalance(act as any, (act.payments || []) as any) : null;
-                return (<TableRow key={u.id}>
-                  <TableCell className="font-bold">{u.number}</TableCell>
-                  <TableCell>{u.floor ?? '-'}</TableCell>
-                  <TableCell className="text-xs">{UNIT_TYPE_LABEL[u.type || ''] || u.type || '-'}</TableCell>
-                  <TableCell><Badge className={UNIT_STATUS_MAP[u.status]?.color}>{UNIT_STATUS_MAP[u.status]?.label || u.status}</Badge></TableCell>
-                  <TableCell className="text-sm">{u.rentAmount ? `${fmtKWD(u.rentAmount)} ${CURRENCY}` : '-'}</TableCell>
-                  <TableCell>{act?.tenant ? (<div className="flex items-center gap-1.5 flex-wrap"><span className="text-sm font-medium">{act.tenant.name}</span>{act.tenant.tenantType && <Badge className={`${TENANT_TYPE_LABEL[act.tenant.tenantType]?.color} text-[10px]`}>{TENANT_TYPE_LABEL[act.tenant.tenantType]?.label}</Badge>}</div>) : <span className="text-gray-400 text-sm">شاغرة</span>}</TableCell>
-                  <TableCell className="text-sm font-bold">{bal ? (bal.outstanding > 0 ? <span className="text-red-600">{fmtKWD(bal.outstanding)} {CURRENCY}</span> : <span className="text-emerald-600">لا متبقي ✓</span>) : '-'}</TableCell>
-                </TableRow>);
-              })}</TableBody></Table>
+              <Table>
+                <TableHeader><TableRow className="bg-orange-50">
+                  <TableHead className="text-center">الوحدة</TableHead>
+                  <TableHead className="text-center">الطابق</TableHead>
+                  <TableHead className="text-center">النوع</TableHead>
+                  <TableHead className="text-center">الحالة</TableHead>
+                  <TableHead>الإيجار الافتراضي</TableHead>
+                  <TableHead>الإيجار الفعلي</TableHead>
+                  <TableHead>المستأجر الحالي</TableHead>
+                  <TableHead>المتبقي عليه</TableHead>
+                </TableRow></TableHeader>
+                <TableBody>{unitRows.map(({ u, act, bal }) => (
+                  <TableRow key={u.id}>
+                    <TableCell className="font-bold text-center">{u.number}</TableCell>
+                    <TableCell className="text-center">{u.floor ?? '-'}</TableCell>
+                    <TableCell className="text-xs text-center">{UNIT_TYPE_LABEL[u.type || ''] || u.type || '-'}</TableCell>
+                    <TableCell className="text-center"><Badge className={UNIT_STATUS_MAP[u.status]?.color}>{UNIT_STATUS_MAP[u.status]?.label || u.status}</Badge></TableCell>
+                    <TableCell className="text-sm tabular-nums">{u.rentAmount ? `${fmtKWD(u.rentAmount)} ${CURRENCY}` : '-'}</TableCell>
+                    <TableCell className="text-sm tabular-nums">{act ? <span className="font-semibold text-emerald-700">{fmtKWD(effectiveRent(act as any))} {CURRENCY}</span> : <span className="text-gray-400">-</span>}</TableCell>
+                    <TableCell>{act?.tenant ? (<div className="flex items-center gap-1.5 flex-wrap"><span className="text-sm font-medium">{act.tenant.name}</span>{act.tenant.tenantType && <Badge className={`${TENANT_TYPE_LABEL[act.tenant.tenantType]?.color} text-[10px]`}>{TENANT_TYPE_LABEL[act.tenant.tenantType]?.label}</Badge>}</div>) : <span className="text-gray-400 text-sm">شاغرة</span>}</TableCell>
+                    <TableCell className="text-sm font-bold tabular-nums">{bal ? (bal.outstanding > 0 ? <span className="text-red-600">{fmtKWD(bal.outstanding)} {CURRENCY}</span> : <span className="text-emerald-600">لا متبقي ✓</span>) : '-'}</TableCell>
+                  </TableRow>
+                ))}</TableBody>
+                <TableFooter><TableRow className="bg-amber-50 hover:bg-amber-50">
+                  <TableCell colSpan={4} className="font-bold text-gray-800">الإجمالي — {bUnits.length} وحدة</TableCell>
+                  <TableCell className="font-bold tabular-nums">{fmtKWD(sumDefaultRent)} {CURRENCY}</TableCell>
+                  <TableCell className="font-bold tabular-nums text-emerald-700">{fmtKWD(sumActualRent)} {CURRENCY}</TableCell>
+                  <TableCell></TableCell>
+                  <TableCell className={`font-bold tabular-nums ${sumOutstanding > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(sumOutstanding)} {CURRENCY}</TableCell>
+                </TableRow></TableFooter>
+              </Table>
             </div></Card>
           </div>
           {/* موبايل */}
           <div className="grid gap-3 md:hidden">
-            {bUnits.map(u => {
-              const act = activeContracts.filter(c => c.unitId === u.id).sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())[0];
-              const bal = act ? contractBalance(act as any, (act.payments || []) as any) : null;
-              return (<Card key={u.id} className="border-0 shadow-md"><CardContent className="p-4 space-y-1.5">
+            {unitRows.map(({ u, act, bal }) => (
+              <Card key={u.id} className="border-0 shadow-md"><CardContent className="p-4 space-y-1.5">
                 <div className="flex items-center justify-between"><span className="font-bold">وحدة {u.number}</span><Badge className={UNIT_STATUS_MAP[u.status]?.color}>{UNIT_STATUS_MAP[u.status]?.label || u.status}</Badge></div>
+                <p className="text-xs text-gray-500">الطابق: {u.floor ?? '-'} — {UNIT_TYPE_LABEL[u.type || ''] || u.type || '-'}</p>
+                <p className="text-xs">الإيجار الافتراضي: <b>{u.rentAmount ? `${fmtKWD(u.rentAmount)} ${CURRENCY}` : '-'}</b>{act ? <> — الفعلي: <b className="text-emerald-700">{fmtKWD(effectiveRent(act as any))} {CURRENCY}</b></> : null}</p>
                 {act?.tenant && <p className="text-sm">المستأجر: <b>{act.tenant.name}</b> {act.tenant.tenantType && <Badge className={`${TENANT_TYPE_LABEL[act.tenant.tenantType]?.color} text-[10px]`}>{TENANT_TYPE_LABEL[act.tenant.tenantType]?.label}</Badge>}</p>}
                 {bal && <p className="text-xs text-gray-500">المتبقي: <b className={bal.outstanding > 0 ? 'text-red-600' : 'text-emerald-600'}>{fmtKWD(bal.outstanding)} {CURRENCY}</b></p>}
-              </CardContent></Card>);
-            })}
+              </CardContent></Card>
+            ))}
           </div>
           {bUnits.length === 0 && <EmptyState icon={<Home size={48} />} text="لا توجد وحدات في هذه العمارة بعد" />}
         </div>
