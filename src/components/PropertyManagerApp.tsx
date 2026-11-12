@@ -728,7 +728,7 @@ export default function PropertyManagerApp() {
           {/* Buildings */}
           {section === 'buildings' && (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المباني</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المباني</h2><PageCount n={buildings.length} label="عمارة" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="buildings" rows={buildings} canWrite={canWriteCheck('buildings')} onImported={() => { loadData('buildings'); toast.success('تم تحديث قائمة العمارات'); }} />
@@ -863,7 +863,7 @@ export default function PropertyManagerApp() {
             }
             return (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الوحدات</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الوحدات</h2><PageCount n={units.length} label="وحدة" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="units" rows={units} canWrite={canWriteCheck('units')} onImported={() => { loadData('units'); toast.success('تم تحديث قائمة الوحدات'); }} />
@@ -925,7 +925,7 @@ export default function PropertyManagerApp() {
           {/* Tenants */}
           {section === 'tenants' && (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المستأجرين</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المستأجرين</h2><PageCount n={tenants.length} label="مستأجر" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="tenants" rows={tenants} canWrite={canWriteCheck('tenants')} onImported={() => { loadData('tenants'); toast.success('تم تحديث قائمة المستأجرين'); }} />
@@ -1027,7 +1027,7 @@ export default function PropertyManagerApp() {
           {/* Contracts */}
           {section === 'contracts' && (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">العقود</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">العقود</h2><PageCount n={contracts.length} label="عقد" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="contracts" rows={contracts} canWrite={canWriteCheck('contracts')} onImported={() => { loadData('contracts'); toast.success('تم تحديث قائمة العقود'); }} />
@@ -1036,7 +1036,7 @@ export default function PropertyManagerApp() {
               </div>
               <div className="flex gap-2 flex-wrap items-center">
                 {[{ k: 'all', l: 'الكل' }, ...Object.entries(CONTRACT_STATUS_MAP).map(([k, v]) => ({ k, l: v.label }))].map(({ k, l }) => (
-                  <button key={k} type="button" onClick={() => setContractFilter(k)} className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${contractFilter === k ? 'bg-orange-500 text-white border-orange-500 shadow' : 'bg-white text-gray-600 border-orange-200 hover:bg-orange-50'}`}>{l}</button>
+                  <button key={k} type="button" onClick={() => setContractFilter(k)} className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${contractFilter === k ? 'bg-orange-500 text-white border-orange-500 shadow' : 'bg-white text-gray-600 border-orange-200 hover:bg-orange-50'}`}>{l}{k === 'all' ? ` (${contracts.length})` : ` (${contracts.filter((c: any) => c.status === k).length})`}</button>
                 ))}
                 {contractTenantId && (
                   <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -1096,7 +1096,7 @@ export default function PropertyManagerApp() {
             const filteredPayments = payments.filter(p => !searchQuery || p.status.includes(searchQuery) || (p.method || '').includes(searchQuery) || String(p.amount).includes(searchQuery));
             return (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المدفوعات</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المدفوعات</h2><PageCount n={payments.length} label="دفعة" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="payments" rows={payments} canWrite={canWriteCheck('payments')} onImported={() => { loadData('payments'); toast.success('تم تحديث المدفوعات'); }} />
@@ -1157,7 +1157,7 @@ export default function PropertyManagerApp() {
             const filteredPayments = supplierPayments.filter(p => supplierPayFilter === 'all' || p.supplierId === supplierPayFilter);
             return (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الموردين والمقاولين</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الموردين والمقاولين</h2><PageCount n={suppliers.length} label="مورد / مقاول" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   {canWriteCheck('suppliers') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة مورد / مقاول</Button>} title="إضافة مورد أو مقاول جديد">{(close) => <SupplierForm onSave={async (data) => { await api('/api/suppliers', 'POST', data); autoRestore('إضافة مورد'); loadData('suppliers'); }} onClose={close} />}</FormDialog>)}
@@ -1230,7 +1230,7 @@ export default function PropertyManagerApp() {
           {/* Maintenance */}
           {section === 'maintenance' && (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">طلبات الصيانة</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">طلبات الصيانة</h2><PageCount n={maintenance.length} label="طلب" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="maintenance" rows={maintenance} canWrite={canWriteCheck('maintenance')} onImported={() => { loadData('maintenance'); toast.success('تم تحديث طلبات الصيانة'); }} />
@@ -1292,7 +1292,7 @@ export default function PropertyManagerApp() {
           {/* Audit */}
           {section === 'audit' && (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">سجل التدقيق</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">سجل التدقيق</h2><PageCount n={auditLogs.length} label="حركة" />
                 <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
               </div>
               <Card className="border-0 shadow-lg overflow-hidden"><div className="h-[600px] overflow-auto"><div className="min-w-[680px]">
@@ -1311,7 +1311,7 @@ export default function PropertyManagerApp() {
           {/* Restore Points */}
           {section === 'restore' && (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">نقاط الاستعادة</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">نقاط الاستعادة</h2><PageCount n={restorePoints.length} label="نقطة" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   {isAdmin && <Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md" onClick={async () => { const name = prompt('اسم نقطة الاستعادة:'); if (name) { await api('/api/restore', 'POST', { name }); loadData('restore'); toast.success('تم إنشاء نقطة الاستعادة'); } }}><Archive size={18} className="ml-2" />إنشاء نقطة استعادة</Button>}
@@ -1334,7 +1334,7 @@ export default function PropertyManagerApp() {
           {/* Users */}
           {section === 'users' && (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المستخدمون</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">المستخدمون</h2><PageCount n={allUsers.length} label="مستخدم" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   {isAdmin && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><UserPlus size={18} className="ml-2" />إضافة مستخدم</Button>} title="إضافة مستخدم جديد">{(close) => <UserForm onSave={async (data) => { await api('/api/users', 'POST', data); loadData('users'); }} onClose={close} />}</FormDialog>)}
@@ -1369,7 +1369,7 @@ export default function PropertyManagerApp() {
             const filteredTransactions = transactions.filter((t: any) => (txType === 'all' || t.type === txType) && (!searchQuery || (t.category || '').includes(searchQuery) || (t.type || '').includes(searchQuery) || (t.building?.name || '').includes(searchQuery) || String(t.amount).includes(searchQuery)));
             return (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الإيرادات والمصروفات</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الإيرادات والمصروفات</h2><PageCount n={transactions.length} label="حركة" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="transactions" rows={transactions} canWrite={canWriteCheck('transactions')} onImported={() => { loadData('transactions'); toast.success('تم تحديث الحركات المالية'); }} />
@@ -1453,7 +1453,7 @@ export default function PropertyManagerApp() {
             <div className="space-y-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h2 className="text-xl sm:text-2xl font-bold text-gray-900">القروض</h2>
+                  <h2 className="text-xl sm:text-2xl font-bold text-gray-900">القروض</h2><PageCount n={loans.length} label="قرض" />
                   <p className="text-sm text-gray-500 mt-0.5">كل قرض بأقساطه وسنداته في مكان واحد</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -1490,7 +1490,7 @@ export default function PropertyManagerApp() {
           {/* Accounts */}
           {section === 'accounts' && (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">شجرة الحسابات</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">شجرة الحسابات</h2><PageCount n={accounts.length} label="حساب" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   {isAdmin && <Button variant="outline" className="border-orange-200 text-orange-700" onClick={async () => { if (!confirm('سيتم إنشاء الحسابات الافتراضية غير الموجودة فقط — لن يتم تعديل أو حذف أي حساب قائم. متابعة؟')) return; try { const r = await api<any>('/api/accounts/seed', 'POST'); toast.success(`تم الاستيراد: ${r.created} حساب جديد — ${r.skipped.length} موجود مسبقاً (من إجمالي ${r.total})`); loadData('accounts'); } catch (e: any) { toast.error(e.message); } }}>إنشاء الشجرة الافتراضية</Button>}
@@ -1518,7 +1518,7 @@ export default function PropertyManagerApp() {
           {/* Journal */}
           {section === 'journal' && (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">القيود اليومية</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">القيود اليومية</h2><PageCount n={journalEntries.length} label="قيد" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="journal" rows={journalEntries} canWrite={false} importEnabled={false} onImported={() => {}} />
@@ -1580,7 +1580,7 @@ export default function PropertyManagerApp() {
             const filtered = rows.filter(r => !searchQuery || r.code.includes(searchQuery) || r.name.includes(searchQuery));
             return (
               <div className="space-y-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">ميزان المراجعة</h2>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">ميزان المراجعة</h2><PageCount n={filtered.length} label="حساب" />
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                     <Badge className={balanced ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}>{balanced ? 'متوازن ✓' : 'غير متوازن'}</Badge>
@@ -1628,7 +1628,7 @@ export default function PropertyManagerApp() {
           {/* Files */}
           {section === 'files' && (
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الملفات والصور</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الملفات والصور</h2><PageCount n={allFiles.length} label="ملف" />
                 <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
               </div>
               <Card className="border-0 shadow-lg overflow-hidden"><div className="h-[600px] overflow-auto"><div className="min-w-[700px]">
@@ -2607,6 +2607,15 @@ function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
   return (<div className="flex flex-col items-center justify-center py-14 px-6 text-center"><div className="mb-4 w-20 h-20 rounded-3xl bg-orange-100/70 text-orange-400 flex items-center justify-center shadow-inner">{icon}</div><p className="text-lg font-semibold text-gray-500">{text}</p></div>);
 }
 
+/** شارة عدد سجلات الصفحة — تجيب سؤال «كم سجل عندي هنا؟» بجانب عنوان كل صفحة */
+function PageCount({ n, label }: { n: number; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-50 border border-orange-200 text-orange-800 text-xs font-bold whitespace-nowrap" title={`إجمالي ${label} المسجلة في النظام`}>
+      <span className="w-2 h-2 rounded-full bg-orange-400" />{n} {label}
+    </span>
+  );
+}
+
 // File Preview Dialog - with inline thumbnail support
 function FilePreviewDialog({ fileId, fileName, mimeType, showThumbnail, triggerLabel }: { fileId: string; fileName: string; mimeType: string; showThumbnail?: boolean; triggerLabel?: string }) {
   const [open, setOpen] = useState(false);
@@ -3040,7 +3049,7 @@ function LegalCasesSection({ cases, buildings, units, tenants, canWrite, uploadF
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold text-gray-900">المخالفات البلدية والقضايا</h2>
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900">المخالفات البلدية والقضايا</h2><PageCount n={cases.length} label="قضية" />
           <p className="text-sm text-gray-500 mt-0.5">متابعة المخالفات والقضايا القانونية وغراماتها</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
