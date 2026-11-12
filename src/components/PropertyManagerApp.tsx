@@ -1328,7 +1328,7 @@ export default function PropertyManagerApp() {
                 <h2 className="text-xl sm:text-2xl font-bold text-gray-900">سجل السندات</h2><PageCount n={filtered.length} label="سند" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث برقم السند أو الطرف..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-56 border-orange-200 focus:border-orange-500" /></div>
-                  <VoucherDialog trigger={<Button variant="outline" className="border-orange-200 text-orange-700"><Printer size={15} className="ml-1" />طباعة السجل</Button>} title="سجل السندات — كشف تسلسلي" docHtml={voucherRegisterDocHtml({ rows, currency: CURRENCY })} />
+                  <VoucherDialog trigger={<Button variant="outline" className="border-orange-200 text-orange-700"><Printer size={15} className="ml-1" />طباعة السجل</Button>} title="سجل السندات — كشف تسلسلي" orientation="landscape" docHtml={voucherRegisterDocHtml({ rows, currency: CURRENCY })} />
                 </div>
               </div>
               <p className="text-xs text-gray-500">كل سند له رقم تسلسلي محفوظ في النظام: القبض <b>ق-####</b> والصرف <b>ص-####</b> — أي فجوة في التسلسل تعني سندًا ضائعًا أو ملغى ويجب مراجعته فورًا</p>
@@ -1780,7 +1780,7 @@ export default function PropertyManagerApp() {
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   <ExcelToolbar entity="journal" rows={journalEntries} canWrite={false} importEnabled={false} onImported={() => {}} />
-                  <Button variant="outline" className="border-orange-200 text-orange-700" onClick={() => printHtmlDoc(journalBookDocHtml(journalEntries.filter((j: any) => !searchQuery || (j.description || '').includes(searchQuery) || (j.building?.name || '').includes(searchQuery) || (j.date || '').includes(searchQuery)), CURRENCY), 'دفتر اليومية')}><Printer size={16} className="ml-1" />طباعة دفتر اليومية</Button>
+                  <Button variant="outline" className="border-orange-200 text-orange-700" onClick={() => printHtmlDoc(journalBookDocHtml(journalEntries.filter((j: any) => !searchQuery || (j.description || '').includes(searchQuery) || (j.building?.name || '').includes(searchQuery) || (j.date || '').includes(searchQuery)), CURRENCY), 'دفتر اليومية', 'landscape')}><Printer size={16} className="ml-1" />طباعة دفتر اليومية</Button>
                   {canWriteCheck('journal') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة قيد</Button>} title="إضافة قيد يومي" maxWidth="max-w-lg">{(close) => <JournalForm accounts={accounts} buildings={buildings} onSave={async (data) => { await api('/api/journal', 'POST', data); loadData('journal'); }} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
@@ -1842,7 +1842,7 @@ export default function PropertyManagerApp() {
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                     <Badge className={balanced ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}>{balanced ? 'متوازن ✓' : 'غير متوازن'}</Badge>
-                    <Button variant="outline" className="border-orange-200 text-orange-700" onClick={() => printHtmlDoc(trialBalanceDocHtml(filtered, CURRENCY), 'ميزان المراجعة')}><Printer size={16} className="ml-1" />طباعة</Button>
+                    <Button variant="outline" className="border-orange-200 text-orange-700" onClick={() => printHtmlDoc(trialBalanceDocHtml(filtered, CURRENCY), 'ميزان المراجعة', 'landscape')}><Printer size={16} className="ml-1" />طباعة</Button>
                   </div>
                 </div>
                 <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
@@ -2989,6 +2989,180 @@ function PermissionsEditor({ currentPerms, onSave, onClose }: { currentPerms: st
 }
 
 // =============================================================
+// تبويب «الوحدات والمستأجرين» داخل صفحة العمارة — بفترة زمنية قابلة للتحديد
+// (الشهر الحالي / الشهر السابق / فترة مخصصة) لتتبع سداد كل وحدة خلال الفترة
+// نفس الحسابات للديسكتوب والموبايل ومستند الطباعة — مصدر واحد للحقائق
+// =============================================================
+function BuildingUnitsTab({ building, buildings, bUnits, activeContracts, canWrite, refresh }: {
+  building: Building;
+  buildings: Building[];
+  bUnits: Unit[];
+  activeContracts: Contract[];
+  canWrite: (e: string) => boolean;
+  refresh: () => void;
+}) {
+  const [periodMode, setPeriodMode] = useState<'this' | 'prev' | 'custom'>('this');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+
+  // الفترة الزمنية المعروضة — تحدد مستحق ومدفوع كل وحدة
+  const period = (() => {
+    const nowD = new Date();
+    const fmtMonth = (d: Date) => d.toLocaleDateString('ar-EG-u-nu-latn', { month: 'long', year: 'numeric' });
+    const fmtDay = (d: Date) => d.toLocaleDateString('en-GB');
+    if (periodMode === 'custom' && customFrom && customTo) {
+      const from = new Date(customFrom + 'T00:00:00');
+      const to = new Date(customTo + 'T23:59:59');
+      if (!isNaN(from.getTime()) && !isNaN(to.getTime()) && from <= to) {
+        const months = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) + 1;
+        return { from, to, months, label: `فترة مخصصة: من ${fmtDay(from)} إلى ${fmtDay(to)}` };
+      }
+    }
+    const start = new Date(nowD.getFullYear(), periodMode === 'prev' ? nowD.getMonth() - 1 : nowD.getMonth(), 1);
+    const to = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59);
+    return { from: start, to, months: 1, label: `${periodMode === 'prev' ? 'الشهر السابق' : 'الشهر الحالي'} — ${fmtMonth(start)}` };
+  })();
+
+  // صفوف الجدول: العقد النشط + الرصيد الكلي + سداد الفترة المحددة لكل وحدة
+  const unitRows = bUnits.map(u => {
+    const act = activeContracts.filter(c => c.unitId === u.id).sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())[0];
+    const bal = act ? contractBalance(act as any, (act.payments || []) as any) : null;
+    // سداد الفترة: المستحق = الإيجار الفعلي × أشهر الفترة (للعقود المتداخلة معها) مقابل الدفعات المسجلة خلالها
+    let periodDue = 0, periodPaid = 0;
+    if (act) {
+      const cStart = new Date(act.startDate), cEnd = new Date(act.endDate);
+      if (period.from <= cEnd && period.to >= cStart) {
+        periodDue = effectiveRent(act as any) * period.months;
+        periodPaid = ((act.payments || []) as Payment[]).filter(p => {
+          if (p.status === 'cancelled') return false;
+          const d = p.paidDate ? new Date(p.paidDate) : (p.dueDate ? new Date(p.dueDate) : null);
+          return !!d && !isNaN(d.getTime()) && d >= period.from && d <= period.to;
+        }).reduce((s, p) => s + (p.amount || 0), 0);
+      }
+    }
+    const periodRem = Math.max(0, periodDue - periodPaid);
+    const payStatus: 'paid' | 'due' | 'none' = !act || periodDue <= 0 ? 'none' : (periodRem < 0.005 ? 'paid' : 'due');
+    return { u, act, bal, periodDue, periodPaid, periodRem, payStatus };
+  });
+
+  const sumDefaultRent = bUnits.reduce((s, u) => s + (u.rentAmount || 0), 0);
+  const sumActualRent = unitRows.reduce((s, r) => s + (r.act ? effectiveRent(r.act as any) : 0), 0);
+  const sumRemPeriod = unitRows.reduce((s, r) => s + (r.payStatus === 'due' ? r.periodRem : 0), 0);
+  const sumOutstanding = unitRows.reduce((s, r) => s + (r.bal ? Math.max(0, r.bal.outstanding) : 0), 0);
+  const netRent = sumActualRent - sumRemPeriod; // الصافي = مجموع الفعلي − غير المدفوع عن الفترة
+  const rentedCount = bUnits.filter(u => u.status === 'rented').length;
+
+  // خلية «سداد الفترة» — موحدة للديسكتوب والموبايل
+  const payBadge = (r: (typeof unitRows)[number]) => {
+    if (!r.act || r.payStatus === 'none') return <span className="text-gray-400 text-sm">-</span>;
+    if (r.payStatus === 'paid') return <Badge className="bg-emerald-100 text-emerald-800 border-0">تم الدفع ✓</Badge>;
+    return <span className="font-bold text-red-600 tabular-nums text-sm">{fmtKWD(r.periodRem)} {CURRENCY}</span>;
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-sm text-gray-500">{bUnits.length} وحدة — {rentedCount} مؤجرة — غير المدفوع عن الفترة: <b className={sumRemPeriod > 0 ? 'text-red-600' : 'text-emerald-600'}>{fmtKWD(sumRemPeriod)} {CURRENCY}</b> — إجمالي المتبقي الكلي: <b className={sumOutstanding > 0 ? 'text-red-600' : 'text-emerald-600'}>{fmtKWD(sumOutstanding)} {CURRENCY}</b></p>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* محدد الفترة الزمنية: الشهر الحالي / الشهر السابق / فترة مخصصة */}
+          <div className="flex items-center gap-2 flex-wrap bg-white border border-orange-100 rounded-xl px-2.5 py-1.5 shadow-sm">
+            <span className="text-xs font-bold text-gray-600 flex items-center gap-1"><Calendar size={13} className="text-orange-500" />الفترة:</span>
+            <Select value={periodMode} onValueChange={(v) => setPeriodMode(v as 'this' | 'prev' | 'custom')}>
+              <SelectTrigger className="w-[135px] h-8 text-xs bg-white"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="this">الشهر الحالي</SelectItem>
+                <SelectItem value="prev">الشهر السابق</SelectItem>
+                <SelectItem value="custom">فترة مخصصة</SelectItem>
+              </SelectContent>
+            </Select>
+            {periodMode === 'custom' && (<>
+              <Input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="w-[135px] h-8 text-xs bg-white" aria-label="من تاريخ" />
+              <span className="text-xs text-gray-400">إلى</span>
+              <Input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="w-[135px] h-8 text-xs bg-white" aria-label="إلى تاريخ" />
+            </>)}
+            <Badge className="bg-orange-100 text-orange-800 text-[11px] border-0">{period.label}</Badge>
+          </div>
+          <VoucherDialog trigger={<Button size="sm" variant="outline" className="border-orange-200 text-orange-700"><Printer size={14} className="ml-1" />طباعة المستند</Button>} title={`كشف الوحدات والمستأجرين — ${building.name}`} orientation="landscape"
+            docHtml={buildingUnitsDocHtml({ building, currency: CURRENCY, periodLabel: period.label, rows: unitRows.map(r => ({
+              number: r.u.number,
+              floor: r.u.floor != null ? String(r.u.floor) : '-',
+              type: UNIT_TYPE_LABEL[r.u.type || ''] || r.u.type || '-',
+              status: UNIT_STATUS_MAP[r.u.status]?.label || r.u.status || '',
+              defaultRent: r.u.rentAmount ?? null,
+              actualRent: r.act ? effectiveRent(r.act as any) : null,
+              tenant: r.act?.tenant?.name || 'شاغرة',
+              tenantType: r.act?.tenant?.tenantType ? (TENANT_TYPE_LABEL[r.act.tenant.tenantType]?.label || '') : '',
+              outstanding: r.bal ? r.bal.outstanding : null,
+              payStatus: r.payStatus,
+              periodRem: r.periodRem,
+            })) })} />
+          {canWrite('units') && <FormDialog trigger={<Button size="sm" className="bg-gradient-to-l from-orange-500 to-amber-500 text-white"><Plus size={14} className="ml-1" />إضافة وحدة لهذه العمارة</Button>} title="إضافة وحدة جديدة">{(close) => <UnitForm buildings={buildings} initial={{ buildingId: building.id } as any} onSave={async (data) => { await api('/api/units', 'POST', data); refresh(); }} onClose={close} />}</FormDialog>}
+        </div>
+      </div>
+      {/* ديسكتوب */}
+      <div className="hidden md:block">
+        <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
+          <Table>
+            <TableHeader><TableRow className="bg-orange-50">
+              <TableHead className="text-center">الوحدة</TableHead>
+              <TableHead className="text-center">الطابق</TableHead>
+              <TableHead className="text-center">النوع</TableHead>
+              <TableHead className="text-center">الحالة</TableHead>
+              <TableHead>الإيجار الافتراضي</TableHead>
+              <TableHead>الإيجار الفعلي</TableHead>
+              <TableHead>المستأجر الحالي</TableHead>
+              <TableHead>سداد الفترة ({period.label})</TableHead>
+              <TableHead>المتبقي الكلي</TableHead>
+            </TableRow></TableHeader>
+            <TableBody>{unitRows.map((r) => (
+              <TableRow key={r.u.id}>
+                <TableCell className="font-bold text-center">{r.u.number}</TableCell>
+                <TableCell className="text-center">{r.u.floor ?? '-'}</TableCell>
+                <TableCell className="text-xs text-center">{UNIT_TYPE_LABEL[r.u.type || ''] || r.u.type || '-'}</TableCell>
+                <TableCell className="text-center"><Badge className={UNIT_STATUS_MAP[r.u.status]?.color}>{UNIT_STATUS_MAP[r.u.status]?.label || r.u.status}</Badge></TableCell>
+                <TableCell className="text-sm tabular-nums">{r.u.rentAmount ? `${fmtKWD(r.u.rentAmount)} ${CURRENCY}` : '-'}</TableCell>
+                <TableCell className="text-sm tabular-nums">{r.act ? <span className="font-semibold text-emerald-700">{fmtKWD(effectiveRent(r.act as any))} {CURRENCY}</span> : <span className="text-gray-400">-</span>}</TableCell>
+                <TableCell>{r.act?.tenant ? (<div className="flex items-center gap-1.5 flex-wrap"><span className="text-sm font-medium">{r.act.tenant.name}</span>{r.act.tenant.tenantType && <Badge className={`${TENANT_TYPE_LABEL[r.act.tenant.tenantType]?.color} text-[10px]`}>{TENANT_TYPE_LABEL[r.act.tenant.tenantType]?.label}</Badge>}</div>) : <span className="text-gray-400 text-sm">شاغرة</span>}</TableCell>
+                <TableCell>{payBadge(r)}</TableCell>
+                <TableCell className="text-sm font-bold tabular-nums">{r.bal ? (r.bal.outstanding > 0 ? <span className="text-red-600">{fmtKWD(r.bal.outstanding)} {CURRENCY}</span> : <span className="text-emerald-600 font-bold">تم الدفع ✓</span>) : '-'}</TableCell>
+              </TableRow>
+            ))}</TableBody>
+            <TableFooter>
+              <TableRow className="bg-amber-50 hover:bg-amber-50">
+                <TableCell colSpan={4} className="font-bold text-gray-800">الإجمالي — {bUnits.length} وحدة</TableCell>
+                <TableCell className="font-bold tabular-nums">{fmtKWD(sumDefaultRent)} {CURRENCY}</TableCell>
+                <TableCell className="font-bold tabular-nums text-emerald-700">{fmtKWD(sumActualRent)} {CURRENCY}</TableCell>
+                <TableCell></TableCell>
+                <TableCell className={`font-bold tabular-nums ${sumRemPeriod > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(sumRemPeriod)} {CURRENCY}</TableCell>
+                <TableCell className={`font-bold tabular-nums ${sumOutstanding > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(sumOutstanding)} {CURRENCY}</TableCell>
+              </TableRow>
+              <TableRow className="bg-amber-50 hover:bg-amber-50">
+                <TableCell colSpan={7} className="font-extrabold text-gray-800">الصافي — مجموع الإيجار الفعلي مخصومًا منه غير المدفوع عن الفترة</TableCell>
+                <TableCell colSpan={2} className={`font-extrabold text-base tabular-nums ${netRent < 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(netRent)} {CURRENCY}</TableCell>
+              </TableRow>
+            </TableFooter>
+          </Table>
+        </div></Card>
+      </div>
+      {/* موبايل */}
+      <div className="grid gap-3 md:hidden">
+        {unitRows.map((r) => (
+          <Card key={r.u.id} className="border-0 shadow-md"><CardContent className="p-4 space-y-1.5">
+            <div className="flex items-center justify-between"><span className="font-bold">وحدة {r.u.number}</span><Badge className={UNIT_STATUS_MAP[r.u.status]?.color}>{UNIT_STATUS_MAP[r.u.status]?.label || r.u.status}</Badge></div>
+            <p className="text-xs text-gray-500">الطابق: {r.u.floor ?? '-'} — {UNIT_TYPE_LABEL[r.u.type || ''] || r.u.type || '-'}</p>
+            <p className="text-xs">الإيجار الافتراضي: <b>{r.u.rentAmount ? `${fmtKWD(r.u.rentAmount)} ${CURRENCY}` : '-'}</b>{r.act ? <> — الفعلي: <b className="text-emerald-700">{fmtKWD(effectiveRent(r.act as any))} {CURRENCY}</b></> : null}</p>
+            {r.act?.tenant && <p className="text-sm">المستأجر: <b>{r.act.tenant.name}</b> {r.act.tenant.tenantType && <Badge className={`${TENANT_TYPE_LABEL[r.act.tenant.tenantType]?.color} text-[10px]`}>{TENANT_TYPE_LABEL[r.act.tenant.tenantType]?.label}</Badge>}</p>}
+            <p className="text-xs">سداد الفترة: {payBadge(r)}</p>
+            {r.bal && <p className="text-xs text-gray-500">المتبقي الكلي: <b className={r.bal.outstanding > 0 ? 'text-red-600' : 'text-emerald-600'}>{r.bal.outstanding > 0 ? `${fmtKWD(r.bal.outstanding)} ${CURRENCY}` : 'تم الدفع ✓'}</b></p>}
+          </CardContent></Card>
+        ))}
+      </div>
+      {bUnits.length === 0 && <EmptyState icon={<Home size={48} />} text="لا توجد وحدات في هذه العمارة بعد" />}
+    </div>
+  );
+}
+
+// =============================================================
 // صفحة العمارة الكاملة — تفتح بالضغط على كارت العمارة
 // تبويبات: نظرة عامة | الوحدات والمستأجرين | العقود | المستندات القانونية | المالية | القضايا
 // =============================================================
@@ -3010,15 +3184,7 @@ function BuildingDetailSection({ user, building, buildings, units, tenants, cont
   const bContractIds = new Set(bContracts.map(c => c.id));
   const bPayments = payments.filter(p => bContractIds.has(p.contractId));
   const activeContracts = bContracts.filter(c => c.status === 'active' || c.status === 'renewed');
-  // صفوف جدول الوحدات — نفس الحسابات للديسكتوب والموبايل ومستند الطباعة
-  const unitRows = bUnits.map(u => {
-    const act = activeContracts.filter(c => c.unitId === u.id).sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())[0];
-    const bal = act ? contractBalance(act as any, (act.payments || []) as any) : null;
-    return { u, act, bal };
-  });
-  const sumDefaultRent = bUnits.reduce((s, u) => s + (u.rentAmount || 0), 0);
-  const sumActualRent = unitRows.reduce((s, r) => s + (r.act ? effectiveRent(r.act as any) : 0), 0);
-  const sumOutstanding = unitRows.reduce((s, r) => s + (r.bal ? Math.max(0, r.bal.outstanding) : 0), 0);
+  // حسابات تبويب الوحدات انتقلت لمكوّن BuildingUnitsTab المستقل (فترة زمنية + سداد + صافي)
   const bMaintenance = maintenance.filter(m => m.unit?.buildingId === building.id || m.buildingId === building.id);
   const bTransactions = transactions.filter((t: any) => t.buildingId === building.id);
   const bEntries = journalEntries.filter((e: any) => e.buildingId === building.id);
@@ -3137,75 +3303,14 @@ function BuildingDetailSection({ user, building, buildings, units, tenants, cont
 
       {/* ===== الوحدات والمستأجرين ===== */}
       {tab === 'units' && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <p className="text-sm text-gray-500">{bUnits.length} وحدة — {bUnits.filter(u => u.status === 'rented').length} مؤجرة — إجمالي المتبقي: <b className={sumOutstanding > 0 ? 'text-red-600' : 'text-emerald-600'}>{fmtKWD(sumOutstanding)} {CURRENCY}</b></p>
-            <div className="flex items-center gap-2 flex-wrap">
-              <VoucherDialog trigger={<Button size="sm" variant="outline" className="border-orange-200 text-orange-700"><Printer size={14} className="ml-1" />طباعة المستند</Button>} title={`كشف الوحدات والمستأجرين — ${building.name}`}
-                docHtml={buildingUnitsDocHtml({ building, currency: CURRENCY, rows: unitRows.map(r => ({
-                  number: r.u.number,
-                  floor: r.u.floor != null ? String(r.u.floor) : '-',
-                  type: UNIT_TYPE_LABEL[r.u.type || ''] || r.u.type || '-',
-                  status: UNIT_STATUS_MAP[r.u.status]?.label || r.u.status || '',
-                  defaultRent: r.u.rentAmount ?? null,
-                  actualRent: r.act ? effectiveRent(r.act as any) : null,
-                  tenant: r.act?.tenant?.name || 'شاغرة',
-                  tenantType: r.act?.tenant?.tenantType ? (TENANT_TYPE_LABEL[r.act.tenant.tenantType]?.label || '') : '',
-                  outstanding: r.bal ? r.bal.outstanding : null,
-                })) })} />
-              {canWrite('units') && <FormDialog trigger={<Button size="sm" className="bg-gradient-to-l from-orange-500 to-amber-500 text-white"><Plus size={14} className="ml-1" />إضافة وحدة لهذه العمارة</Button>} title="إضافة وحدة جديدة">{(close) => <UnitForm buildings={buildings} initial={{ buildingId: building.id } as any} onSave={async (data) => { await api('/api/units', 'POST', data); refresh(); }} onClose={close} />}</FormDialog>}
-            </div>
-          </div>
-          {/* ديسكتوب */}
-          <div className="hidden md:block">
-            <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
-              <Table>
-                <TableHeader><TableRow className="bg-orange-50">
-                  <TableHead className="text-center">الوحدة</TableHead>
-                  <TableHead className="text-center">الطابق</TableHead>
-                  <TableHead className="text-center">النوع</TableHead>
-                  <TableHead className="text-center">الحالة</TableHead>
-                  <TableHead>الإيجار الافتراضي</TableHead>
-                  <TableHead>الإيجار الفعلي</TableHead>
-                  <TableHead>المستأجر الحالي</TableHead>
-                  <TableHead>المتبقي عليه</TableHead>
-                </TableRow></TableHeader>
-                <TableBody>{unitRows.map(({ u, act, bal }) => (
-                  <TableRow key={u.id}>
-                    <TableCell className="font-bold text-center">{u.number}</TableCell>
-                    <TableCell className="text-center">{u.floor ?? '-'}</TableCell>
-                    <TableCell className="text-xs text-center">{UNIT_TYPE_LABEL[u.type || ''] || u.type || '-'}</TableCell>
-                    <TableCell className="text-center"><Badge className={UNIT_STATUS_MAP[u.status]?.color}>{UNIT_STATUS_MAP[u.status]?.label || u.status}</Badge></TableCell>
-                    <TableCell className="text-sm tabular-nums">{u.rentAmount ? `${fmtKWD(u.rentAmount)} ${CURRENCY}` : '-'}</TableCell>
-                    <TableCell className="text-sm tabular-nums">{act ? <span className="font-semibold text-emerald-700">{fmtKWD(effectiveRent(act as any))} {CURRENCY}</span> : <span className="text-gray-400">-</span>}</TableCell>
-                    <TableCell>{act?.tenant ? (<div className="flex items-center gap-1.5 flex-wrap"><span className="text-sm font-medium">{act.tenant.name}</span>{act.tenant.tenantType && <Badge className={`${TENANT_TYPE_LABEL[act.tenant.tenantType]?.color} text-[10px]`}>{TENANT_TYPE_LABEL[act.tenant.tenantType]?.label}</Badge>}</div>) : <span className="text-gray-400 text-sm">شاغرة</span>}</TableCell>
-                    <TableCell className="text-sm font-bold tabular-nums">{bal ? (bal.outstanding > 0 ? <span className="text-red-600">{fmtKWD(bal.outstanding)} {CURRENCY}</span> : <span className="text-emerald-600">لا متبقي ✓</span>) : '-'}</TableCell>
-                  </TableRow>
-                ))}</TableBody>
-                <TableFooter><TableRow className="bg-amber-50 hover:bg-amber-50">
-                  <TableCell colSpan={4} className="font-bold text-gray-800">الإجمالي — {bUnits.length} وحدة</TableCell>
-                  <TableCell className="font-bold tabular-nums">{fmtKWD(sumDefaultRent)} {CURRENCY}</TableCell>
-                  <TableCell className="font-bold tabular-nums text-emerald-700">{fmtKWD(sumActualRent)} {CURRENCY}</TableCell>
-                  <TableCell></TableCell>
-                  <TableCell className={`font-bold tabular-nums ${sumOutstanding > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(sumOutstanding)} {CURRENCY}</TableCell>
-                </TableRow></TableFooter>
-              </Table>
-            </div></Card>
-          </div>
-          {/* موبايل */}
-          <div className="grid gap-3 md:hidden">
-            {unitRows.map(({ u, act, bal }) => (
-              <Card key={u.id} className="border-0 shadow-md"><CardContent className="p-4 space-y-1.5">
-                <div className="flex items-center justify-between"><span className="font-bold">وحدة {u.number}</span><Badge className={UNIT_STATUS_MAP[u.status]?.color}>{UNIT_STATUS_MAP[u.status]?.label || u.status}</Badge></div>
-                <p className="text-xs text-gray-500">الطابق: {u.floor ?? '-'} — {UNIT_TYPE_LABEL[u.type || ''] || u.type || '-'}</p>
-                <p className="text-xs">الإيجار الافتراضي: <b>{u.rentAmount ? `${fmtKWD(u.rentAmount)} ${CURRENCY}` : '-'}</b>{act ? <> — الفعلي: <b className="text-emerald-700">{fmtKWD(effectiveRent(act as any))} {CURRENCY}</b></> : null}</p>
-                {act?.tenant && <p className="text-sm">المستأجر: <b>{act.tenant.name}</b> {act.tenant.tenantType && <Badge className={`${TENANT_TYPE_LABEL[act.tenant.tenantType]?.color} text-[10px]`}>{TENANT_TYPE_LABEL[act.tenant.tenantType]?.label}</Badge>}</p>}
-                {bal && <p className="text-xs text-gray-500">المتبقي: <b className={bal.outstanding > 0 ? 'text-red-600' : 'text-emerald-600'}>{fmtKWD(bal.outstanding)} {CURRENCY}</b></p>}
-              </CardContent></Card>
-            ))}
-          </div>
-          {bUnits.length === 0 && <EmptyState icon={<Home size={48} />} text="لا توجد وحدات في هذه العمارة بعد" />}
-        </div>
+        <BuildingUnitsTab
+          building={building}
+          buildings={buildings}
+          bUnits={bUnits}
+          activeContracts={activeContracts}
+          canWrite={canWrite}
+          refresh={refresh}
+        />
       )}
 
       {/* ===== العقود ===== */}

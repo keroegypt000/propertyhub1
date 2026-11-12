@@ -72,21 +72,30 @@ const DOC_CSS = `
 .vdoc .v-sig{flex:1;text-align:center;font-size:12px;color:#4b5563;font-weight:700;}
 .vdoc .v-sig .line{border-top:2px dotted #9ca3af;margin-bottom:6px;}
 .vdoc .v-foot{margin-top:20px;border-top:1px solid #e5e7eb;padding-top:8px;font-size:10.5px;color:#9ca3af;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;position:relative;z-index:1;}
+/* المستندات العريضة (كشوف الجداول) — ورقة A4 أفقي */
+.vdoc.landscape .v-sheet{max-width:1120px;}
 @media print{ .vdoc{padding:0;} .vdoc .v-sheet{border-color:#6b7280;border-radius:0;max-width:none;margin:0;box-shadow:none!important;} }
 `;
+
+const PAGE_RULE = {
+  portrait: '<style>@page{size:A4 portrait;margin:10mm;}</style>',
+  landscape: '<style>@page{size:A4 landscape;margin:8mm;}</style>',
+};
 
 const PRINT_FONT_LINK = '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">';
 
 /**
  * طباعة مستند عبر iframe معزول — لا يمس واجهة التطبيق إطلاقًا
  * innerHtml يتضمن <style> المستند نفسه
+ * orientation: اتجاه الورقة — يحدد حجم الإطار وقاعدة @page ليفتح حوار الطباعة بالمقاس الصحيح
  */
-export function printHtmlDoc(innerHtml: string, docTitle = 'مستند') {
+export function printHtmlDoc(innerHtml: string, docTitle = 'مستند', orientation: 'portrait' | 'landscape' = 'portrait') {
   if (typeof window === 'undefined') return;
+  const land = orientation === 'landscape';
   const iframe = document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');
   iframe.title = docTitle;
-  iframe.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;height:1123px;border:0;opacity:0;pointer-events:none;';
+  iframe.style.cssText = `position:fixed;left:-10000px;top:0;width:${land ? 1123 : 794}px;height:${land ? 794 : 1123}px;border:0;opacity:0;pointer-events:none;`;
   document.body.appendChild(iframe);
   let printed = false;
   const doPrint = () => {
@@ -100,7 +109,7 @@ export function printHtmlDoc(innerHtml: string, docTitle = 'مستند') {
     const doc = iframe.contentDocument;
     if (doc) {
       doc.open();
-      doc.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8" /><title>${esc(docTitle)}</title>${PRINT_FONT_LINK}</head><body style="margin:0;background:#fff">${innerHtml}</body></html>`);
+      doc.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8" /><title>${esc(docTitle)}</title>${PRINT_FONT_LINK}${PAGE_RULE[orientation]}</head><body style="margin:0;background:#fff">${innerHtml}</body></html>`);
       doc.close();
     }
   } catch { /* ignore */ }
@@ -372,8 +381,9 @@ export function voucherRegisterDocHtml(params: {
       ${missingHtml}
     </table></div>`;
   };
-  return `<style>${DOC_CSS}</style>
-<div class="vdoc"><div class="v-sheet">
+  return `<style>@page{size:A4 landscape;margin:8mm;}</style>
+<style>${DOC_CSS}</style>
+<div class="vdoc landscape"><div class="v-sheet">
   <div class="v-head">
     <div class="v-brand">${LOGO_SVG}<div><div class="v-brand-name">PropertyHub</div><div class="v-brand-sub">نظام إدارة الأملاك والعقارات</div></div></div>
     <div class="v-titlebox"><div class="v-kind">${esc(title)}</div>
@@ -440,8 +450,9 @@ export function journalBookDocHtml(entries: any[], currency = 'د.ك', title = '
       <table class="v-table"><thead><tr><th style="width:90px">الكود</th><th>الحساب</th><th style="width:110px">مدين</th><th style="width:110px">دائن</th></tr></thead><tbody>${rows}</tbody></table>
     </div>`;
   }).join('');
-  return `<style>${DOC_CSS}</style>
-<div class="vdoc"><div class="v-sheet">
+  return `<style>@page{size:A4 landscape;margin:8mm;}</style>
+<style>${DOC_CSS}</style>
+<div class="vdoc landscape"><div class="v-sheet">
   <div class="v-head">
     <div class="v-brand">${LOGO_SVG}<div><div class="v-brand-name">PropertyHub</div><div class="v-brand-sub">نظام إدارة الأملاك والعقارات</div></div></div>
     <div class="v-titlebox"><div class="v-kind">${esc(title)}</div><div class="v-meta"><span>عدد القيود: <b>${entries.length}</b></span><span>العملة: <b>${esc(currency)}</b></span></div></div>
@@ -458,8 +469,9 @@ export function trialBalanceDocHtml(rows: TBRow[], currency = 'د.ك', asOfDate?
   const t = rows.reduce((s, r) => ({ debit: s.debit + r.debit, credit: s.credit + r.credit, bd: s.bd + r.bd, bc: s.bc + r.bc }), { debit: 0, credit: 0, bd: 0, bc: 0 });
   const body = rows.map(r =>
     `<tr><td class="num">${esc(r.code)}</td><td class="r">${esc(r.name)}</td><td class="num">${r.debit ? fmt3(r.debit) : ''}</td><td class="num">${r.credit ? fmt3(r.credit) : ''}</td><td class="num">${r.bd ? fmt3(r.bd) : ''}</td><td class="num">${r.bc ? fmt3(r.bc) : ''}</td></tr>`).join('');
-  return `<style>${DOC_CSS}</style>
-<div class="vdoc"><div class="v-sheet">
+  return `<style>@page{size:A4 landscape;margin:8mm;}</style>
+<style>${DOC_CSS}</style>
+<div class="vdoc landscape"><div class="v-sheet">
   <div class="v-head">
     <div class="v-brand">${LOGO_SVG}<div><div class="v-brand-name">PropertyHub</div><div class="v-brand-sub">نظام إدارة الأملاك والعقارات</div></div></div>
     <div class="v-titlebox"><div class="v-kind">ميزان المراجعة</div><div class="v-meta">${asOfDate ? `<span>حتى تاريخ: <b>${esc(dateStr(asOfDate))}</b></span>` : ''}<span>العملة: <b>${esc(currency)}</b></span></div></div>
@@ -554,7 +566,7 @@ export function buildingFinancialReportHtml(params: {
 </div></div>`;
 }
 
-// ---------- كشف وحدات ومستأجري عمارة (قابل للطباعة) ----------
+// ---------- كشف وحدات ومستأجري عمارة (قابل للطباعة — A4 أفقي) ----------
 export interface BuildingUnitsRow {
   number: string;
   floor: string;
@@ -564,21 +576,32 @@ export interface BuildingUnitsRow {
   actualRent: number | null;  // الإيجار الفعلي من العقد النشط بعد الخصم
   tenant: string;
   tenantType: string;
-  outstanding: number | null; // المتبقي على العقد النشط
+  outstanding: number | null;               // المتبقي الكلي على العقد النشط
+  payStatus?: 'paid' | 'due' | 'none';      // سداد الفترة المحددة: تم الدفع / عليه متبقي / خارج الفترة
+  periodRem?: number | null;                // غير المدفوع عن الفترة المحددة
 }
 
 export function buildingUnitsDocHtml(params: {
   building: any;
   rows: BuildingUnitsRow[];
   currency?: string;
+  periodLabel?: string; // وصف الفترة الزمنية المعروضة
 }): string {
   const currency = params.currency || 'د.ك';
   const b = params.building;
+  const periodLabel = params.periodLabel || 'الشهر الحالي';
   const sumDefault = params.rows.reduce((s, r) => s + (r.defaultRent || 0), 0);
   const sumActual = params.rows.reduce((s, r) => s + (r.actualRent || 0), 0);
+  const sumRemPeriod = params.rows.reduce((s, r) => s + (r.payStatus === 'due' ? (r.periodRem || 0) : 0), 0);
   const sumOutstanding = params.rows.reduce((s, r) => s + Math.max(0, r.outstanding || 0), 0);
+  const net = sumActual - sumRemPeriod; // الصافي = الفعلي − غير المدفوع عن الفترة
   const rented = params.rows.filter(r => r.tenant && r.tenant !== 'شاغرة').length;
   const money = (v: number | null) => (v == null ? '<span style="color:#9ca3af;">-</span>' : fmt3(v));
+  const payCell = (r: BuildingUnitsRow) => {
+    if (r.payStatus === 'paid') return '<span style="color:#15803d;font-weight:800;">تم الدفع ✓</span>';
+    if (r.payStatus === 'due') return `<b style="color:#b91c1c;">${fmt3(r.periodRem || 0)}</b>`;
+    return '<span style="color:#9ca3af;">-</span>';
+  };
   const body = params.rows.map((r, i) =>
     `<tr>
       <td class="num">${i + 1}</td>
@@ -589,23 +612,28 @@ export function buildingUnitsDocHtml(params: {
       <td class="num">${money(r.defaultRent)}</td>
       <td class="num">${money(r.actualRent)}</td>
       <td class="r"><b>${esc(r.tenant)}</b>${r.tenantType ? ` <span style="color:#9ca3af;font-size:10.5px;">(${esc(r.tenantType)})</span>` : ''}</td>
-      <td class="num" style="${(r.outstanding || 0) > 0 ? 'color:#b91c1c;' : ''}">${r.outstanding == null ? '<span style="color:#9ca3af;">-</span>' : (r.outstanding > 0 ? fmt3(r.outstanding) : 'سُدد ✓')}</td>
+      <td class="num">${payCell(r)}</td>
+      <td class="num" style="${(r.outstanding || 0) > 0 ? 'color:#b91c1c;' : ''}">${r.outstanding == null ? '<span style="color:#9ca3af;">-</span>' : (r.outstanding > 0 ? fmt3(r.outstanding) : '<span style="color:#15803d;font-weight:800;">تم الدفع ✓</span>')}</td>
     </tr>`).join('');
-  return `<style>${DOC_CSS}</style>
-<div class="vdoc"><div class="v-sheet">
+  return `<style>@page{size:A4 landscape;margin:8mm;}</style>
+<style>${DOC_CSS}</style>
+<div class="vdoc landscape"><div class="v-sheet">
   <div class="v-head">
     <div class="v-brand">${LOGO_SVG}<div><div class="v-brand-name">PropertyHub</div><div class="v-brand-sub">نظام إدارة الأملاك والعقارات</div></div></div>
     <div class="v-titlebox"><div class="v-kind">كشف الوحدات والمستأجرين</div>
-    <div class="v-meta"><span>العمارة: <b>${esc(b.name || '')}</b></span>${b.code ? `<span>كود: <b>${esc(b.code)}</b></span>` : ''}${b.address ? `<span>${esc(b.address)}</span>` : ''}${b.city ? `<span>${esc(b.city)}</span>` : ''}</div></div>
+    <div class="v-meta"><span>العمارة: <b>${esc(b.name || '')}</b></span>${b.code ? `<span>كود: <b>${esc(b.code)}</b></span>` : ''}${b.address ? `<span>${esc(b.address)}</span>` : ''}${b.city ? `<span>${esc(b.city)}</span>` : ''}<span>الفترة: <b>${esc(periodLabel)}</b></span></div></div>
   </div>
   <div class="v-body">
     <div class="v-meta" style="justify-content:flex-start;margin-bottom:8px;"><span>عدد الوحدات: <b>${params.rows.length}</b></span><span>المؤجرة: <b>${rented}</b></span><span>الشاغرة: <b>${params.rows.length - rented}</b></span><span>العملة: <b>${esc(currency)}</b></span></div>
     <table class="v-table" style="font-size:12px;">
-      <thead><tr><th style="width:26px">#</th><th style="width:52px">الوحدة</th><th style="width:42px">الطابق</th><th style="width:58px">النوع</th><th style="width:62px">الحالة</th><th style="width:88px">الإيجار الافتراضي</th><th style="width:88px">الإيجار الفعلي</th><th>المستأجر الحالي</th><th style="width:88px">المتبقي عليه</th></tr></thead>
-      <tbody>${body || `<tr><td colspan="9" style="color:#9ca3af;">لا توجد وحدات في هذه العمارة بعد</td></tr>`}</tbody>
-      <tfoot><tr><td colspan="5">الإجمالي — ${params.rows.length} وحدة</td><td class="num">${fmt3(sumDefault)}</td><td class="num">${fmt3(sumActual)}</td><td></td><td class="num" style="color:#b91c1c;">${fmt3(sumOutstanding)}</td></tr></tfoot>
+      <thead><tr><th style="width:26px">#</th><th style="width:52px">الوحدة</th><th style="width:42px">الطابق</th><th style="width:58px">النوع</th><th style="width:62px">الحالة</th><th style="width:88px">الإيجار الافتراضي</th><th style="width:88px">الإيجار الفعلي</th><th>المستأجر الحالي</th><th style="width:92px">سداد الفترة</th><th style="width:88px">المتبقي الكلي</th></tr></thead>
+      <tbody>${body || `<tr><td colspan="10" style="color:#9ca3af;">لا توجد وحدات في هذه العمارة بعد</td></tr>`}</tbody>
+      <tfoot>
+        <tr><td colspan="5">الإجمالي — ${params.rows.length} وحدة</td><td class="num">${fmt3(sumDefault)}</td><td class="num">${fmt3(sumActual)}</td><td></td><td class="num" style="color:#b91c1c;">${fmt3(sumRemPeriod)}</td><td class="num" style="color:#b91c1c;">${fmt3(sumOutstanding)}</td></tr>
+        <tr><td colspan="8" style="text-align:right;">الصافي — مجموع الإيجار الفعلي مخصومًا منه غير المدفوع عن الفترة (${esc(periodLabel)})</td><td colspan="2" class="num" style="color:${net < 0 ? '#b91c1c' : '#047857'};font-size:14px;">${fmt3(net)}</td></tr>
+      </tfoot>
     </table>
-    <div class="v-note">الإيجار الافتراضي = القيمة المسجلة على الوحدة • الإيجار الفعلي = إيجار العقد النشط المتفق عليه بعد الخصم (وحدات بلا عقد نشط تظهر "-") • المتبقي عليه = رصيد المستحق غير المحصل على العقد النشط حتى تاريخ الطباعة — إجمالي الأرصدة المستحقة: <b>${fmt3(sumOutstanding)} ${esc(currency)}</b></div>
+    <div class="v-note">الفترة المعروضة: <b>${esc(periodLabel)}</b> • الإيجار الافتراضي = القيمة المسجلة على الوحدة • الإيجار الفعلي = إيجار العقد النشط المتفق عليه بعد الخصم • سداد الفترة = مستحق الفترة (الإيجار الفعلي × أشهر الفترة للعقود المتداخلة معها) مقابل الدفعات المسجلة خلالها — «تم الدفع ✓» إذا سُدّد بالكامل وإلا يظهر المتبقي • المتبقي الكلي = رصيد العقد النشط كله حتى تاريخ الطباعة: <b>${fmt3(sumOutstanding)} ${esc(currency)}</b> • الصافي = مجموع الإيجار الفعلي − غير المدفوع عن الفترة = <b>${fmt3(net)} ${esc(currency)}</b></div>
   </div>
   <div class="v-sigs">
     <div class="v-sig"><div class="line"></div>أمين المبنى</div>
@@ -617,25 +645,32 @@ export function buildingUnitsDocHtml(params: {
 }
 
 // ---------- حوار المعاينة + الطباعة ----------
-export function VoucherDialog({ trigger, title, docHtml }: {
+// orientation يطابق اتجاه الورقة عند الطباعة: portrait = A4 عمودي، landscape = A4 أفقي
+// المعاينة تُعرض بنفس عرض الورقة الفعلي حتى تطابق ما سيطلع على الطابعة
+export function VoucherDialog({ trigger, title, docHtml, orientation = 'portrait' }: {
   trigger: React.ReactNode;
   title: string;
   docHtml: string;
+  orientation?: 'portrait' | 'landscape';
 }) {
   const [open, setOpen] = useState(false);
+  const land = orientation === 'landscape';
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-w-3xl flex flex-col" style={{ maxHeight: '92vh' }}>
+      <DialogContent className={`flex flex-col ${land ? 'max-w-[96vw] lg:max-w-[1180px]' : 'max-w-3xl'}`} style={{ maxHeight: '92vh' }}>
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2"><Printer size={18} className="text-orange-600" />{title} — معاينة قبل الطباعة</DialogTitle>
         </DialogHeader>
-        <div className="flex gap-2 shrink-0 pb-2">
-          <Button size="sm" className="bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold" onClick={() => printHtmlDoc(docHtml, title)}>
+        <div className="flex gap-2 shrink-0 pb-2 items-center">
+          <Button size="sm" className="bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold" onClick={() => printHtmlDoc(docHtml, title, orientation)}>
             <Printer size={14} className="ml-1" />طباعة
           </Button>
+          <span className="text-[11px] text-gray-500 bg-gray-100 border border-gray-200 rounded-lg px-2 py-1">{land ? 'المقاس: A4 أفقي (Landscape)' : 'المقاس: A4 عمودي (Portrait)'}</span>
         </div>
-        <div className="rounded-xl bg-gray-200/70 p-3 overflow-auto flex-1" style={{ minHeight: '200px' }} dangerouslySetInnerHTML={{ __html: docHtml }} />
+        <div className="rounded-xl bg-gray-200/70 p-3 overflow-auto flex-1" style={{ minHeight: '200px' }}>
+          <div dir="rtl" style={{ width: land ? 1120 : '100%', margin: '0 auto' }} dangerouslySetInnerHTML={{ __html: docHtml }} />
+        </div>
       </DialogContent>
     </Dialog>
   );
