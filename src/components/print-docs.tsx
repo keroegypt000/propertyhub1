@@ -156,6 +156,9 @@ export function voucherDocHtml(spec: VoucherSpec, currency = 'د.ك'): string {
 }
 
 // ---------- بنّائو السندات من بيانات النظام ----------
+// رقم السند التسلسلي المحفوظ في قاعدة البيانات (ق-0001 / ص-0001)
+// مع بديل احتياطي للسجلات القديمة قبل الترقيم
+const fallbackNo = (id: any, prefix: string) => `${prefix}-${String(id || '').slice(-8).toUpperCase()}`;
 
 /** سند قبض — تحصيل إيجار */
 export function paymentReceiptHtml(p: any, currency = 'د.ك'): string {
@@ -165,7 +168,7 @@ export function paymentReceiptHtml(p: any, currency = 'د.ك'): string {
   const about = `إيجار${p.month ? ` شهر ${p.month}` : ''}${unit ? ` — ${unit}` : ''}${bld ? ` — ${bld}` : ''}`;
   return voucherDocHtml({
     kind: 'قبض',
-    docNumber: `ق-${String(p.id || '').slice(-8).toUpperCase()}`,
+    docNumber: p.receiptNo || fallbackNo(p.id, 'ق'),
     date: p.paidDate || p.dueDate || new Date(),
     partyLabel: 'استلمنا من',
     party: c.tenant?.name || '-',
@@ -175,11 +178,51 @@ export function paymentReceiptHtml(p: any, currency = 'د.ك'): string {
     details: [
       ['وذلك عن', about],
       ['حالة السداد', p.status === 'partial' ? 'دفعة جزئية — لا تغطي كامل الاستحقاق' : 'مسددة بالكامل'],
-      ['العقد', `#${String(p.contractId || '').slice(-8).toUpperCase()}`],
+      ['العقد', c.number ? String(c.number) : `#${String(p.contractId || '').slice(-8).toUpperCase()}`],
     ],
     notes: p.notes,
     copyLabel: 'نسخة المستأجر',
   }, currency);
+}
+
+/** فاتورة إيجار — المستند المالي الصادر عن اشترار شهر إيجار */
+export function rentInvoiceHtml(p: any, currency = 'د.ك'): string {
+  const c = p.contract || {};
+  const unit = c.unit?.number ? `وحدة ${c.unit.number}` : '';
+  const bld = c.unit?.building?.name ? ` — ${c.unit.building.name}` : '';
+  const paid = p.status === 'paid' || p.status === 'partial';
+  const rows = [
+    ['المستأجر', c.tenant?.name || '-'],
+    ['الوحدة / العمارة', `${unit || '-'}${bld}`],
+    ['عن شهر', p.month || '-'],
+    ['تاريخ الاستحقاق', dateStr(p.dueDate)],
+    ['مبلغ الإيجار', `${fmt3(p.amount)} ${currency}`],
+    ['حالة السداد', paid ? (p.status === 'partial' ? 'مدفوع جزئيًا' : 'مدفوع بالكامل') : 'مستحق — لم يُحصّل بعد'],
+    ['العقد', c.number ? String(c.number) : '-'],
+    ...(p.receiptNo ? [['سند القبض المقابل', String(p.receiptNo)] as [string, string]] : []),
+  ].map(([k, v]) => `<div class="v-row"><span class="v-label">${esc(k)}</span><span class="v-value">${esc(v)}</span></div>`).join('');
+  return `<style>${DOC_CSS}</style>
+<div class="vdoc"><div class="v-sheet">
+  <div class="v-head">
+    <div class="v-brand">${LOGO_SVG}<div><div class="v-brand-name">PropertyHub</div><div class="v-brand-sub">نظام إدارة الأملاك والعقارات</div></div></div>
+    <div class="v-titlebox">
+      <div class="v-kind">فاتورة إيجار</div>
+      <div class="v-meta"><span>رقم الفاتورة: <b>${esc(p.invoiceNo || fallbackNo(p.id, 'ف'))}</b></span><span>التاريخ: <b>${esc(dateStr(p.paidDate || p.dueDate))}</b></span></div>
+    </div>
+  </div>
+  <div class="v-body">
+    ${rows}
+    <div class="v-row"><span class="v-label">فقط لا غير</span><span class="v-value v-words">${esc(tafqitKWD(p.amount))}</span></div>
+    <div class="v-row"><span class="v-label">الإجمالي المستحق</span><span class="v-value v-amount">${fmt3(p.amount)} ${esc(currency)}</span></div>
+  </div>
+  <div class="v-note">هذه فاتورة إيجار مسجلة آليًا في نظام PropertyHub — سند القبض هو المستند الذي يثبت التحصيل، ورقم الفاتورة تسلسلي في سجل الفواتير.</div>
+  <div class="v-sigs">
+    <div class="v-sig"><div class="line"></div>المستأجر</div>
+    <div class="v-sig"><div class="line"></div>أمين الصندوق</div>
+    <div class="v-sig"><div class="line"></div>المدير</div>
+  </div>
+  <div class="v-foot"><span>نسخة المستأجر</span><span>أُنشئ آليًا بواسطة نظام PropertyHub — طُبع في ${esc(nowStr())}</span></div>
+</div></div>`;
 }
 
 /** سند قبض — استلام مبلغ قرض */
@@ -187,7 +230,7 @@ export function loanReceiptHtml(loan: any, currency = 'د.ك'): string {
   const about = `استلام مبلغ قرض${loan.months ? ` — المدة ${loan.months} شهر` : ''}${loan.rate ? ` — فائدة سنوية ${loan.rate}%` : ''}`;
   return voucherDocHtml({
     kind: 'قبض',
-    docNumber: `ق-${String(loan.id || '').slice(-8).toUpperCase()}`,
+    docNumber: loan.receiptNo || fallbackNo(loan.id, 'ق'),
     date: loan.date || new Date(),
     partyLabel: 'استلمنا من',
     party: loan.name || '-',
@@ -205,7 +248,7 @@ export function loanPaymentVoucherHtml(lp: any, loanName: string, currency = 'د
   const interest = Number(lp.interest) || 0;
   return voucherDocHtml({
     kind: 'صرف',
-    docNumber: `ص-${String(lp.id || '').slice(-8).toUpperCase()}`,
+    docNumber: lp.paymentNo || fallbackNo(lp.id, 'ص'),
     date: lp.date || new Date(),
     partyLabel: 'صرفنا إلى',
     party: loanName || '-',
@@ -227,7 +270,7 @@ export function maintenanceVoucherHtml(m: any, currency = 'د.ك'): string {
   const bld = m.unit?.building?.name ? ` — ${m.unit.building.name}` : '';
   return voucherDocHtml({
     kind: 'صرف',
-    docNumber: `ص-${String(m.id || '').slice(-8).toUpperCase()}`,
+    docNumber: m.paymentNo || fallbackNo(m.id, 'ص'),
     date: m.completedAt || new Date(),
     partyLabel: 'صرفنا إلى',
     party: m.assignedTo || 'جهة التنفيذ',
@@ -245,7 +288,7 @@ export function transactionVoucherHtml(t: any, currency = 'د.ك'): string {
   const bld = t.building?.name ? ` — ${t.building.name}` : '';
   return voucherDocHtml({
     kind: isIncome ? 'قبض' : 'صرف',
-    docNumber: `${isIncome ? 'ق' : 'ص'}-${String(t.id || '').slice(-8).toUpperCase()}`,
+    docNumber: t.voucherNo || fallbackNo(t.id, isIncome ? 'ق' : 'ص'),
     date: t.date || new Date(),
     partyLabel: isIncome ? 'استلمنا من' : 'صرفنا إلى',
     party: `${t.category || 'حركة مالية'}${bld}`,
@@ -255,6 +298,99 @@ export function transactionVoucherHtml(t: any, currency = 'د.ك'): string {
     notes: null,
     copyLabel: 'نسخة المكتب',
   }, currency);
+}
+
+/** سند صرف — دفعة مورد / مقاول */
+export function supplierPaymentVoucherHtml(sp: any, currency = 'د.ك'): string {
+  const supplier = sp.supplier || {};
+  const kindLabel = supplier.type === 'contractor' ? 'مقاول' : 'مورد';
+  const bld = sp.building?.name ? ` — ${sp.building.name}` : '';
+  return voucherDocHtml({
+    kind: 'صرف',
+    docNumber: sp.paymentNo || fallbackNo(sp.id, 'ص'),
+    date: sp.date || new Date(),
+    partyLabel: 'صرفنا إلى',
+    party: supplier.name || '-',
+    amount: Number(sp.amount) || 0,
+    method: sp.method,
+    details: [
+      ['وذلك عن', `دفعة ${kindLabel}${sp.description ? ` — ${sp.description}` : ''}${bld}`],
+    ],
+    notes: null,
+    copyLabel: 'نسخة المكتب',
+  }, currency);
+}
+
+// ---------- سجل السندات الموحّد (كشف تسلسلي قابل للطباعة) ----------
+export interface RegisterRow {
+  docNo: string;      // رقم السند التسلسلي (ق-0001 / ص-0001)
+  kind: 'قبض' | 'صرف';
+  date: any;
+  source: string;     // المصدر: تحصيل إيجار | حركة مالية | صيانة | مورد | قرض
+  party: string;      // الطرف (المستأجر/المورد/الجهة)
+  about: string;      // البيان
+  amount: number;
+  method?: string | null;
+}
+
+export function voucherRegisterDocHtml(params: {
+  rows: RegisterRow[];
+  currency?: string;
+  title?: string;
+}): string {
+  const currency = params.currency || 'د.ك';
+  const title = params.title || 'سجل السندات — كشف تسلسلي';
+  const receipts = params.rows.filter(r => r.kind === 'قبض');
+  const payments = params.rows.filter(r => r.kind === 'صرف');
+  // كشف الفجوات: الأرقام المتوقعة بين أول وآخر رقم في كل تسلسل والتي لا يوجد لها سند
+  const gapsFor = (rows: RegisterRow[]) => {
+    const nums = rows.map(r => parseInt(String(r.docNo).split('-')[1] || '0', 10)).filter(n => n > 0).sort((a, b) => a - b);
+    if (!nums.length) return [] as number[];
+    const set = new Set(nums);
+    const missing: number[] = [];
+    for (let i = nums[0]; i <= nums[nums.length - 1]; i++) if (!set.has(i)) missing.push(i);
+    return missing;
+  };
+  const table = (rows: RegisterRow[], kind: 'قبض' | 'صرف') => {
+    const total = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const body = [...rows].sort((a, b) => {
+      const na = parseInt(String(a.docNo).split('-')[1] || '0', 10);
+      const nb = parseInt(String(b.docNo).split('-')[1] || '0', 10);
+      return na - nb;
+    }).map(r =>
+      `<tr><td class="num"><b>${esc(r.docNo)}</b></td><td class="num">${esc(dateStr(r.date))}</td><td>${esc(r.source)}</td><td class="r">${esc(r.party)}</td><td class="r">${esc(r.about)}</td><td>${esc(r.method || 'نقدي')}</td><td class="num">${fmt3(r.amount)}</td></tr>`).join('');
+    const missing = gapsFor(rows);
+    const missingHtml = missing.length
+      ? `<tr><td colspan="7" class="r" style="color:#b91c1c;background:#fef2f2;"><b>فجوات في التسلسل (${missing.length}):</b> ${missing.map(n => `${kind === 'قبض' ? 'ق' : 'ص'}-${String(n).padStart(4, '0')}`).join('، ')} — سندات مفقودة أو ملغاة، تُراجع فورًا</td></tr>`
+      : `<tr><td colspan="7" class="r" style="color:#15803d;background:#f0fdf4;">التسلسل متصل بلا فجوات — كل السندات محفوظة ✓</td></tr>`;
+    return `
+    <div style="margin-top:12px;"><div style="font-size:14px;font-weight:800;color:${kind === 'قبض' ? '#15803d' : '#b91c1c'};margin-bottom:4px;">سندات ${kind} (${rows.length}) — التسلسل ${kind === 'قبض' ? 'ق' : 'ص'}-####</div>
+    <table class="v-table" style="font-size:11.5px;">
+      <thead><tr><th style="width:64px">رقم السند</th><th style="width:70px">التاريخ</th><th style="width:80px">المصدر</th><th style="width:130px">الطرف</th><th>البيان</th><th style="width:64px">الطريقة</th><th style="width:88px">المبلغ (${esc(currency)})</th></tr></thead>
+      <tbody>${body || `<tr><td colspan="7" style="color:#9ca3af;">لا توجد سندات</td></tr>`}</tbody>
+      <tfoot><tr><td colspan="6">إجمالي سندات ${kind}</td><td class="num">${fmt3(total)}</td></tr></tfoot>
+      ${missingHtml}
+    </table></div>`;
+  };
+  return `<style>${DOC_CSS}</style>
+<div class="vdoc"><div class="v-sheet">
+  <div class="v-head">
+    <div class="v-brand">${LOGO_SVG}<div><div class="v-brand-name">PropertyHub</div><div class="v-brand-sub">نظام إدارة الأملاك والعقارات</div></div></div>
+    <div class="v-titlebox"><div class="v-kind">${esc(title)}</div>
+    <div class="v-meta"><span>سندات القبض: <b>${receipts.length}</b></span><span>سندات الصرف: <b>${payments.length}</b></span><span>التاريخ: <b>${esc(dateStr(new Date()))}</b></span></div></div>
+  </div>
+  <div class="v-body">
+    ${table(receipts, 'قبض')}
+    ${table(payments, 'صرف')}
+    <div class="v-note">السندات مرتبة حسب الرقم التسلسلي — أي رقم مفقود بين أول وآخر سند يعني سندًا ضائعًا أو ملغى ويجب توثيقه. سندات القبض: تحصيل الإيجارات والإيرادات واستلام القروض • سندات الصرف: المصروفات والصيانة ودفاتع الموردين وأقساط القروض.</div>
+  </div>
+  <div class="v-sigs">
+    <div class="v-sig"><div class="line"></div>أمين الصندوق</div>
+    <div class="v-sig"><div class="line"></div>المحاسب</div>
+    <div class="v-sig"><div class="line"></div>المدير</div>
+  </div>
+  <div class="v-foot"><span>أُنشئ آليًا بواسطة نظام PropertyHub</span><span>طُبع في ${esc(nowStr())}</span></div>
+</div></div>`;
 }
 
 // ---------- إذن القيد المحاسبي ----------

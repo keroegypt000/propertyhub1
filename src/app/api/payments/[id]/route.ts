@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { syncPaymentEntry, removeAutoEntry } from '@/lib/accounting';
+import { nextDocNumber, isCollectedStatus } from '@/lib/numbering';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -22,9 +23,17 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (!canWrite(user.role, 'payments')) return NextResponse.json({ error: 'ليست لديك صلاحية' }, { status: 403 });
     const { id } = await params;
     const body = await request.json();
+    // حماية التسلسل: حقول الأرقام التسلسلية لا تُقبل من المستخدم — تُسند آليًا فقط
+    const { invoiceNo: _i, receiptNo: _r, ...cleanBody } = body || {};
     const old = await db.payment.findUnique({ where: { id } });
-    const payment = await db.payment.update({ where: { id }, data: body });
-    await logAudit(user.id, 'update', 'payment', id, { before: old, after: body }, `تعديل دفعة`);
+    const payment = await db.payment.update({ where: { id }, data: cleanBody });
+    // صارت محصّلة (مدفوع/جزئي) بلا رقم سند قبض → إسناد رقم تسلسلي من العدّاد
+    if (isCollectedStatus(payment.status) && !payment.receiptNo) {
+      const receiptNo = await nextDocNumber(db, 'receipt');
+      await db.payment.update({ where: { id }, data: { receiptNo } }).catch(() => null);
+      (payment as any).receiptNo = receiptNo;
+    }
+    await logAudit(user.id, 'update', 'payment', id, { before: old, after: cleanBody }, `تعديل دفعة`);
 
     // مزامنة القيد مع الحالة الجديدة (تحديث / إنشاء / حذف حسب الحالة)
     let entryWarning: string | null = null;

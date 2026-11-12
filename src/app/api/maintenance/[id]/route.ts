@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { syncMaintenanceEntry, removeAutoEntry } from '@/lib/accounting';
+import { nextDocNumber } from '@/lib/numbering';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -44,6 +45,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       if (u) data.buildingId = u.building.id;
     }
     const item = await db.maintenanceRequest.update({ where: { id }, data });
+    // اكتملت الصيانة بتكلفة فعلية بلا رقم سند → إسناد رقم تسلسلي من عدّاد سندات الصرف
+    if (item.status === 'completed' && Number(item.cost) > 0 && !item.paymentNo) {
+      const paymentNo = await nextDocNumber(db, 'payment');
+      await db.maintenanceRequest.update({ where: { id }, data: { paymentNo } }).catch(() => null);
+      (item as any).paymentNo = paymentNo;
+    }
     await logAudit(user.id, 'update', 'maintenance', id, { before: old, after: body }, `تعديل طلب صيانة`);
 
     // مزامنة قيد مصروف الصيانة مع الحالة والتكلفة الجديدة

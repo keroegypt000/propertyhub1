@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authMiddleware, canWrite, canRead } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { syncLoanEntry } from '@/lib/accounting';
+import { nextDocNumber } from '@/lib/numbering';
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,7 +24,10 @@ export async function POST(request: NextRequest) {
     const user = await authMiddleware(request);
     if (!canWrite(user.role, 'loans')) return NextResponse.json({ error: 'ليست لديك صلاحية' }, { status: 403 });
     const body = await request.json();
-    const loan = await db.loan.create({ data: body });
+    // استلام القرض = سند قبض تسلسلي (ق) من العدّاد المركزي — داخل معاملة الإنشاء
+    const loan = await db.$transaction(async (tdb) => tdb.loan.create({
+      data: { ...body, receiptNo: await nextDocNumber(tdb, 'receipt') },
+    }));
     await logAudit(user.id, 'create', 'loan', loan.id, body, `إنشاء قرض: ${body.name}`);
     // توليد قيد استلام القرض (مدين البنك / دائن أصل القرض)
     let entryWarning: string | null = null;

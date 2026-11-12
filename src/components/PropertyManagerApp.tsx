@@ -8,6 +8,8 @@ import {
   VoucherDialog, printHtmlDoc,
   paymentReceiptHtml, loanReceiptHtml, loanPaymentVoucherHtml,
   maintenanceVoucherHtml, transactionVoucherHtml,
+  supplierPaymentVoucherHtml, rentInvoiceHtml,
+  voucherRegisterDocHtml, RegisterRow,
   journalEntryDocHtml, journalBookDocHtml, trialBalanceDocHtml, TBRow,
   buildingFinancialReportHtml, buildingUnitsDocHtml,
 } from '@/components/print-docs';
@@ -39,9 +41,9 @@ interface User { id: string; username: string; name: string; role: string; roleN
 interface Building { id: string; code?: string; name: string; address?: string; city?: string; floors?: number; unitsCount?: number; value?: number; license?: string; notes?: string; units?: Unit[]; transactions?: any[]; createdAt: string; }
 interface Unit { id: string; buildingId: string; number: string; floor?: number; area?: number; type?: string; status: string; rentAmount?: number; notes?: string; building?: Building; createdAt: string; }
 interface Tenant { id: string; name: string; tenantType?: string; commercialReg?: string; phone?: string; email?: string; idNumber?: string; idType?: string; address?: string; guarantor?: string | null; guarantorPhone?: string | null; notes?: string; uploads?: FileUpload[]; createdAt: string; }
-interface Contract { id: string; unitId: string; tenantId: string; startDate: string; endDate: string; rentAmount: number; discount?: number | null; deposit?: number; paymentDay?: number; status: string; terms?: string; notes?: string; unit?: Unit; tenant?: Tenant; payments?: Payment[]; attachments?: FileUpload[]; createdAt: string; }
-interface Payment { id: string; contractId: string; amount: number; dueDate: string; paidDate?: string; month?: string; status: string; method?: string; reference?: string; notes?: string; contract?: Contract; createdAt: string; }
-interface MaintenanceItem { id: string; title: string; description?: string; priority: string; status: string; cost?: number; estimatedCost?: number; category?: string; assignedTo?: string; unitId?: string; unit?: Unit; buildingId?: string; building?: Building; attachments?: FileUpload[]; completedAt?: string | null; createdAt: string; }
+interface Payment { id: string; contractId: string; amount: number; dueDate: string; paidDate?: string; month?: string; status: string; method?: string; reference?: string; notes?: string; invoiceNo?: string | null; receiptNo?: string | null; contract?: Contract; createdAt: string; }
+interface MaintenanceItem { id: string; title: string; description?: string; priority: string; status: string; cost?: number; estimatedCost?: number; category?: string; assignedTo?: string; unitId?: string; unit?: Unit; buildingId?: string; building?: Building; attachments?: FileUpload[]; completedAt?: string | null; paymentNo?: string | null; createdAt: string; }
+interface Contract { id: string; unitId: string; tenantId: string; startDate: string; endDate: string; rentAmount: number; discount?: number | null; deposit?: number; paymentDay?: number; status: string; terms?: string; notes?: string; number?: string | null; unit?: Unit; tenant?: Tenant; payments?: Payment[]; attachments?: FileUpload[]; createdAt: string; }
 interface FileUpload { id: string; filename: string; originalName: string; mimeType: string; size: number; category: string; docType?: string; contractId?: string; tenantId?: string; maintenanceId?: string; buildingId?: string; legalCaseId?: string; createdAt: string; }
 interface LegalCase { id: string; title: string; type: string; reference?: string; buildingId?: string; building?: Building; unitId?: string; unit?: Unit; tenantId?: string; tenant?: Tenant; status: string; filedDate?: string; hearingDate?: string; amount?: number; description?: string; notes?: string; attachments?: FileUpload[]; createdAt: string; }
 interface AuditEntry { id: string; userId: string; action: string; entity: string; entityId?: string; changes?: string; details?: string; createdAt: string; user?: { id: string; name: string; username: string }; }
@@ -49,7 +51,7 @@ interface RestorePoint { id: string; name: string; description?: string; created
 
 const CURRENCY = 'د.ك'; // Kuwaiti Dinar
 
-type Section = 'dashboard' | 'buildings' | 'buildingDetail' | 'units' | 'tenants' | 'contracts' | 'payments' | 'suppliers' | 'maintenance' | 'legalCases' | 'files' | 'transactions' | 'loans' | 'loanPayments' | 'accounts' | 'journal' | 'trialBalance' | 'audit' | 'restore' | 'health' | 'users' | 'settings';
+type Section = 'dashboard' | 'buildings' | 'buildingDetail' | 'units' | 'tenants' | 'contracts' | 'payments' | 'suppliers' | 'maintenance' | 'legalCases' | 'files' | 'transactions' | 'loans' | 'loanPayments' | 'voucherRegister' | 'accounts' | 'journal' | 'trialBalance' | 'audit' | 'restore' | 'health' | 'users' | 'settings';
 
 const TENANT_TYPE_LABEL: Record<string, { label: string; color: string }> = {
   individual: { label: 'فرد / عائلة', color: 'bg-teal-100 text-teal-800' },
@@ -167,6 +169,8 @@ export default function PropertyManagerApp() {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [supplierPayments, setSupplierPayments] = useState<any[]>([]);
   const [tenantStatusFilter, setTenantStatusFilter] = useState<'all' | 'current' | 'former'>('all');
+  // فلتر سجل السندات: الكل / قبض / صرف — بحث بالرقم التسلسلي أو الطرف أو البيان
+  const [regKindFilter, setRegKindFilter] = useState<'all' | 'قبض' | 'صرف'>('all');
   const [supplierPayFilter, setSupplierPayFilter] = useState('all');
   const [detailBuildingId, setDetailBuildingId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState('overview');
@@ -200,6 +204,7 @@ export default function PropertyManagerApp() {
     if (s === 'payments') setPaymentStatusFilter('all');
     if (s === 'maintenance') { setMaintStatusFilter('all'); setMaintPriorityFilter('all'); }
     if (s === 'tenants') setTenantTypeFilter('all');
+    if (s === 'voucherRegister') setRegKindFilter('all');
   };
   // روابط عميقة من لوحة التحكم — تفتح الصفحة بفلتر جاهز (تُضبط بعد إعادة الضبط في go فتغلبها)
   const goUnits = (status = 'all', buildingId = 'all') => { go('units'); setUnitStatusFilter(status); setUnitBuildingFilter(buildingId); };
@@ -279,6 +284,20 @@ export default function PropertyManagerApp() {
         try { setLegalCases(await api('/api/legal-cases')); } catch {}
       }
       if (s === 'loans') { setLoans(await api('/api/loans')); setLoanPayments(await api('/api/loan-payments')); }
+      if (s === 'voucherRegister') {
+        // سجل السندات: يجمع سندات القبض والصرف من كل المصادر في جدول واحد
+        const [p, tr, lo, lp, sp, m, b] = await Promise.all([
+          api<Payment[]>('/api/payments').catch(() => []),
+          api('/api/transactions').catch(() => []),
+          api('/api/loans').catch(() => []),
+          api('/api/loan-payments').catch(() => []),
+          api('/api/supplier-payments').catch(() => []),
+          api<MaintenanceItem[]>('/api/maintenance').catch(() => []),
+          api('/api/buildings').catch(() => []),
+        ]);
+        setPayments(p); setTransactions(tr as any); setLoans(lo as any); setLoanPayments(lp as any);
+        setSupplierPayments(sp as any); setMaintenance(m); setBuildings(b as Building[]);
+      }
       if (s === 'accounts') setAccounts(await api('/api/accounts'));
       if (s === 'journal') {
         setJournalEntries(await api('/api/journal'));
@@ -319,6 +338,18 @@ export default function PropertyManagerApp() {
   }, [refreshCounts]);
 
   useEffect(() => { if (user) loadData(section); }, [user, section, loadData]);
+
+  // ترقيم السجلات القديمة تلقائيًا مرة واحدة بعد الدخول — يمنح كل سند/عقد/فاتورة قديمة رقمه التسلسلي
+  // العملية آمنة وقابلة للتكرار (idempotent) على السيرفر — لا يمس أي سجل له رقم بالفعل
+  const backfillDoneRef = useRef(false);
+  useEffect(() => {
+    if (!user || backfillDoneRef.current) return;
+    backfillDoneRef.current = true;
+    api<{ total: number }>('/api/numbers/backfill', 'POST', {})
+      .then((r) => { if (r.total > 0) { loadData(section); } })
+      .catch(() => { backfillDoneRef.current = false; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   // البث الحي: تحديث لوحة التحكم تلقائيًا كل 60 ثانية
   useEffect(() => {
@@ -421,8 +452,8 @@ export default function PropertyManagerApp() {
   const buildingCities = Array.from(new Set(buildings.map(b => (b.city || '').trim()).filter(Boolean))).sort();
   const filteredBuildings = buildings.filter(b => (buildingCityFilter === 'all' || (b.city || '').trim() === buildingCityFilter) && (!searchQuery || b.name.includes(searchQuery) || (b.code || '').includes(searchQuery) || (b.city || '').includes(searchQuery) || (b.address || '').includes(searchQuery)));
   const filteredUnits = units.filter(u => (!unitFocusId || u.id === unitFocusId) && (unitStatusFilter === 'all' || u.status === unitStatusFilter) && (unitBuildingFilter === 'all' || u.buildingId === unitBuildingFilter) && (!searchQuery || u.number.includes(searchQuery) || (u.building?.name || '').includes(searchQuery) || u.status.includes(searchQuery)));
-  const filteredContracts = contracts.filter(c => (contractFilter === 'all' || c.status === contractFilter) && (!contractTenantId || c.tenantId === contractTenantId) && (!contractUnitId || c.unitId === contractUnitId) && (contractBuildingFilter === 'all' || c.unit?.buildingId === contractBuildingFilter) && (!searchQuery || (c.tenant?.name || '').includes(searchQuery) || (c.unit?.number || '').includes(searchQuery) || (c.unit?.building?.name || '').includes(searchQuery) || c.status.includes(searchQuery)));
-  const filteredPayments = payments.filter(p => (paymentStatusFilter === 'all' || p.status === paymentStatusFilter) && (!searchQuery || p.status.includes(searchQuery) || (p.method || '').includes(searchQuery) || String(p.amount).includes(searchQuery)));
+  const filteredContracts = contracts.filter(c => (contractFilter === 'all' || c.status === contractFilter) && (!contractTenantId || c.tenantId === contractTenantId) && (!contractUnitId || c.unitId === contractUnitId) && (contractBuildingFilter === 'all' || c.unit?.buildingId === contractBuildingFilter) && (!searchQuery || (c.tenant?.name || '').includes(searchQuery) || (c.number || '').includes(searchQuery) || (c.unit?.number || '').includes(searchQuery) || (c.unit?.building?.name || '').includes(searchQuery) || c.status.includes(searchQuery)));
+  const filteredPayments = payments.filter(p => (paymentStatusFilter === 'all' || p.status === paymentStatusFilter) && (!searchQuery || p.status.includes(searchQuery) || (p.method || '').includes(searchQuery) || String(p.amount).includes(searchQuery) || (p.receiptNo || '').includes(searchQuery) || (p.invoiceNo || '').includes(searchQuery)));
   const filteredMaintenance = maintenance.filter(m => (maintStatusFilter === 'all' || (maintStatusFilter === 'open_active' ? ['open', 'in_progress'].includes(m.status) : m.status === maintStatusFilter)) && (maintPriorityFilter === 'all' || m.priority === maintPriorityFilter) && (!searchQuery || m.title.includes(searchQuery) || m.status.includes(searchQuery) || m.priority.includes(searchQuery)));
   const filteredTenants = tenants.filter(t => (tenantTypeFilter === 'all' || (t.tenantType || 'individual') === tenantTypeFilter) && (tenantStatusFilter === 'all' || (tenantStatusFilter === 'current') === contracts.some(c => c.tenantId === t.id && ['active', 'renewed'].includes(c.status))) && (!searchQuery || t.name.includes(searchQuery) || (t.phone || '').includes(searchQuery) || (t.idNumber || '').includes(searchQuery)));
 
@@ -1126,7 +1157,7 @@ export default function PropertyManagerApp() {
                   <Card key={c.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-5">
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       <div>
-                        <div className="flex items-center gap-2 mb-2"><Badge className={CONTRACT_STATUS_MAP[c.status]?.color || 'bg-gray-100'}>{CONTRACT_STATUS_MAP[c.status]?.label || c.status}</Badge><span className="text-sm text-gray-500">عقد بدأ في {c.startDate ? new Date(c.startDate).toLocaleDateString('ar-EG') : '-'}</span></div>
+                        <div className="flex items-center gap-2 mb-2 flex-wrap"><Badge className={CONTRACT_STATUS_MAP[c.status]?.color || 'bg-gray-100'}>{CONTRACT_STATUS_MAP[c.status]?.label || c.status}</Badge>{c.number && <Badge className="bg-slate-800 text-white font-bold tabular-nums" title="الرقم التسلسلي للعقد في السجل">عقد {c.number}</Badge>}<span className="text-sm text-gray-500">عقد بدأ في {c.startDate ? new Date(c.startDate).toLocaleDateString('ar-EG') : '-'}</span></div>
                         <div className="space-y-1 text-sm">
                           {c.unit && <p className="flex items-center gap-1"><Home size={14} className="text-gray-400" />وحدة {c.unit.number} - {c.unit.building?.name}</p>}
                           {c.tenant && <p className="flex items-center gap-1"><Users size={14} className="text-gray-400" />{c.tenant.name}</p>}
@@ -1183,16 +1214,19 @@ export default function PropertyManagerApp() {
               {/* Desktop table */}
               <div className="hidden md:block">
               <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
-                <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>المبلغ</TableHead><TableHead>تاريخ الاستحقاق</TableHead><TableHead>تاريخ الدفع</TableHead><TableHead>الحالة</TableHead><TableHead>الطريقة</TableHead><TableHead>العقد</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
+                <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>الفاتورة</TableHead><TableHead>السند</TableHead><TableHead>المبلغ</TableHead><TableHead>تاريخ الاستحقاق</TableHead><TableHead>تاريخ الدفع</TableHead><TableHead>الحالة</TableHead><TableHead>الطريقة</TableHead><TableHead>العقد</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
                 <TableBody>{filteredPayments.map(p => (<TableRow key={p.id}>
+                  <TableCell className="text-xs font-bold text-amber-700 tabular-nums">{p.invoiceNo || '-'}</TableCell>
+                  <TableCell className="text-xs font-bold text-emerald-700 tabular-nums">{p.receiptNo || (p.status === 'paid' || p.status === 'partial' ? '-' : '—')}</TableCell>
                   <TableCell className="font-semibold">{p.amount.toLocaleString('ar')} {CURRENCY}</TableCell>
                   <TableCell>{new Date(p.dueDate).toLocaleDateString('ar')}</TableCell>
                   <TableCell>{p.paidDate ? new Date(p.paidDate).toLocaleDateString('ar') : '-'}</TableCell>
                   <TableCell><Badge className={PAYMENT_STATUS_MAP[p.status]?.color}>{PAYMENT_STATUS_MAP[p.status]?.label || p.status}</Badge></TableCell>
                   <TableCell>{p.method || '-'}</TableCell>
-                  <TableCell className="text-xs text-gray-500">{p.contractId?.slice(0, 8)}</TableCell>
+                  <TableCell className="text-xs text-gray-500">{p.contract ? (p.contract.number ? `عقد ${p.contract.number} — وحدة ${p.contract.unit?.number || '?'}` : `وحدة ${p.contract.unit?.number || p.contractId?.slice(0, 8)}`) : (p.contractId?.slice(0, 8) || '-')}</TableCell>
                   <TableCell><div className="flex gap-1">
-                    {(p.status === 'paid' || p.status === 'partial') && <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند قبض"><Printer size={14} /></Button>} title="سند قبض — إيجار" docHtml={paymentReceiptHtml(p, CURRENCY)} />}
+                    <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-amber-600 hover:bg-amber-50" title="طباعة فاتورة الإيجار (ف)"><FileText size={14} /></Button>} title={`فاتورة إيجار ${p.invoiceNo || ''}`} docHtml={rentInvoiceHtml(p, CURRENCY)} />
+                    {(p.status === 'paid' || p.status === 'partial') && <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title={`سند القبض ${p.receiptNo || ''}`}><Printer size={14} /></Button>} title={`سند قبض ${p.receiptNo || ''} — إيجار`} docHtml={paymentReceiptHtml(p, CURRENCY)} />}
                     {canWriteCheck('payments') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الدفعة">{(close) => <PaymentForm contracts={contracts} payments={payments} buildings={buildings} initial={p} onSave={async (data) => { await api(`/api/payments/${p.id}`, 'PUT', data); autoRestore('تعديل دفعة'); loadData('payments'); }} onClose={close} />}</FormDialog>}
                     {canWriteCheck('payments') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/payments/${p.id}`, 'DELETE'); autoRestore('حذف دفعة'); loadData('payments'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>}
                   </div></TableCell>
@@ -1207,13 +1241,18 @@ export default function PropertyManagerApp() {
                       <span className="font-bold text-lg text-gray-900">{p.amount.toLocaleString('ar')} {CURRENCY}</span>
                       <Badge className={PAYMENT_STATUS_MAP[p.status]?.color}>{PAYMENT_STATUS_MAP[p.status]?.label || p.status}</Badge>
                     </div>
+                    <div className="flex flex-wrap gap-2 text-[11px] font-bold">
+                      {p.invoiceNo && <span className="text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 tabular-nums">فاتورة {p.invoiceNo}</span>}
+                      {p.receiptNo && <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 tabular-nums">سند قبض {p.receiptNo}</span>}
+                    </div>
                     <div className="text-xs text-gray-500 space-y-1">
                       <p className="flex items-center gap-1"><Calendar size={13} />استحقاق: {new Date(p.dueDate).toLocaleDateString('ar')}{p.paidDate ? ` — دُفع: ${new Date(p.paidDate).toLocaleDateString('ar')}` : ''}</p>
                       {p.month && <p>عن شهر: {p.month}</p>}
-                      <p>الطريقة: {p.method || '-'} — العقد: {p.contractId?.slice(0, 8)}</p>
+                      <p>الطريقة: {p.method || '-'} — العقد: {p.contract?.number || p.contractId?.slice(0, 8)}</p>
                     </div>
                     <div className="flex items-center gap-1.5 pt-2 border-t border-gray-100">
-                      {(p.status === 'paid' || p.status === 'partial') && <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند قبض"><Printer size={14} /></Button>} title="سند قبض — إيجار" docHtml={paymentReceiptHtml(p, CURRENCY)} />}
+                      <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-amber-600 hover:bg-amber-50" title="طباعة فاتورة الإيجار (ف)"><FileText size={14} /></Button>} title={`فاتورة إيجار ${p.invoiceNo || ''}`} docHtml={rentInvoiceHtml(p, CURRENCY)} />
+                      {(p.status === 'paid' || p.status === 'partial') && <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title={`سند القبض ${p.receiptNo || ''}`}><Printer size={14} /></Button>} title={`سند قبض ${p.receiptNo || ''} — إيجار`} docHtml={paymentReceiptHtml(p, CURRENCY)} />}
                       {canWriteCheck('payments') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل الدفعة">{(close) => <PaymentForm contracts={contracts} payments={payments} buildings={buildings} initial={p} onSave={async (data) => { await api(`/api/payments/${p.id}`, 'PUT', data); autoRestore('تعديل دفعة'); loadData('payments'); }} onClose={close} />}</FormDialog>}
                       {canWriteCheck('payments') && <Button variant="ghost" size="sm" className="text-red-500" onClick={async () => { if (confirm('حذف؟')) { await api(`/api/payments/${p.id}`, 'DELETE'); autoRestore('حذف دفعة'); loadData('payments'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>}
                     </div>
@@ -1221,6 +1260,131 @@ export default function PropertyManagerApp() {
                 ))}
               </div>
               {filteredPayments.length === 0 && (payments.length === 0 ? <EmptyState icon={<DollarSign size={48} />} text="لا توجد مدفوعات" /> : <EmptyState icon={<Search size={48} />} text="لا توجد دفعات مطابقة للفلتر أو البحث" />)}
+            </div>
+            );
+          })()}
+
+          {/* Vouchers Register — سجل السندات الموحد: كل سندات القبض والصرف مرقمة تسلسليًا في مكان واحد */}
+          {section === 'voucherRegister' && (() => {
+            // تجميع كل السندات من المصادر المختلفة في صفوف موحدة
+            const rows: RegisterRow[] = [];
+            for (const p of payments) {
+              if (p.receiptNo && ['paid', 'partial'].includes(p.status)) {
+                const c = p.contract || ({} as any);
+                rows.push({
+                  docNo: p.receiptNo, kind: 'قبض', date: p.paidDate || p.dueDate, source: 'تحصيل إيجار',
+                  party: c.tenant?.name || '-', about: `إيجار${p.month ? ` شهر ${p.month}` : ''}${c.unit?.number ? ` — وحدة ${c.unit.number}` : ''}${c.unit?.building?.name ? ` — ${c.unit.building.name}` : ''}`,
+                  amount: Number(p.amount) || 0, method: p.method,
+                });
+              }
+            }
+            for (const t of transactions as any[]) {
+              if (t.voucherNo) {
+                rows.push({
+                  docNo: t.voucherNo, kind: t.type === 'income' ? 'قبض' : 'صرف', date: t.date, source: 'حركة مالية',
+                  party: t.building?.name || 'الإدارة', about: t.category || '', amount: Number(t.amount) || 0,
+                  method: t.cashAccount === 'bank' ? 'transfer' : 'cash',
+                });
+              }
+            }
+            for (const l of loans as any[]) {
+              if (l.receiptNo) rows.push({ docNo: l.receiptNo, kind: 'قبض', date: l.date, source: 'قرض — استلام', party: l.name, about: `استلام قرض${l.months ? ` — ${l.months} شهر` : ''}`, amount: Number(l.principal) || 0, method: 'transfer' });
+            }
+            for (const lp of loanPayments as any[]) {
+              if (lp.paymentNo) rows.push({ docNo: lp.paymentNo, kind: 'صرف', date: lp.date, source: 'قرض — قسط', party: lp.loan?.name || '-', about: 'سداد قسط قرض', amount: (Number(lp.principal) || 0) + (Number(lp.interest) || 0), method: 'transfer' });
+            }
+            for (const m of maintenance as MaintenanceItem[]) {
+              if (m.paymentNo) rows.push({ docNo: m.paymentNo, kind: 'صرف', date: m.completedAt || m.createdAt, source: 'صيانة', party: m.assignedTo || 'جهة التنفيذ', about: `صيانة: ${m.title}${m.unit?.number ? ` — وحدة ${m.unit.number}` : ''}`, amount: Number(m.cost) || 0, method: 'cash' });
+            }
+            for (const sp of supplierPayments as any[]) {
+              if (sp.paymentNo) rows.push({ docNo: sp.paymentNo, kind: 'صرف', date: sp.date, source: 'مورد / مقاول', party: sp.supplier?.name || '-', about: sp.description || 'دفعة مورد', amount: Number(sp.amount) || 0, method: sp.method });
+            }
+            const kindSorted = (a: RegisterRow, b: RegisterRow) => {
+              const na = parseInt(String(a.docNo).split('-')[1] || '0', 10);
+              const nb = parseInt(String(b.docNo).split('-')[1] || '0', 10);
+              return na - nb;
+            };
+            const receiptRows = rows.filter(r => r.kind === 'قبض').sort(kindSorted);
+            const spendRows = rows.filter(r => r.kind === 'صرف').sort(kindSorted);
+            const shown = regKindFilter === 'all' ? rows : (regKindFilter === 'قبض' ? receiptRows : spendRows);
+            const filtered = shown.filter(r => !searchQuery || r.docNo.includes(searchQuery) || (r.party || '').includes(searchQuery) || (r.about || '').includes(searchQuery) || (r.source || '').includes(searchQuery));
+            // كشف الفجوات: أرقام متوقعة بين أول وآخر سند لا يوجد لها سجل → سند ضائع أو ملغى
+            const gapsOf = (list: RegisterRow[]) => {
+              const nums = list.map(r => parseInt(String(r.docNo).split('-')[1] || '0', 10)).filter(n => n > 0).sort((a, b) => a - b);
+              if (!nums.length) return [] as number[];
+              const set = new Set(nums);
+              const missing: number[] = [];
+              for (let i = nums[0]; i <= nums[nums.length - 1]; i++) if (!set.has(i)) missing.push(i);
+              return missing;
+            };
+            const receiptGaps = gapsOf(receiptRows);
+            const spendGaps = gapsOf(spendRows);
+            const totalReceipts = receiptRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+            const totalSpend = spendRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+            const METHOD_AR: Record<string, string> = { cash: 'نقدي', transfer: 'تحويل', check: 'شيك', card: 'بطاقة' };
+            return (
+            <div className="space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900">سجل السندات</h2><PageCount n={filtered.length} label="سند" />
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث برقم السند أو الطرف..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-56 border-orange-200 focus:border-orange-500" /></div>
+                  <VoucherDialog trigger={<Button variant="outline" className="border-orange-200 text-orange-700"><Printer size={15} className="ml-1" />طباعة السجل</Button>} title="سجل السندات — كشف تسلسلي" docHtml={voucherRegisterDocHtml({ rows, currency: CURRENCY })} />
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">كل سند له رقم تسلسلي محفوظ في النظام: القبض <b>ق-####</b> والصرف <b>ص-####</b> — أي فجوة في التسلسل تعني سندًا ضائعًا أو ملغى ويجب مراجعته فورًا</p>
+              {/* تنبيهات الفجوات — قلب الطلب: لو سند ضاع يبان */}
+              {(receiptGaps.length > 0 || spendGaps.length > 0) && (
+                <Card className="border-0 shadow-lg border-r-4 border-r-red-500 bg-red-50/70"><CardContent className="p-4 space-y-2">
+                  <p className="font-bold text-red-700 flex items-center gap-2"><AlertTriangle size={16} />فجوات في تسلسل السندات — سندات مفقودة أو ملغاة</p>
+                  <div className="flex flex-wrap gap-2">
+                    {receiptGaps.length > 0 && <span className="text-xs font-bold text-red-800 bg-white border border-red-200 rounded-full px-3 py-1.5">قبض: {receiptGaps.map(n => `ق-${String(n).padStart(4, '0')}`).join('، ')}</span>}
+                    {spendGaps.length > 0 && <span className="text-xs font-bold text-red-800 bg-white border border-red-200 rounded-full px-3 py-1.5">صرف: {spendGaps.map(n => `ص-${String(n).padStart(4, '0')}`).join('، ')}</span>}
+                  </div>
+                  <p className="text-[11px] text-gray-500">راجع السندات الورقية المطابقة لهذه الأرقام — إن كانت ناقصة فالسند ضاع ويجب توثيق الاستبدال، وإن كانت ملغاة فسجّل ذلك في ملاحظات العملية.</p>
+                </CardContent></Card>
+              )}
+              {/* ملخص: عدد كل نوع + الإجماليات */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center gap-3 shadow-sm"><div className="w-9 h-9 rounded-xl bg-white/70 flex items-center justify-center shrink-0 text-emerald-600"><TrendingUp size={18} /></div><div className="min-w-0"><p className="text-[11px] text-gray-600">سندات القبض (ق)</p><p className="font-bold text-sm sm:text-lg text-emerald-700 truncate">{receiptRows.length} — {fmtKWD(totalReceipts)} {CURRENCY}</p></div></div>
+                <div className="p-3.5 rounded-2xl bg-red-50 border border-red-100 flex items-center gap-3 shadow-sm"><div className="w-9 h-9 rounded-xl bg-white/70 flex items-center justify-center shrink-0 text-red-600"><ReceiptText size={18} /></div><div className="min-w-0"><p className="text-[11px] text-gray-600">سندات الصرف (ص)</p><p className="font-bold text-sm sm:text-lg text-red-700 truncate">{spendRows.length} — {fmtKWD(totalSpend)} {CURRENCY}</p></div></div>
+                <div className={`p-3.5 rounded-2xl border flex items-center gap-3 shadow-sm ${(totalReceipts - totalSpend) >= 0 ? 'bg-teal-50 border-teal-100' : 'bg-orange-50 border-orange-100'}`}><div className="w-9 h-9 rounded-xl bg-white/70 flex items-center justify-center shrink-0 text-teal-600"><DollarSign size={18} /></div><div className="min-w-0"><p className="text-[11px] text-gray-600">الصافي (قبض − صرف)</p><p className={`font-bold text-sm sm:text-lg truncate ${(totalReceipts - totalSpend) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtKWD(totalReceipts - totalSpend)} {CURRENCY}</p></div></div>
+                <div className="p-3.5 rounded-2xl bg-blue-50 border border-blue-100 flex items-center gap-3 shadow-sm"><div className="w-9 h-9 rounded-xl bg-white/70 flex items-center justify-center shrink-0 text-blue-600"><Hash size={18} /></div><div className="min-w-0"><p className="text-[11px] text-gray-600">إجمالي السندات</p><p className="font-bold text-sm sm:text-lg text-blue-700">{rows.length}</p></div></div>
+              </div>
+              {/* فلتر النوع */}
+              <div className="flex gap-1.5 flex-wrap">
+                {([
+                  { k: 'all', l: `الكل (${rows.length})` },
+                  { k: 'قبض', l: `سندات القبض (${receiptRows.length})` },
+                  { k: 'صرف', l: `سندات الصرف (${spendRows.length})` },
+                ] as const).map(f => (
+                  <button key={f.k} onClick={() => setRegKindFilter(f.k as any)}
+                    className={`px-3.5 py-1.5 rounded-xl text-sm font-medium transition ${regKindFilter === f.k ? 'bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md' : 'bg-white text-gray-600 border border-orange-100 hover:bg-orange-50'}`}>
+                    {f.l}
+                  </button>
+                ))}
+              </div>
+              {/* جدول السندات الموحد — مرتب بالرقم التسلسلي */}
+              <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
+                <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>رقم السند</TableHead><TableHead>النوع</TableHead><TableHead>التاريخ</TableHead><TableHead>المصدر</TableHead><TableHead>الطرف</TableHead><TableHead>البيان</TableHead><TableHead>الطريقة</TableHead><TableHead>المبلغ</TableHead></TableRow></TableHeader>
+                <TableBody>{filtered.map(r => (<TableRow key={`${r.kind}-${r.docNo}`}>
+                  <TableCell><span className={`font-bold tabular-nums ${r.kind === 'قبض' ? 'text-emerald-700' : 'text-red-700'}`}>{r.docNo}</span></TableCell>
+                  <TableCell><Badge className={r.kind === 'قبض' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}>سند {r.kind}</Badge></TableCell>
+                  <TableCell className="text-sm whitespace-nowrap">{new Date(r.date).toLocaleDateString('ar')}</TableCell>
+                  <TableCell className="text-xs text-gray-600">{r.source}</TableCell>
+                  <TableCell className="text-sm font-semibold">{r.party}</TableCell>
+                  <TableCell className="text-xs text-gray-500 max-w-56 truncate">{r.about}</TableCell>
+                  <TableCell className="text-xs">{METHOD_AR[r.method || ''] || r.method || 'نقدي'}</TableCell>
+                  <TableCell className={`font-bold tabular-nums ${r.kind === 'قبض' ? 'text-emerald-700' : 'text-red-700'}`}>{r.amount.toLocaleString('ar')} {CURRENCY}</TableCell>
+                </TableRow>))}</TableBody>
+                {filtered.length > 0 && (
+                  <TableFooter><TableRow className="bg-amber-50">
+                    <TableCell colSpan={7} className="font-bold">الإجمالي المعروض — {filtered.length} سند</TableCell>
+                    <TableCell className={`font-bold tabular-nums ${regKindFilter === 'صرف' ? 'text-red-700' : 'text-emerald-700'}`}>{filtered.reduce((s, r) => s + (Number(r.amount) || 0), 0).toLocaleString('ar')} {CURRENCY}</TableCell>
+                  </TableRow></TableFooter>
+                )}
+                </Table>
+              </div></Card>
+              {filtered.length === 0 && (rows.length === 0 ? <EmptyState icon={<ReceiptText size={48} />} text="لا توجد سندات بعد — سجل أول تحصيل أو حركة مالية وسيُرقم تلقائيًا" /> : <EmptyState icon={<Search size={48} />} text="لا توجد سندات مطابقة للفلتر أو البحث" />)}
             </div>
             );
           })()}
@@ -1285,15 +1449,19 @@ export default function PropertyManagerApp() {
                     <Select value={supplierPayFilter} onValueChange={setSupplierPayFilter}><SelectTrigger className="w-52 h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">كل الموردين</SelectItem>{suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select>
                   </div>
                   <div className="overflow-x-auto">
-                    <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>المورد</TableHead><TableHead>التاريخ</TableHead><TableHead>المبلغ</TableHead><TableHead>البيان</TableHead><TableHead>العمارة</TableHead><TableHead>الطريقة</TableHead>{canWriteCheck('suppliers') && <TableHead>إجراءات</TableHead>}</TableRow></TableHeader>
+                    <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>رقم السند</TableHead><TableHead>المورد</TableHead><TableHead>التاريخ</TableHead><TableHead>المبلغ</TableHead><TableHead>البيان</TableHead><TableHead>العمارة</TableHead><TableHead>الطريقة</TableHead>{canWriteCheck('suppliers') && <TableHead>إجراءات</TableHead>}</TableRow></TableHeader>
                     <TableBody>{filteredPayments.map(p => (<TableRow key={p.id}>
+                      <TableCell className="text-xs font-bold text-red-700 tabular-nums">{p.paymentNo || '-'}</TableCell>
                       <TableCell className="font-semibold text-xs">{p.supplier?.name || '-'}</TableCell>
                       <TableCell className="text-xs">{p.date ? new Date(p.date).toLocaleDateString('ar') : '-'}</TableCell>
                       <TableCell className="font-bold text-amber-700">{p.amount.toLocaleString('ar')} {CURRENCY}</TableCell>
                       <TableCell className="text-xs text-gray-500 max-w-48 truncate">{p.description || '-'}</TableCell>
                       <TableCell className="text-xs text-gray-500">{buildings.find(b => b.id === p.buildingId)?.name || '-'}</TableCell>
                       <TableCell className="text-xs">{({ cash: 'نقدي', transfer: 'تحويل', check: 'شيك', card: 'بطاقة' } as any)[p.method] || p.method}</TableCell>
-                      {canWriteCheck('suppliers') && <TableCell><Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('حذف الدفعة؟ هيتحذف قيدها المحاسبي كمان.')) { await api(`/api/supplier-payments/${p.id}`, 'DELETE'); autoRestore('حذف دفعة مورد'); loadData('suppliers'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button></TableCell>}
+                      {canWriteCheck('suppliers') && <TableCell><div className="flex gap-1">
+                        <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title={`سند الصرف ${p.paymentNo || ''}`}><Printer size={14} /></Button>} title={`سند صرف ${p.paymentNo || ''} — مورد`} docHtml={supplierPaymentVoucherHtml(p, CURRENCY)} />
+                        <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('حذف الدفعة؟ هيتحذف قيدها المحاسبي كمان.')) { await api(`/api/supplier-payments/${p.id}`, 'DELETE'); autoRestore('حذف دفعة مورد'); loadData('suppliers'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>
+                      </div></TableCell>}
                     </TableRow>))}</TableBody></Table>
                   </div>
                 </Card>
@@ -1331,6 +1499,7 @@ export default function PropertyManagerApp() {
                       <div>
                         <div className="flex items-center gap-2 mb-2 flex-wrap"><Badge className={MAINT_STATUS_MAP[m.status]?.color}>{MAINT_STATUS_MAP[m.status]?.label || m.status}</Badge><Badge className={PRIORITY_MAP[m.priority]?.color}>{PRIORITY_MAP[m.priority]?.label || m.priority}</Badge>{m.unit && <Badge className="bg-purple-100 text-purple-800">وحدة {m.unit.number}{m.unit.building ? ` — ${m.unit.building.name}` : ''}</Badge>}{!m.unit && (m.building ? <Badge className="bg-orange-100 text-orange-800">صيانة العمارة بكاملها — {m.building.name}</Badge> : (m.buildingId && <Badge className="bg-orange-100 text-orange-800">صيانة العمارة بكاملها</Badge>))}{m.category && m.category !== 'other' && <Badge className="bg-gray-100 text-gray-700">{MAINT_CATEGORIES[m.category] || m.category}</Badge>}</div>
                         <h3 className="font-bold text-gray-900">{m.title}</h3>
+                        {m.paymentNo && <Badge className="bg-red-50 text-red-700 border border-red-200 text-[11px] font-bold tabular-nums mt-1" title="الرقم التسلسلي لسند صرف تكلفة الصيانة">سند صرف {m.paymentNo}</Badge>}
                         {m.description && <p className="text-sm text-gray-600 mt-1">{m.description}</p>}
                         {m.estimatedCost != null && <p className="text-sm text-amber-700 mt-1">التكلفة التقديرية: {m.estimatedCost.toLocaleString('ar')} {CURRENCY}</p>}
                         {m.cost && <p className="text-sm text-emerald-700 mt-1">التكلفة الفعلية: {m.cost.toLocaleString('ar')} {CURRENCY}</p>}
@@ -1346,7 +1515,7 @@ export default function PropertyManagerApp() {
                         )}
                       </div>
                       <div className="flex gap-2">
-                        {m.status === 'completed' && (m.cost || 0) > 0 && <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title="سند صرف — تكلفة الصيانة"><Printer size={14} /></Button>} title="سند صرف — صيانة" docHtml={maintenanceVoucherHtml(m, CURRENCY)} />}
+                        {m.status === 'completed' && (m.cost || 0) > 0 && <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title={`سند صرف التكلفة ${m.paymentNo || ''}`}><Printer size={14} /></Button>} title={`سند صرف ${m.paymentNo || ''} — صيانة`} docHtml={maintenanceVoucherHtml(m, CURRENCY)} />}
                         {canWriteCheck('maintenance') && <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل طلب الصيانة">{(close) => <MaintenanceForm buildings={buildings} units={units} initial={m} onSave={async (data) => { await api(`/api/maintenance/${m.id}`, 'PUT', data); autoRestore('تعديل صيانة'); loadData('maintenance'); }} onClose={close} />}</FormDialog>}
                         {canWriteCheck('files') && (
                           <FileUploadButton className="border-orange-200 text-orange-700" icon={<Camera size={14} className="ml-1" />} onPick={async (file) => { try { const saved: any = await uploadFile(file, 'maintenance', { maintenanceId: m.id }); if (saved?.warning) { toast.warning(saved.warning); } else { toast.success('تم رفع الملف'); } loadData('maintenance'); } catch (e) { toast.error(e instanceof Error ? e.message : 'فشل رفع الملف'); } }}>صورة</FileUploadButton>
@@ -1453,7 +1622,7 @@ export default function PropertyManagerApp() {
             const txIncome = transactions.filter((t: any) => t.type === 'income').reduce((s: number, t: any) => s + (t.amount || 0), 0);
             const txExpense = transactions.filter((t: any) => t.type === 'expense').reduce((s: number, t: any) => s + (t.amount || 0), 0);
             const txNet = txIncome - txExpense;
-            const filteredTransactions = transactions.filter((t: any) => (txType === 'all' || t.type === txType) && (!searchQuery || (t.category || '').includes(searchQuery) || (t.type || '').includes(searchQuery) || (t.building?.name || '').includes(searchQuery) || String(t.amount).includes(searchQuery)));
+            const filteredTransactions = transactions.filter((t: any) => (txType === 'all' || t.type === txType) && (!searchQuery || (t.category || '').includes(searchQuery) || (t.type || '').includes(searchQuery) || (t.building?.name || '').includes(searchQuery) || String(t.amount).includes(searchQuery) || (t.voucherNo || '').includes(searchQuery)));
             return (
             <div className="space-y-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الإيرادات والمصروفات</h2><PageCount n={transactions.length} label="حركة" />
@@ -1488,8 +1657,9 @@ export default function PropertyManagerApp() {
               {/* Desktop table */}
               <div className="hidden md:block">
               <Card className="border-0 shadow-lg overflow-hidden"><div className="overflow-x-auto">
-                <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>التاريخ</TableHead><TableHead>العمارة</TableHead><TableHead>النوع</TableHead><TableHead>البيان</TableHead><TableHead>المبلغ</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
+                <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>رقم السند</TableHead><TableHead>التاريخ</TableHead><TableHead>العمارة</TableHead><TableHead>النوع</TableHead><TableHead>البيان</TableHead><TableHead>المبلغ</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
                 <TableBody>{filteredTransactions.map((t: any) => (<TableRow key={t.id}>
+                  <TableCell><span className={`text-xs font-bold tabular-nums ${t.type === 'income' ? 'text-emerald-700' : 'text-red-700'}`}>{t.voucherNo || '-'}</span></TableCell>
                   <TableCell className="text-sm">{new Date(t.date).toLocaleDateString('ar')}</TableCell>
                   <TableCell className="text-sm">{t.building?.name || '-'}</TableCell>
                   <TableCell><Badge className={t.type === 'income' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}>{t.type === 'income' ? 'إيراد' : 'مصروف'}</Badge></TableCell>
@@ -1511,6 +1681,7 @@ export default function PropertyManagerApp() {
                       <span className={`font-bold text-lg ${t.type === 'income' ? 'text-emerald-700' : 'text-red-700'}`}>{t.type === 'income' ? '+' : '−'} {t.amount?.toLocaleString('ar')} {CURRENCY}</span>
                       <Badge className={t.type === 'income' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}>{t.type === 'income' ? 'إيراد' : 'مصروف'}</Badge>
                     </div>
+                    {t.voucherNo && <span className={`inline-block text-[11px] font-bold tabular-nums rounded-full px-2 py-0.5 border ${t.type === 'income' ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-red-700 bg-red-50 border-red-200'}`}>سند {t.voucherNo}</span>}
                     <div className="text-xs text-gray-500 space-y-1">
                       <p className="flex items-center gap-1"><Calendar size={13} />{new Date(t.date).toLocaleDateString('ar')}</p>
                       <p>{t.category || '-'}{t.building?.name ? ` — ${t.building.name}` : ''}</p>
@@ -3046,7 +3217,7 @@ function BuildingDetailSection({ user, building, buildings, units, tenants, cont
               <Card key={c.id} className="border-0 shadow-md"><CardContent className="p-4">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap"><Badge className={CONTRACT_STATUS_MAP[c.status]?.color}>{CONTRACT_STATUS_MAP[c.status]?.label || c.status}</Badge>{c.tenant?.tenantType && <Badge className={`${TENANT_TYPE_LABEL[c.tenant.tenantType]?.color} text-[10px]`}>{TENANT_TYPE_LABEL[c.tenant.tenantType]?.label}</Badge>}</div>
+                    <div className="flex items-center gap-2 flex-wrap"><Badge className={CONTRACT_STATUS_MAP[c.status]?.color}>{CONTRACT_STATUS_MAP[c.status]?.label || c.status}</Badge>{c.tenant?.tenantType && <Badge className={`${TENANT_TYPE_LABEL[c.tenant.tenantType]?.color} text-[10px]`}>{TENANT_TYPE_LABEL[c.tenant.tenantType]?.label}</Badge>}{(c as any).number && <Badge className="bg-slate-800 text-white text-[10px] font-bold tabular-nums">عقد {(c as any).number}</Badge>}</div>
                     <p className="font-bold text-gray-900">{c.tenant?.name || 'بدون مستأجر'} — وحدة {c.unit?.number || '?'}</p>
                     <p className="text-xs text-gray-500">إيجار شهري: {fmtKWD(effectiveRent(c as any))} {CURRENCY}{(c.discount || 0) > 0 ? ` (قبل الخصم ${fmtKWD(c.rentAmount)} — خصم ${fmtKWD(c.discount)})` : ''} — سنوي بعد الخصم: {fmtKWD(effectiveRent(c as any) * 12)} {CURRENCY} — من {new Date(c.startDate).toLocaleDateString('ar')} إلى {new Date(c.endDate).toLocaleDateString('ar')}</p>
                   </div>
@@ -3425,6 +3596,7 @@ function SidebarContent({ user, section, isAdmin, onNavigate, onLogout, counts =
       { key: 'transactions', icon: <TrendingUp size={17} />, label: 'الإيرادات والمصروفات' },
       { key: 'suppliers', icon: <Truck size={17} />, label: 'الموردين والمقاولين' },
       { key: 'loans', icon: <Briefcase size={17} />, label: 'القروض' },
+      { key: 'voucherRegister', icon: <ReceiptText size={17} />, label: 'سجل السندات' },
     ] },
     { id: 'accounting', title: 'المحاسبة', icon: <Scale size={17} />, admin: true, items: [
       { key: 'accounts', icon: <Hash size={17} />, label: 'شجرة الحسابات' },
@@ -3537,6 +3709,7 @@ function LoanCard({ loan, buildingName, installments, canWrite, buildings, refre
             <div className="min-w-0">
               <h3 className="font-bold text-gray-900 truncate">{loan.name}</h3>
               <div className="flex flex-wrap gap-1.5 mt-1">
+                {loan.receiptNo && <Badge className="bg-slate-800 text-white text-[11px] tabular-nums" title="الرقم التسلسلي لسند استلام القرض">سند قبض {loan.receiptNo}</Badge>}
                 {buildingName && <Badge className="bg-orange-100 text-orange-800 text-[11px]">{buildingName}</Badge>}
                 <Badge className="bg-purple-100 text-purple-800 text-[11px]">فائدة {loan.rate}%</Badge>
                 <Badge className="bg-blue-100 text-blue-800 text-[11px]">{loan.months} شهر</Badge>
@@ -3583,10 +3756,10 @@ function LoanCard({ loan, buildingName, installments, canWrite, buildings, refre
                 {installments.map((lp: any) => (
                   <div key={lp.id} className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-gray-50 hover:bg-gray-100 transition">
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold text-gray-700">{new Date(lp.date).toLocaleDateString('ar')}</p>
+                      <p className="text-xs font-semibold text-gray-700">{lp.paymentNo && <span className="text-red-700 tabular-nums mr-1">سند {lp.paymentNo} •</span>}{new Date(lp.date).toLocaleDateString('ar')}</p>
                       <p className="text-[11px] text-gray-500">أصل {fmtKWD(lp.principal)} • فوائد {fmtKWD(lp.interest)} • إجمالي <b className="text-gray-700">{fmtKWD((Number(lp.principal) || 0) + (Number(lp.interest) || 0))} {CURRENCY}</b></p>
                     </div>
-                    <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50 shrink-0" title="سند صرف — قسط قرض"><Printer size={14} /></Button>} title="سند صرف — قسط قرض" docHtml={loanPaymentVoucherHtml(lp, loan.name, CURRENCY)} />
+                    <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50 shrink-0" title={`سند صرف القسط ${lp.paymentNo || ''}`}><Printer size={14} /></Button>} title={`سند صرف ${lp.paymentNo || ''} — قسط قرض`} docHtml={loanPaymentVoucherHtml(lp, loan.name, CURRENCY)} />
                   </div>
                 ))}
               </div>

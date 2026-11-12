@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { upsertAutoEntry, resolveCashAccountCode, ACC } from '@/lib/accounting';
+import { nextDocNumber } from '@/lib/numbering';
 
 /** دفعات الموردين والمقاولين — كل دفعة تولّد قيد مصروف (مدين حساب المصروف / دائن الصندوق أو البنك) */
 export async function GET(request: NextRequest) {
@@ -35,7 +36,8 @@ export async function POST(request: NextRequest) {
 
     const method = ['cash', 'transfer', 'check', 'card'].includes(body.method) ? body.method : 'cash';
     const accountCode = String(body.accountCode || ACC.MISC_EXPENSE);
-    const payment = await db.supplierPayment.create({
+    // دفعة المورد = سند صرف تسلسلي (ص) من العدّاد المركزي — داخل معاملة الإنشاء
+    const payment = await db.$transaction(async (tdb) => tdb.supplierPayment.create({
       data: {
         supplierId,
         amount: Math.round(amount * 1000) / 1000,
@@ -44,8 +46,9 @@ export async function POST(request: NextRequest) {
         buildingId: body.buildingId || null,
         method,
         accountCode,
+        paymentNo: await nextDocNumber(tdb, 'payment'),
       },
-    });
+    }));
 
     // القيد المحاسبي: مدين حساب المصروف / دائن الصندوق أو البنك حسب طريقة الدفع
     let entryWarning: string | null = null;

@@ -4,6 +4,7 @@ import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { syncPaymentEntry } from '@/lib/accounting';
 import { contractBalance } from '@/lib/calc';
+import { nextDocNumber } from '@/lib/numbering';
 
 /**
  * تحصيل شيك شركة مجمّع — للعمارة كاملة:
@@ -82,6 +83,7 @@ export async function POST(request: NextRequest) {
     }
 
     // إنشاء الدفعات + القيود — كلها داخل معاملة واحدة: فشل أي جزء يتراجع الكل
+    // كل دفعة تأخذ فاتورة (ف) وسند قبض (ق) تسلسليين بالترتيب داخل المعاملة نفسها
     const surplus = Math.round((amount - allocations.reduce((s, a) => s + a.amount, 0)) * 1000) / 1000;
     const created = await db.$transaction(async (tdb) => {
       const payments: any[] = [];
@@ -98,6 +100,8 @@ export async function POST(request: NextRequest) {
             method,
             reference,
             notes: `شيك مجمّع للعمارة ${building.name}${surplusNote}${notes ? ` — ${notes}` : ''}`,
+            invoiceNo: await nextDocNumber(tdb, 'invoice'),
+            receiptNo: await nextDocNumber(tdb, 'receipt'),
           },
         });
         payments.push(payment);

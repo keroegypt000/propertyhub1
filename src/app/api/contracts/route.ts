@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { validateContract } from '@/lib/contracts';
+import { nextDocNumber } from '@/lib/numbering';
 
 export async function GET(request: NextRequest) {
   try {
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
     const validationError = await validateContract(body);
     if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
 
-    // معاملة ذرية: إنشاء العقد + تحديث إشغال الوحدة (منع تسابقات الإنشاء المزدوج)
+    // معاملة ذرية: إنشاء العقد + تسلسله + تحديث إشغال الوحدة (منع تسابقات الإنشاء المزدوج)
     const contract = await db.$transaction(async (tx) => {
       const created = await tx.contract.create({ data: {
         unitId: body.unitId,
@@ -50,6 +51,8 @@ export async function POST(request: NextRequest) {
         refund: body.refund !== undefined && body.refund !== null && body.refund !== '' ? Number(body.refund) : null,
         terms: body.terms || null,
         notes: body.notes || null,
+        // الرقم التسلسلي للعقد (ع-0001) — من العدّاد المركزي داخل المعاملة نفسها
+        number: await nextDocNumber(tx, 'contract'),
       }});
       // الإشغال: عقد نشط/مجدد → الوحدة مؤجرة (ما عدا الصيانة) — أما العقد التاريخي (منتهي/ملغي) فلا يغيّر حالة الوحدة الحالية
       if (['active', 'renewed'].includes(created.status)) {

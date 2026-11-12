@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authMiddleware, canWrite, canRead } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { syncTransactionEntry } from '@/lib/accounting';
+import { nextDocNumber } from '@/lib/numbering';
 
 // الحقول المسموح بها فقط — يمنع تمرير حقول دخيلة إلى Prisma
 function cleanBody(body: any) {
@@ -69,7 +70,10 @@ export async function POST(request: NextRequest) {
           amount: shares[i],
           category: body.category ? `${body.category} (موزعة)` : 'مصروف إداري موزع',
         });
-        const tx = await db.transaction.create({ data });
+        // كل حصة تاخد رقم سند صرف تسلسلي مستقل داخل معاملة واحدة
+        const tx = await db.$transaction(async (tdb) => tdb.transaction.create({
+          data: { ...data, voucherNo: await nextDocNumber(tdb, 'payment') },
+        }));
         try { await syncTransactionEntry(db, tx); } catch (e: any) { warnings.push(`${buildings[i].name}: ${e.message}`); }
         created.push(tx);
       }
@@ -89,7 +93,10 @@ export async function POST(request: NextRequest) {
     if (data.buildingId && !(await db.building.findUnique({ where: { id: data.buildingId }, select: { id: true } }))) {
       return NextResponse.json({ error: 'العمارة غير موجودة' }, { status: 400 });
     }
-    const transaction = await db.transaction.create({ data });
+    // إيراد → سند قبض (ق) | مصروف → سند صرف (ص) — من العدّاد المركزي داخل معاملة الإنشاء
+    const transaction = await db.$transaction(async (tdb) => tdb.transaction.create({
+      data: { ...data, voucherNo: await nextDocNumber(tdb, data.type === 'income' ? 'receipt' : 'payment') },
+    }));
     await logAudit(user.id, 'create', 'transaction', transaction.id, body, `إنشاء معاملة: ${data.category}`);
 
     // توليد القيد المزدوج تلقائيًا (مدين ودائن) مرتبطًا بالعمارة — فشل القيد لا يُسقط الحركة

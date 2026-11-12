@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { syncMaintenanceEntry } from '@/lib/accounting';
+import { nextDocNumber } from '@/lib/numbering';
 
 export async function GET(request: NextRequest) {
   try {
@@ -50,7 +51,13 @@ export async function POST(request: NextRequest) {
       if (!u) return NextResponse.json({ error: 'الوحدة غير موجودة' }, { status: 400 });
       data.buildingId = u.building.id; // العمارة تُملأ تلقائياً من الوحدة
     }
-    const item = await db.maintenanceRequest.create({ data });
+    // أُنشئ مكتملًا بتكلفة فعلية → سند صرف تسلسلي (ص) فورًا داخل معاملة الإنشاء
+    const needsVoucher = data.status === 'completed' && Number(data.cost) > 0;
+    const item = await db.$transaction(async (tdb) => tdb.maintenanceRequest.create({
+      data: needsVoucher
+        ? { ...data, paymentNo: await nextDocNumber(tdb, 'payment') }
+        : data,
+    }));
     await logAudit(user.id, 'create', 'maintenance', item.id, body, `إنشاء طلب صيانة: ${body.title}`);
     // إن أُنشئ الطلب مكتملًا بتكلفة فعلية → توليد قيد مصروف الصيانة فورًا
     let entryWarning: string | null = null;

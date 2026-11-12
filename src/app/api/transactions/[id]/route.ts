@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { syncTransactionEntry, removeAutoEntry } from '@/lib/accounting';
+import { nextDocNumber } from '@/lib/numbering';
 
 // الحقول المسموح بها فقط — يمنع تمرير حقول دخيلة إلى Prisma
 function cleanBody(body: any) {
@@ -40,6 +41,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const body = await request.json();
     const old = await db.transaction.findUnique({ where: { id } });
     const transaction = await db.transaction.update({ where: { id }, data: cleanBody(body) });
+    // تغيّر النوع (إيراد ↔ مصروف) → سند جديد من التسلسل الصحيح (الرقم القديم يُلغى — لا يُعاد استخدامه)
+    if (old && old.type !== transaction.type) {
+      const voucherNo = await nextDocNumber(db, transaction.type === 'income' ? 'receipt' : 'payment');
+      await db.transaction.update({ where: { id }, data: { voucherNo } }).catch(() => null);
+      (transaction as any).voucherNo = voucherNo;
+    }
     await logAudit(user.id, 'update', 'transaction', id, { before: old, after: body }, `تعديل معاملة: ${body.category || old?.category}`);
     // إعادة توليد القيد المزدوج بالبيانات الجديدة (upsert — يحدّث القيد القائم)
     let entryWarning: string | null = null;

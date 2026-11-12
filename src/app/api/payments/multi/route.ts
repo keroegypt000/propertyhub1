@@ -4,6 +4,7 @@ import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { syncPaymentEntry } from '@/lib/accounting';
 import { effectiveRent } from '@/lib/calc';
+import { nextDocNumber } from '@/lib/numbering';
 
 /**
  * تحصيل جماعي — تسجيل دفعات متعددة لعدة عملاء/عقود في عملية واحدة:
@@ -46,6 +47,7 @@ export async function POST(request: NextRequest) {
     if (missing.length) return NextResponse.json({ error: `عقد غير موجود (${missing.length}) — حدّث الصفحة وأعد المحاولة` }, { status: 400 });
 
     // تجهيز بيانات الدفعات + تصنيف الحالة (أقل من الإيجار بعد الخصم = جزئية)
+    // كل دفعة تأخذ فاتورة (ف) وسند قبض (ق) تسلسليين داخل معاملة الإنشاء الواحدة — الترتيب حسب ترتيب القائمة
     const rows = items.map((it) => {
       const contract = byId.get(String(it.contractId))!;
       const amount = Math.round(Number(it.amount) * 1000) / 1000;
@@ -63,10 +65,16 @@ export async function POST(request: NextRequest) {
       };
     });
 
-    // إنشاء كل الدفعات في معاملة واحدة
+    // إنشاء كل الدفعات في معاملة واحدة — مع إسناد الفاتورة وسند القبض لكل دفعة بالترتيب
     const created = await db.$transaction(async (tdb) => {
       const payments: any[] = [];
-      for (const r of rows) payments.push(await tdb.payment.create({ data: r }));
+      for (const r of rows) {
+        payments.push(await tdb.payment.create({ data: {
+          ...r,
+          invoiceNo: await nextDocNumber(tdb, 'invoice'),
+          receiptNo: await nextDocNumber(tdb, 'receipt'),
+        } }));
+      }
       return payments;
     });
 

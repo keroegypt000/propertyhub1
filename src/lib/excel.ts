@@ -431,6 +431,7 @@ export const ENTITIES: Record<string, EntityDef> = {
       { key: 'notes', header: 'ملاحظات', width: 22 },
     ],
     exportRow: (c) => ({
+      'رقم العقد': c.number || '',
       'العمارة': c.unit?.building?.name || '', 'رقم الوحدة': c.unit?.number || '', 'المستأجر': c.tenant?.name || '',
       'تاريخ البداية': c.startDate ? String(c.startDate).slice(0, 10) : '',
       'تاريخ النهاية': c.endDate ? String(c.endDate).slice(0, 10) : '',
@@ -484,6 +485,7 @@ export const ENTITIES: Record<string, EntityDef> = {
       { key: 'notes', header: 'ملاحظات', width: 22 },
     ],
     exportRow: (p) => ({
+      'رقم الفاتورة': p.invoiceNo || '', 'رقم سند القبض': p.receiptNo || '',
       'العمارة': p.contract?.unit?.building?.name || '', 'رقم الوحدة': p.contract?.unit?.number || '',
       'المستأجر': p.contract?.tenant?.name || '',
       'المبلغ': p.amount ?? '',
@@ -531,6 +533,7 @@ export const ENTITIES: Record<string, EntityDef> = {
       { key: 'cashAccount', header: 'الدفع من / الاستلام في', width: 20, example: 'كاش' },
     ],
     exportRow: (t) => ({
+      'رقم السند': t.voucherNo || '',
       'التاريخ': t.date || '',
       'النوع': ({ income: 'إيراد', expense: 'مصروف' } as any)[t.type] || t.type,
       'البيان': t.category || '', 'المبلغ': t.amount ?? '',

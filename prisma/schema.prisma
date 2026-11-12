@@ -116,6 +116,7 @@ model Contract {
   notes        String?
   rentHistory  String?  // JSON: [{from, rent}] تاريخ تغيير الإيجار
   renewHistory String?  // JSON: [{on, oldEnd, newEnd, rent}] تاريخ التجديد
+  number       String?  @unique // الرقم التسلسلي للعقد (ع-0001) — يُسند آليًا عند الإنشاء ولا يُقبل من المستخدم
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -136,6 +137,8 @@ model Payment {
   method      String?  // cash, transfer, check, card
   reference   String?  // receipt/check number
   notes       String?
+  invoiceNo   String?  @unique // رقم فاتورة الإيجار التسلسلي (ف-0001) — يُسند آليًا عند إنشاء الدفعة
+  receiptNo   String?  @unique // رقم سند القبض التسلسلي (ق-0001) — يُسند آليًا عند التحصيل (مدفوع/جزئي)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -152,6 +155,7 @@ model Transaction {
   amount      Float
   account     String?  // رقم الحساب من شجرة الحسابات (كود الحساب المدين/الدائن)
   cashAccount String?  // الدفع من / الاستلام في: cash | bank | checks
+  voucherNo   String?  @unique // رقم السند التسلسلي (ق-0001 للإيراد / ص-0001 للمصروف) — يُسند آليًا
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -192,6 +196,7 @@ model Loan {
   date        String   // تاريخ الحصول
   rate        Float    @default(0) // الفائدة السنوية %
   months      Int      @default(0) // المدة بالأشهر
+  receiptNo   String?  @unique // رقم سند استلام القرض التسلسلي (ق-0001) — يُسند آليًا
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -205,6 +210,7 @@ model LoanPayment {
   principal   Float    // الأصل المسدد
   interest    Float    @default(0) // الفائدة المسددة
   notes       String?
+  paymentNo   String?  @unique // رقم سند صرف القسط التسلسلي (ص-0001) — يُسند آليًا
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -253,6 +259,7 @@ model MaintenanceRequest {
   status      String   @default("open") // open, in_progress, completed, cancelled
   estimatedCost Float?  // التكلفة التقديرية
   cost        Float?   // التكلفة الفعلية
+  paymentNo   String?  @unique // رقم سند صرف تكلفة الصيانة التسلسلي (ص-0001) — يُسند آليًا عند الإكمال بتكلفة
   assignedTo  String?
   completedAt DateTime?
   createdAt   DateTime @default(now())
@@ -342,8 +349,17 @@ model SupplierPayment {
   buildingId  String?  // العمارة المرتبطة (اختياري)
   method      String   @default("cash") // cash, transfer, check, card
   accountCode String   @default("5206") // حساب المصروف من شجرة الحسابات
+  paymentNo   String?  @unique // رقم سند الصرف التسلسلي (ص-0001) — يُسند آليًا
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   supplier    Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+}
+
+// === عدّاد الترقيم التسلسلي للمستندات ===
+// سطر واحد لكل تسلسل: contract (عقود) | invoice (فواتير إيجار) | receipt (سندات قبض) | payment (سندات صرف)
+// يتزايد ذريًا عبر upsert داخل معاملة الإنشاء — لا فجوات عشوائية ولا أرقام مكررة
+model DocCounter {
+  key     String @id // contract | invoice | receipt | payment
+  current Int    @default(0)
 }

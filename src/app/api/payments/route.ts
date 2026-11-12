@@ -4,6 +4,7 @@ import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { syncPaymentEntry } from '@/lib/accounting';
 import { effectiveRent } from '@/lib/calc';
+import { nextDocNumber, isCollectedStatus } from '@/lib/numbering';
 
 export async function GET(request: NextRequest) {
   try {
@@ -39,18 +40,25 @@ export async function POST(request: NextRequest) {
     let status = body.status || 'paid';
     if (status === 'paid' && amount + 0.0005 < effectiveRent(contract as any)) status = 'partial';
 
-    const payment = await db.payment.create({
-      data: {
-        contractId: body.contractId,
-        amount,
-        dueDate: body.dueDate ? new Date(body.dueDate) : new Date(),
-        paidDate: body.paidDate ? new Date(body.paidDate) : new Date(),
-        month: body.month || null,
-        status,
-        method: body.method || 'cash',
-        reference: body.reference || null,
-        notes: body.notes || null,
-      },
+    // إنشاء الدفعة داخل معاملة: فاتورة الإيجار (ف) لكل دفعة + سند القبض (ق) للمدفوع/الجزئي
+    // الأرقام من العدّاد المركزي — لا تُقبل من المستخدم أبدًا
+    const payment = await db.$transaction(async (tx) => {
+      const p = await tx.payment.create({
+        data: {
+          contractId: body.contractId,
+          amount,
+          dueDate: body.dueDate ? new Date(body.dueDate) : new Date(),
+          paidDate: body.paidDate ? new Date(body.paidDate) : new Date(),
+          month: body.month || null,
+          status,
+          method: body.method || 'cash',
+          reference: body.reference || null,
+          notes: body.notes || null,
+          invoiceNo: await nextDocNumber(tx, 'invoice'),
+          ...(isCollectedStatus(status) ? { receiptNo: await nextDocNumber(tx, 'receipt') } : {}),
+        },
+      });
+      return p;
     });
     await logAudit(user.id, 'create', 'payment', payment.id, body, `تسجيل دفعة ${amount} على العقد`);
 

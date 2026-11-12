@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authMiddleware, canWrite, canRead } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { syncLoanPaymentEntry } from '@/lib/accounting';
+import { nextDocNumber } from '@/lib/numbering';
 
 export async function GET(request: NextRequest) {
   try {
@@ -35,15 +36,17 @@ export async function POST(request: NextRequest) {
     if (principal < 0 || interest < 0) return NextResponse.json({ error: 'المبالغ لا يمكن أن تكون سالبة' }, { status: 400 });
     if (principal + interest <= 0) return NextResponse.json({ error: 'أدخل مبلغ الأصل أو الفائدة' }, { status: 400 });
 
-    const payment = await db.loanPayment.create({
+    // سداد القسط = سند صرف تسلسلي (ص) من العدّاد المركزي — داخل معاملة الإنشاء
+    const payment = await db.$transaction(async (tdb) => tdb.loanPayment.create({
       data: {
         loanId: body.loanId,
         date: body.date || new Date().toISOString().slice(0, 10),
         principal,
         interest,
         notes: body.notes || null,
+        paymentNo: await nextDocNumber(tdb, 'payment'),
       },
-    });
+    }));
     await logAudit(user.id, 'create', 'loanPayment', payment.id, { loanId: body.loanId, principal, interest }, `إنشاء سداد قرض: ${loan.name}`);
 
     // توليد قيد سداد القرض (مدين أصل القرض + الفوائد / دائن البنك)
