@@ -179,6 +179,8 @@ export default function PropertyManagerApp() {
   const [unitFocusId, setUnitFocusId] = useState('');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  // عدد سجلات كل قسم — يغذي شارات القائمة الجانبية (endpoint خفيف واحد /api/counts)
+  const [counts, setCounts] = useState<Record<string, number>>({});
   const go = (s: Section, presetSearch?: string) => { setSection(s); setSearchQuery(presetSearch ?? ''); setMobileNavOpen(false); };
   // فتح صفحة تفاصيل العمارة — النقر على كارت العمارة يفتحها بتبويب النظرة العامة
   const goBuildingDetail = (id: string, tab = 'overview') => { setDetailBuildingId(id); setDetailTab(tab); setSection('buildingDetail'); setSearchQuery(''); setMobileNavOpen(false); };
@@ -202,6 +204,10 @@ export default function PropertyManagerApp() {
   }, []);
 
   useEffect(() => { checkSetup(); checkAuth(); }, [checkAuth, checkSetup]);
+
+  const refreshCounts = useCallback(async () => {
+    try { setCounts(await api<Record<string, number>>('/api/counts')); } catch { /* الأعداد تحسين عرض — فشلها لا يعطل شيء */ }
+  }, []);
 
   const loadData = useCallback(async (s: Section) => {
     try {
@@ -276,6 +282,8 @@ export default function PropertyManagerApp() {
         setBuildings(b); setUnits(u); setTenants(t); setContracts(c); setPayments(p); setMaintenance(m); setTransactions(tr); setAccounts(ac); setLoans(lo); setLoanPayments(lp); setJournalEntries(jr);
         setLastUpdated(new Date());
       }
+      // بعد أي تحميل بيانات: حدّث شارات العدد في القائمة الجانبية (طلب خفيف واحد)
+      refreshCounts();
     } catch (e: any) {
       // Re-check auth before logging out - don't immediately logout on data errors
       if (e.message === 'unauthorized') {
@@ -285,7 +293,7 @@ export default function PropertyManagerApp() {
       }
       toast.error(e.message);
     }
-  }, []);
+  }, [refreshCounts]);
 
   useEffect(() => { if (user) loadData(section); }, [user, section, loadData]);
 
@@ -302,6 +310,7 @@ export default function PropertyManagerApp() {
     setBuildings([]); setUnits([]); setTenants([]); setContracts([]); setPayments([]); setMaintenance([]);
     setTransactions([]); setLoans([]); setLoanPayments([]); setAccounts([]); setJournalEntries([]); setAllFiles([]); setLegalCases([]);
     setSuppliers([]); setSupplierPayments([]);
+    refreshCounts();
   };
 
   const handleLogout = async () => { await api('/api/auth/logout', 'POST'); clearStoredToken(); setUser(null); };
@@ -409,12 +418,12 @@ export default function PropertyManagerApp() {
       {/* Mobile drawer sidebar */}
       <aside className={`lg:hidden fixed inset-y-0 right-0 z-50 w-72 max-w-[85vw] bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out ${mobileNavOpen ? 'translate-x-0' : 'translate-x-full'}`} aria-hidden={!mobileNavOpen}>
         <button onClick={() => setMobileNavOpen(false)} aria-label="إغلاق القائمة" className="absolute top-4 left-4 p-1.5 rounded-lg text-gray-400 hover:bg-orange-50 hover:text-orange-700 transition"><X size={18} /></button>
-        <SidebarContent user={user} section={section} isAdmin={isAdmin} onNavigate={go} onLogout={handleLogout} />
+        <SidebarContent user={user} section={section} isAdmin={isAdmin} onNavigate={go} onLogout={handleLogout} counts={counts} />
       </aside>
 
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex sticky top-0 h-screen w-64 bg-white/80 backdrop-blur-xl border-l border-orange-200 shadow-xl flex-col shrink-0">
-        <SidebarContent user={user} section={section} isAdmin={isAdmin} onNavigate={go} onLogout={handleLogout} />
+        <SidebarContent user={user} section={section} isAdmin={isAdmin} onNavigate={go} onLogout={handleLogout} counts={counts} />
       </aside>
 
       {/* Main Content */}
@@ -3247,9 +3256,10 @@ function CompanyCheckForm({ buildings, contracts, onSave, onClose }: {
 // محتوى القائمة الجانبية — مشترك بين الديسكتوب ودرج الموبايل
 // قائمة مجمّعة: البنود المتشابهة داخل مجموعات منسدلة (اضغط المجموعة تفتح/تطوي)
 // والمجموعة التي يوجد بها القسم الحالي تُفتح تلقائيًا عند التنقل
-function SidebarContent({ user, section, isAdmin, onNavigate, onLogout }: {
+function SidebarContent({ user, section, isAdmin, onNavigate, onLogout, counts = {} }: {
   user: User; section: Section; isAdmin: boolean;
   onNavigate: (s: Section) => void; onLogout: () => void;
+  counts?: Record<string, number>;
 }) {
   type NavItem = { key: Section; icon: React.ReactNode; label: string };
   type NavGroup = { id: string; title: string; icon: React.ReactNode; items: NavItem[]; admin?: boolean };
@@ -3295,12 +3305,19 @@ function SidebarContent({ user, section, isAdmin, onNavigate, onLogout }: {
   const isOpen = (id: string) => groupState[id] ?? groupOfSection(section) === id;
   const toggleGroup = (id: string) => setGroupState(prev => ({ ...prev, [id]: !isOpen(id) }));
 
-  const navBtn = (item: NavItem) => (
+  const navBtn = (item: NavItem) => {
+    const n = counts[item.key];
+    return (
     <button key={item.key} onClick={() => onNavigate(item.key)}
       className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-200 ${section === item.key ? 'bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md' : 'text-gray-600 hover:bg-orange-50 hover:text-orange-700'}`}>
-      {item.icon}<span>{item.label}</span>
+      {item.icon}<span className="flex-1 text-right">{item.label}</span>
+      {typeof n === 'number' && (
+        <span title={`عدد السجلات: ${n}`}
+          className={`text-[10px] font-bold leading-none rounded-full px-1.5 py-1 min-w-[20px] text-center ${section === item.key ? 'bg-white/25 text-white' : 'bg-orange-100 text-orange-700'}`}>{n.toLocaleString('en-US')}</span>
+      )}
     </button>
-  );
+    );
+  };
 
   return (<>
     <div className="p-5 border-b border-orange-100">
@@ -3316,6 +3333,9 @@ function SidebarContent({ user, section, isAdmin, onNavigate, onLogout }: {
       {NAV_GROUPS.filter(g => !g.admin || isAdmin).map(group => {
         const activeInside = group.items.some(i => i.key === section);
         const open = isOpen(group.id);
+        // عدد سجلات المجموعة = مجموع أعداد بنودها — وقبل تحميل الأعداد يظهر عدد البنود كما كان
+        const hasCounts = group.items.some(i => typeof counts[i.key] === 'number');
+        const groupCount = group.items.reduce((s, i) => s + (counts[i.key] ?? 0), 0);
         return (
           <div key={group.id}>
             <button onClick={() => toggleGroup(group.id)}
@@ -3324,7 +3344,7 @@ function SidebarContent({ user, section, isAdmin, onNavigate, onLogout }: {
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${activeInside ? 'bg-orange-100/80 text-orange-800 shadow-sm' : 'text-gray-700 hover:bg-orange-50 hover:text-orange-700'}`}>
               <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm transition-colors ${activeInside ? 'bg-gradient-to-br from-orange-500 to-amber-500 text-white' : 'bg-orange-100 text-orange-600'}`}>{group.icon}</span>
               <span className="flex-1 text-right">{group.title}</span>
-              <span className="text-[10px] font-medium text-gray-400">{group.items.length}</span>
+              <span className="text-[10px] font-medium text-gray-400" title={hasCounts ? 'إجمالي سجلات بنود المجموعة' : undefined}>{hasCounts ? groupCount.toLocaleString('en-US') : group.items.length}</span>
               <ChevronDown size={15} className={`text-orange-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
             </button>
             {open && (

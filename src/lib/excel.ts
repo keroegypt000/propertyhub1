@@ -683,7 +683,7 @@ export function downloadExcel(rows: Record<string, any>[], sheetName: string, fi
   XLSX.writeFile(wb, filename);
 }
 
-/** تنزيل قالب فارغ للكيان: صف رؤوس + صف إرشادي + صف مثال */
+/** تنزيل قالب فارغ للكيان: ورقة «اقرأني» إرشادية + صف رؤوس + صف إرشادي + صف مثال */
 export function downloadTemplate(entityKey: string) {
   const def = ENTITIES[entityKey];
   if (!def) return;
@@ -698,6 +698,21 @@ export function downloadTemplate(entityKey: string) {
   ws['!views'] = [{ RTL: true }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, def.sheetName.slice(0, 31));
+  // ورقة إرشادية ثانية توضح الغرض من القالب وفرقه عن التصدير والاستيراد — لا تُقرأ عند الاستيراد (الاستيراد يقرأ الورقة الأولى فقط)
+  const info = [
+    [`قالب ${def.label} — اقرأني`],
+    [''],
+    ['ما هذا الملف؟', `قالب فارغ لتعبئة بيانات ${def.label} بنفسك — أعمدته مطابقة تمامًا لما يقرأه الاستيراد.`],
+    ['الفرق بين القالب والتصدير', 'القالب = ملف فارغ تعبئه للاستيراد • التصدير = نسخة ببياناتك الموجودة في النظام (تنفع تعدّلها وترفعها في وضع «تحديث بيانات موجودة»).'],
+    ['طريقة الاستخدام', '1) اكتب بياناتك ابتداءً من الصف الرابع، أو امسح صف الإرشاد وصف المثال. 2) لا تغيّر أسماء الأعمدة في الصف الأول ولا ترتيبها. 3) احفظ الملف وارفعه من زر «استيراد» في صفحة ' + def.label + '.'],
+    ['صف الإرشاد وصف المثال', 'الصف اللي فيه ملاحظات الأعمدة والصف اللي فيه المثال يتجاهلهم الاستيراد تلقائيًا — تقدر تمسحهم أو تسيبهم.'],
+    ['التواريخ', 'تقبل 2025-01-31 أو 31/01/2025'],
+    ['الأرقام', 'عادية أو عربية (٠-٩) مع أو بدون فواصل آلاف'],
+  ];
+  const wsInfo = XLSX.utils.aoa_to_sheet(info);
+  wsInfo['!cols'] = [{ wch: 26 }, { wch: 80 }];
+  wsInfo['!views'] = [{ RTL: true }];
+  XLSX.utils.book_append_sheet(wb, wsInfo, 'اقرأني'.slice(0, 31));
   XLSX.writeFile(wb, `قالب-${def.label}.xlsx`);
 }
 
@@ -735,15 +750,24 @@ export async function readExcelFile(file: File, entityKey?: string): Promise<{ r
   const headers = json.length > 0 ? Object.keys(json[0]) : [];
   const def = entityKey ? ENTITIES[entityKey] : undefined;
   const examples = def ? def.columns.map(c => String(c.example ?? '').trim()) : null;
+  const notes = def ? def.columns.map(c => String(c.note ?? '').trim()) : null;
+  // صف الإرشاد: قيمه = ملاحظات الأعمدة حرفيًا — يُفلتر بمطابقة خلية-بخلية مهما كان الكيان
+  // (الفلتر القديم بالكلمات المفتاحية في أول خلية كان يفشل مع كيانات أول عمود فيها إرشاد بلا كلمة «إجباري/اختياري» مثل الوحدات والعقود)
+  const isGuideRow = (r: Record<string, any>) => {
+    if (!def || !notes) return false;
+    return def.columns.every((c, i) => String(r[c.header] ?? '').trim() === notes[i]);
+  };
   const isExampleRow = (r: Record<string, any>) => {
     if (!def || !examples) return false;
     return def.columns.every((c, i) => String(r[c.header] ?? '').trim() === examples[i]);
   };
-  // استبعاد صف الإرشاد (يحتوي كلمات مثل إجباري/اختياري) وصف المثال غير المعدّل من القالب
+  // استبعاد صف الإرشاد وصف المثال غير المعدّل والصفوف الفارغة تمامًا من القالب
   const filtered = merged.filter(r => {
     const first = String(r[headers[0]] ?? '');
     if (/إجباري|إجبارى|اختياري|مطلوب/.test(first)) return false;
+    if (isGuideRow(r)) return false;
     if (isExampleRow(r)) return false;
+    if (def && def.columns.every(c => String(r[c.header] ?? '').trim() === '')) return false;
     return true;
   });
   return { rows: filtered, headers };

@@ -124,7 +124,7 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
     setBusyParse(true);
     try {
       const { rows: excelRows } = await readExcelFile(file, entity);
-      if (excelRows.length === 0) throw new Error('الملف لا يحتوي صفوف بيانات');
+      if (excelRows.length === 0) throw new Error('الملف لا يحتوي صفوف بيانات — لو ده القالب الفارغ عبّئ بياناتك فيه ثم أعد الرفع');
       setFileName(file.name);
       let ctxData: ImportCtx = { buildings: [], units: [], tenants: [], contracts: [] };
       try { ctxData = await fetchCtx(); setCtx(ctxData); } catch { /* سياق فارغ — ستفشل المراجع برسائل واضحة */ }
@@ -211,8 +211,8 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
       <Button variant="outline" size="sm" className="border-emerald-200 text-emerald-700 hover:bg-emerald-50" onClick={() => { exportEntity(entity, rows); toast.success('تم تنزيل ملف الإكسل'); }} disabled={rows.length === 0} title="تصدير البيانات الحالية إلى Excel">
         <FileDown size={16} className="ml-1" />تصدير Excel
       </Button>
-      <Button variant="outline" size="sm" className="border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => { downloadTemplate(entity); toast.success('تم تنزيل القالب — عبّئه ثم استورده'); }} title="تنزيل قالب فارغ بالأعمدة الصحيحة">
-        <FileSpreadsheet size={16} className="ml-1" />قالب
+      <Button variant="outline" size="sm" className="border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => { downloadTemplate(entity); toast.success('تم تنزيل قالب فارغ — عبّئه ثم استورده (بياناتك الموجودة تنزل من زر «تصدير Excel»)'); }} title="قالب فارغ للتعبئة — أعمدته مطابقة للاستيراد، ومفيهوش بياناتك (بياناتك تنزل من تصدير Excel)">
+        <FileSpreadsheet size={16} className="ml-1" />قالب فارغ
       </Button>
       {canWrite && importEnabled && (
         <Button variant="outline" size="sm" className="border-orange-200 text-orange-700 hover:bg-orange-50" onClick={() => { reset(); setOpen(true); }} title="استيراد بيانات من ملف Excel">
@@ -249,7 +249,8 @@ export function ExcelToolbar({ entity, rows, canWrite, onImported, importEnabled
                 <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-900">
                   <Info size={18} className="shrink-0 mt-0.5" />
                   <div className="space-y-1">
-                    <p><strong>الطريقة الأسهل:</strong> نزّل «القالب» من الزر البرتقالي، عبّئ بياناتك فيه (أو انسخ أعمدة ملفك القديم بنفس ترتيب الأعمدة)، ثم اختر الملف هنا.</p>
+                    <p><strong>إيه الفرق؟</strong> «<strong>قالب فارغ</strong>» = ملف Excel فاضي بالأعمدة الصحيحة تعبّيه بنفسك • «<strong>تصدير Excel</strong>» = نسخة ببياناتك الموجودة حاليًا (تنفع تعدّلها وترفعها هنا في وضع «تحديث») • «<strong>استيراد</strong>» = رفع الملف للنظام.</p>
+                    <p className="text-xs text-blue-700">ملف القالب فيه ورقة «اقرأني» فيها الشرح — وصف الإرشاد وصف المثال بيتتجاهلوا تلقائيًا عند الرفع.</p>
                     <p className="text-xs text-blue-700">{orderHint}</p>
                     <p className="text-xs text-blue-700">التواريخ تقبل <span dir="ltr">2025-01-31</span> أو <span dir="ltr">31/01/2025</span> — والأرقام عادية أو عربية (٠-٩).</p>
                   </div>
