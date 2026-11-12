@@ -10,4 +10,6 @@ export const db =
     log: process.env.NODE_ENV === 'development' ? ['query'] : ['error'],
   })
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+// نخزّن النسخة دائمًا (حتى في الإنتاج) — كل دالة serverless على Vercel
+// تعيد استخدام نفس عميل Prisma بدل فتح اتصالات جديدة كل مرة
+globalForPrisma.prisma = db
