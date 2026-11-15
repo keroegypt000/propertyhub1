@@ -8,7 +8,7 @@ import {
   VoucherDialog, printHtmlDoc,
   paymentReceiptHtml, loanReceiptHtml, loanPaymentVoucherHtml,
   maintenanceVoucherHtml, transactionVoucherHtml,
-  supplierPaymentVoucherHtml, rentInvoiceHtml,
+  supplierPaymentVoucherHtml, supplierInvoiceVoucherHtml, rentInvoiceHtml,
   voucherRegisterDocHtml, RegisterRow,
   journalEntryDocHtml, journalBookDocHtml, trialBalanceDocHtml, TBRow,
   buildingFinancialReportHtml, buildingUnitsDocHtml,
@@ -168,6 +168,9 @@ export default function PropertyManagerApp() {
   const [legalCases, setLegalCases] = useState<LegalCase[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [supplierPayments, setSupplierPayments] = useState<any[]>([]);
+  // مستحقات الموردين والمقاولين (م-0001) — رصيد كل مورد = المستحق − المدفوع
+  const [supplierInvoices, setSupplierInvoices] = useState<any[]>([]);
+  const [supplierInvFilter, setSupplierInvFilter] = useState('all'); // all | unpaid | partial | paid
   const [tenantStatusFilter, setTenantStatusFilter] = useState<'all' | 'current' | 'former'>('all');
   // فلتر سجل السندات: الكل / قبض / صرف — بحث بالرقم التسلسلي أو الطرف أو البيان
   const [regKindFilter, setRegKindFilter] = useState<'all' | 'قبض' | 'صرف'>('all');
@@ -259,11 +262,11 @@ export default function PropertyManagerApp() {
       if (s === 'contracts') setContracts(await api<Contract[]>('/api/contracts'));
       if (s === 'payments') { setPayments(await api<Payment[]>('/api/payments')); setContracts(await api<Contract[]>('/api/contracts')); }
       if (s === 'suppliers') {
-        const [sp, sPay, b, ac] = await Promise.all([
-          api('/api/suppliers'), api('/api/supplier-payments').catch(() => []),
-          api('/api/buildings').catch(() => []), api('/api/accounts').catch(() => []),
+        const [sp, sPay, sInv, b, ac, u] = await Promise.all([
+          api('/api/suppliers'), api('/api/supplier-payments').catch(() => []), api('/api/supplier-invoices').catch(() => []),
+          api('/api/buildings').catch(() => []), api('/api/accounts').catch(() => []), api('/api/units').catch(() => []),
         ]);
-        setSuppliers(sp as any); setSupplierPayments(sPay as any); setBuildings(b as Building[]); setAccounts(ac as any);
+        setSuppliers(sp as any); setSupplierPayments(sPay as any); setSupplierInvoices(sInv as any); setBuildings(b as Building[]); setAccounts(ac as any); setUnits(u as any);
       }
       if (s === 'maintenance') setMaintenance(await api<MaintenanceItem[]>('/api/maintenance'));
       if (s === 'files') { setAllFiles(await api<FileUpload[]>('/api/files/all')); setContracts(await api<Contract[]>('/api/contracts')); setTenants(await api<Tenant[]>('/api/tenants')); }
@@ -273,14 +276,16 @@ export default function PropertyManagerApp() {
       if (s === 'transactions') { setTransactions(await api('/api/transactions')); setBuildings(await api('/api/buildings')); setAccounts(await api('/api/accounts')); }
       if (s === 'legalCases') setLegalCases(await api('/api/legal-cases'));
       if (s === 'buildingDetail') {
-        const [b, u, c, t, m, tr, jr, ac, fl, p] = await Promise.all([
+        const [b, u, c, t, m, tr, jr, ac, fl, p, sup, sInv, sPay] = await Promise.all([
           api<Building[]>('/api/buildings'), api<Unit[]>('/api/units'), api<Contract[]>('/api/contracts'),
           api<Tenant[]>('/api/tenants'), api<MaintenanceItem[]>('/api/maintenance'), api('/api/transactions'),
           api('/api/journal').catch(() => []), api('/api/accounts').catch(() => []), api<FileUpload[]>('/api/files/all').catch(() => []),
           api<Payment[]>('/api/payments').catch(() => []),
+          api('/api/suppliers').catch(() => []), api('/api/supplier-invoices').catch(() => []), api('/api/supplier-payments').catch(() => []),
         ]);
         setBuildings(b); setUnits(u); setContracts(c); setTenants(t); setMaintenance(m); setTransactions(tr);
         setJournalEntries(jr); setAccounts(ac); setAllFiles(fl); setPayments(p);
+        setSuppliers(sup as any); setSupplierInvoices(sInv as any); setSupplierPayments(sPay as any);
         try { setLegalCases(await api('/api/legal-cases')); } catch {}
       }
       if (s === 'loans') { setLoans(await api('/api/loans')); setLoanPayments(await api('/api/loan-payments')); }
@@ -315,13 +320,15 @@ export default function PropertyManagerApp() {
           api<Contract[]>('/api/contracts'), api<Payment[]>('/api/payments'), api<MaintenanceItem[]>('/api/maintenance'),
           api('/api/transactions'), api('/api/accounts'), api('/api/loans'), api('/api/loan-payments'),
           api('/api/journal').catch(() => []),
+          api('/api/supplier-invoices').catch(() => []), api('/api/supplier-payments').catch(() => []),
         ]);
-        const [b, u, t, c, p, m, tr, ac, lo, lp, jr] = results.map((r, i) => {
+        const [b, u, t, c, p, m, tr, ac, lo, lp, jr, sInv, sPay] = results.map((r, i) => {
           if (r.status === 'fulfilled') return r.value;
           console.warn(`Dashboard API ${i} failed:`, r.reason);
           return [];
         });
         setBuildings(b); setUnits(u); setTenants(t); setContracts(c); setPayments(p); setMaintenance(m); setTransactions(tr); setAccounts(ac); setLoans(lo); setLoanPayments(lp); setJournalEntries(jr);
+        setSupplierInvoices(sInv as any); setSupplierPayments(sPay as any);
         setLastUpdated(new Date());
       }
       // بعد أي تحميل بيانات: حدّث شارات العدد في القائمة الجانبية (طلب خفيف واحد)
@@ -363,7 +370,7 @@ export default function PropertyManagerApp() {
   const clearAllData = () => {
     setBuildings([]); setUnits([]); setTenants([]); setContracts([]); setPayments([]); setMaintenance([]);
     setTransactions([]); setLoans([]); setLoanPayments([]); setAccounts([]); setJournalEntries([]); setAllFiles([]); setLegalCases([]);
-    setSuppliers([]); setSupplierPayments([]);
+    setSuppliers([]); setSupplierPayments([]); setSupplierInvoices([]);
     refreshCounts();
   };
 
@@ -515,6 +522,11 @@ export default function PropertyManagerApp() {
             // Open maintenance count
             const openMaintCount = maintenance.filter(m => m.status === 'open' || m.status === 'in_progress').length;
 
+            // مستحقات الموردين والمقاولين — الرصيد المتبقي عليهم (المستحق − المدفوع) — من صفحة الموردين
+            const suppliersDues = supplierInvoices.reduce((s: number, i: any) => s + (Number(i.amount) || 0), 0);
+            const suppliersPaid = supplierPayments.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
+            const suppliersPayable = Math.max(0, Math.round((suppliersDues - suppliersPaid) * 1000) / 1000);
+
             // Revenue & Expenses from transactions
             const totalRevenue = transactions.filter((t: any) => t.type === 'income').reduce((s: number, t: any) => s + (t.amount || 0), 0);
             const totalExpenses = transactions.filter((t: any) => t.type === 'expense').reduce((s: number, t: any) => s + (t.amount || 0), 0);
@@ -591,7 +603,7 @@ export default function PropertyManagerApp() {
               </div>
 
               {/* KPI Cards — المؤشرات التشغيلية (المالي في لوحة الإيرادات تحته) — كل بطاقة تنقل إلى مصدرها */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 sm:gap-4">
                 {[
                   { icon: <Building2 size={22} />, label: 'عدد العمارات', num: buildingCount, decimals: 0, color: 'from-orange-500 to-amber-500', dest: 'المباني', onClick: () => go('buildings') },
                   { icon: <Home size={22} />, label: 'عدد الوحدات', num: unitCount, decimals: 0, color: 'from-blue-500 to-indigo-500', dest: 'الوحدات', onClick: () => goUnits('all') },
@@ -599,6 +611,7 @@ export default function PropertyManagerApp() {
                   { icon: <Activity size={22} />, label: 'نسبة الإشغال', num: occupancyRate, decimals: 0, suffix: '%', color: 'from-emerald-500 to-green-500', dest: 'الوحدات المؤجرة', onClick: () => goUnits('rented') },
                   { icon: <Wrench size={22} />, label: 'صيانة مفتوحة', num: openMaintCount, decimals: 0, color: 'from-amber-500 to-yellow-500', dest: 'طلبات الصيانة المفتوحة', onClick: () => goMaintenance('open_active') },
                   { icon: <Briefcase size={22} />, label: 'رصيد القروض', num: loanBalance, decimals: 2, suffix: ' د.ك', color: 'from-purple-500 to-violet-500', dest: 'القروض', onClick: () => go('loans') },
+                  { icon: <Truck size={22} />, label: 'مستحقات الموردين', num: suppliersPayable, decimals: 2, suffix: ' د.ك', color: 'from-rose-500 to-red-500', dest: 'الموردين والمقاولين', onClick: () => go('suppliers') },
                 ].map((stat, i) => (
                   <Card key={i} onClick={stat.onClick} title={`اضغط للانتقال إلى ${stat.dest}`} className="border-0 shadow-lg overflow-hidden hover:shadow-xl hover:-translate-y-0.5 active:scale-[0.98] transition-all cursor-pointer group">
                     <div className={`h-1 bg-gradient-to-l ${stat.color}`} />
@@ -917,6 +930,9 @@ export default function PropertyManagerApp() {
               accounts={accounts as any}
               allFiles={allFiles}
               legalCases={legalCases}
+              suppliers={suppliers as any}
+              supplierInvoices={supplierInvoices as any}
+              supplierPayments={supplierPayments as any}
               tab={detailTab}
               setTab={setDetailTab}
               onBack={() => go('buildings')}
@@ -1389,31 +1405,50 @@ export default function PropertyManagerApp() {
             );
           })()}
 
-          {/* Suppliers & Contractors — الموردين والمقاولين */}
+          {/* Suppliers & Contractors — الموردين والمقاولين — دورة كاملة: مستحق ← دفعات ← رصيد، مربوطة بالعمارات والقيود */}
           {section === 'suppliers' && (() => {
-            const totalPaid = supplierPayments.reduce((s, p) => s + (p.amount || 0), 0);
+            const r3s = (n: number) => Math.round(n * 1000) / 1000;
+            const totalDues = r3s(supplierInvoices.reduce((s: number, i: any) => s + (Number(i.amount) || 0), 0));
+            const totalPaid = r3s(supplierPayments.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0));
+            const totalBalance = r3s(totalDues - totalPaid);
+            const invPaidOf = (inv: any) => r3s((inv.payments || []).reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0));
+            const INV_STATUS: Record<string, { label: string; color: string }> = {
+              paid: { label: 'مسدد', color: 'bg-emerald-100 text-emerald-800' },
+              partial: { label: 'مسدد جزئياً', color: 'bg-amber-100 text-amber-800' },
+              unpaid: { label: 'غير مسدد', color: 'bg-red-100 text-red-800' },
+            };
             const filteredSuppliers = suppliers.filter(x => !searchQuery || x.name.includes(searchQuery) || (x.phone || '').includes(searchQuery) || (x.specialty || '').includes(searchQuery));
             const filteredPayments = supplierPayments.filter(p => supplierPayFilter === 'all' || p.supplierId === supplierPayFilter);
+            const filteredInvoices = supplierInvoices.filter(i =>
+              (supplierInvFilter === 'all' || i.status === supplierInvFilter)
+              && (!searchQuery || i.invoiceNo?.includes(searchQuery) || i.supplier?.name?.includes(searchQuery) || (i.description || '').includes(searchQuery)));
+            const saveInvoice = async (data: any) => { const r: any = await api('/api/supplier-invoices', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); autoRestore('مستحق مورد'); loadData('suppliers'); };
+            const savePayment = async (data: any) => { const r: any = await api('/api/supplier-payments', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); autoRestore('دفعة مورد'); loadData('suppliers'); };
             return (
             <div className="space-y-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الموردين والمقاولين</h2><PageCount n={suppliers.length} label="مورد / مقاول" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
                   {canWriteCheck('suppliers') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة مورد / مقاول</Button>} title="إضافة مورد أو مقاول جديد">{(close) => <SupplierForm onSave={async (data) => { await api('/api/suppliers', 'POST', data); autoRestore('إضافة مورد'); loadData('suppliers'); }} onClose={close} />}</FormDialog>)}
-                  {canWriteCheck('suppliers') && suppliers.length > 0 && (<FormDialog trigger={<Button variant="outline" className="border-amber-300 text-amber-700 bg-amber-50" title="سجل دفعة لمقاول أو مورد بقيود محاسبية"><Truck size={16} className="ml-1" />تسجيل دفعة مورد</Button>} title="تسجيل دفعة لمورد / مقاول">{(close) => <SupplierPaymentForm suppliers={suppliers} buildings={buildings} accounts={accounts as any} onSave={async (data) => { const r: any = await api('/api/supplier-payments', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); autoRestore('دفعة مورد'); loadData('suppliers'); }} onClose={close} />}</FormDialog>)}
+                  {canWriteCheck('suppliers') && suppliers.length > 0 && (<FormDialog trigger={<Button variant="outline" className="border-rose-300 text-rose-700 bg-rose-50" title="سجل فاتورة شغلانة مستحقة لمقاول أو مورد على عمارة — تولّد قيد مصروف ورصيد على المورد"><ReceiptText size={16} className="ml-1" />تسجيل مستحق مورد</Button>} title="تسجيل مستحق لمورد / مقاول">{(close) => <SupplierInvoiceForm suppliers={suppliers} buildings={buildings} units={units} accounts={accounts as any} onSave={saveInvoice} onClose={close} />}</FormDialog>)}
+                  {canWriteCheck('suppliers') && suppliers.length > 0 && (<FormDialog trigger={<Button variant="outline" className="border-amber-300 text-amber-700 bg-amber-50" title="سجل دفعة لمقاول أو مورد على مستحق قائم"><Truck size={16} className="ml-1" />تسجيل دفعة مورد</Button>} title="تسجيل دفعة لمورد / مقاول">{(close) => <SupplierPaymentForm suppliers={suppliers} buildings={buildings} supplierInvoices={supplierInvoices} accounts={accounts as any} onSave={savePayment} onClose={close} />}</FormDialog>)}
                 </div>
               </div>
-              {/* ملخص سريع */}
-              <div className="grid grid-cols-3 gap-3">
+              {/* ملخص سريع — دورة الموردين: المستحق ← المدفوع ← الرصيد */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <Card className="border-0 shadow-md"><CardContent className="p-4 text-center"><p className="text-2xl font-bold text-gray-900">{suppliers.length}</p><p className="text-xs text-gray-500">مورد / مقاول</p></CardContent></Card>
-                <Card className="border-0 shadow-md"><CardContent className="p-4 text-center"><p className="text-2xl font-bold text-amber-700">{fmtKWD(totalPaid)} {CURRENCY}</p><p className="text-xs text-gray-500">إجمالي المدفوع لهم</p></CardContent></Card>
-                <Card className="border-0 shadow-md"><CardContent className="p-4 text-center"><p className="text-2xl font-bold text-gray-900">{supplierPayments.length}</p><p className="text-xs text-gray-500">دفعة مسجلة</p></CardContent></Card>
+                <Card className="border-0 shadow-md cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setSupplierInvFilter('all')} title="سجل مستحقات الموردين"><CardContent className="p-4 text-center"><p className="text-2xl font-bold text-rose-700">{fmtKWD(totalDues)} {CURRENCY}</p><p className="text-xs text-gray-500">إجمالي المستحقات ({supplierInvoices.length} مستحق)</p></CardContent></Card>
+                <Card className="border-0 shadow-md"><CardContent className="p-4 text-center"><p className="text-2xl font-bold text-amber-700">{fmtKWD(totalPaid)} {CURRENCY}</p><p className="text-xs text-gray-500">إجمالي المدفوع لهم ({supplierPayments.length} دفعة)</p></CardContent></Card>
+                <Card className="border-0 shadow-md"><CardContent className="p-4 text-center"><p className={`text-2xl font-bold ${totalBalance > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(totalBalance)} {CURRENCY}</p><p className="text-xs text-gray-500">الرصيد المتبقي (مستحق − مدفوع)</p></CardContent></Card>
               </div>
-              {/* كروت الموردين */}
+              {/* كروت الموردين — رصيد كل مورد: المستحق والمدفوع والمتبقي */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredSuppliers.map(s => {
                   const sPays = s.payments || [];
-                  const sTotal = sPays.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+                  const sInvs = s.invoices || [];
+                  const sTotal = r3s(sPays.reduce((sum: number, p: any) => sum + (p.amount || 0), 0));
+                  const sDues = r3s(sInvs.reduce((sum: number, i: any) => sum + (Number(i.amount) || 0), 0));
+                  const sBal = r3s(sDues - sTotal);
                   return (
                   <Card key={s.id} className="border-0 shadow-lg hover:shadow-xl transition-shadow"><CardContent className="p-4">
                     <div className="flex items-center gap-3 mb-2">
@@ -1421,26 +1456,73 @@ export default function PropertyManagerApp() {
                       <div className="min-w-0"><h3 className="font-bold text-gray-900 truncate">{s.name}</h3>
                         <Badge className={`${SUPPLIER_TYPE_LABEL[s.type]?.color} text-[10px] mt-0.5`}>{SUPPLIER_TYPE_LABEL[s.type]?.label || s.type}</Badge>
                       </div>
+                      {sBal > 0 && <Badge className="bg-red-100 text-red-800 text-[10px] mr-auto shrink-0" title="الرصيد المتبقي غير المسدد">عليه {fmtKWD(sBal)} {CURRENCY}</Badge>}
+                      {sBal <= 0 && sDues > 0 && <Badge className="bg-emerald-100 text-emerald-800 text-[10px] mr-auto shrink-0">مسدد</Badge>}
                     </div>
                     <div className="space-y-1 text-sm text-gray-600">
                       {s.phone && <p className="flex items-center gap-1"><Phone size={13} />{s.phone}</p>}
                       {s.specialty && <p className="flex items-center gap-1"><Wrench size={13} />{s.specialty}</p>}
                       {s.notes && <p className="text-xs text-gray-400 line-clamp-2">{s.notes}</p>}
                     </div>
-                    <div className="mt-3 rounded-xl border border-amber-100 bg-amber-50/60 p-2.5 flex items-center justify-between">
-                      <div><p className="text-[11px] text-gray-500">إجمالي المدفوع له</p><p className="font-bold text-amber-700">{fmtKWD(sTotal)} {CURRENCY}</p></div>
-                      <p className="text-[11px] text-gray-500">{sPays.length} دفعة</p>
+                    {/* رصيد المورد — المستحق − المدفوع = المتبقي */}
+                    <div className="mt-3 grid grid-cols-3 rounded-xl border border-amber-100 bg-amber-50/60 overflow-hidden text-center">
+                      <div className="p-2.5 border-l border-amber-100"><p className="text-[11px] text-gray-500">المستحق له</p><p className="font-bold text-rose-700 text-sm">{fmtKWD(sDues)}</p><p className="text-[10px] text-gray-400">{sInvs.length} مستحق</p></div>
+                      <div className="p-2.5 border-l border-amber-100"><p className="text-[11px] text-gray-500">المدفوع له</p><p className="font-bold text-amber-700 text-sm">{fmtKWD(sTotal)}</p><p className="text-[10px] text-gray-400">{sPays.length} دفعة</p></div>
+                      <div className="p-2.5"><p className="text-[11px] text-gray-500">المتبقي</p><p className={`font-bold text-sm ${sBal > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(sBal)}</p><p className="text-[10px] text-gray-400">{sBal > 0 ? 'رصيد عليك' : sDues > 0 ? 'سُدد' : 'بلا مستحقات'}</p></div>
                     </div>
                     {canWriteCheck('suppliers') && <div className="flex gap-1 mt-3">
-                      <FormDialog trigger={<Button variant="outline" size="sm" className="flex-1 border-amber-200 text-amber-700 hover:bg-amber-50" title="تسجيل دفعة لهذا المورد"><DollarSign size={14} className="ml-1" />تسجيل دفعة</Button>} title={`تسجيل دفعة — ${s.name}`}>{(close) => <SupplierPaymentForm suppliers={suppliers} buildings={buildings} accounts={accounts as any} initialSupplierId={s.id} onSave={async (data) => { const r: any = await api('/api/supplier-payments', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); autoRestore('دفعة مورد'); loadData('suppliers'); }} onClose={close} />}</FormDialog>
+                      <FormDialog trigger={<Button variant="outline" size="sm" className="flex-1 border-amber-200 text-amber-700 hover:bg-amber-50" title="تسجيل دفعة لهذا المورد على مستحق قائم"><DollarSign size={14} className="ml-1" />دفعة</Button>} title={`تسجيل دفعة — ${s.name}`}>{(close) => <SupplierPaymentForm suppliers={suppliers} buildings={buildings} supplierInvoices={supplierInvoices} accounts={accounts as any} initialSupplierId={s.id} onSave={savePayment} onClose={close} />}</FormDialog>
+                      <FormDialog trigger={<Button variant="outline" size="sm" className="flex-1 border-rose-200 text-rose-700 hover:bg-rose-50" title="سجل فاتورة شغلانة مستحقة لهذا المورد"><ReceiptText size={14} className="ml-1" />مستحق</Button>} title={`تسجيل مستحق — ${s.name}`}>{(close) => <SupplierInvoiceForm suppliers={suppliers} buildings={buildings} units={units} accounts={accounts as any} initialSupplierId={s.id} onSave={saveInvoice} onClose={close} />}</FormDialog>
                       <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل المورد">{(close) => <SupplierForm initial={s} onSave={async (data) => { await api(`/api/suppliers/${s.id}`, 'PUT', data); autoRestore('تعديل مورد'); loadData('suppliers'); }} onClose={close} />}</FormDialog>
-                      <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm(`حذف «${s.name}»؟ هتتحذف معه كل دفعاته (${sPays.length}) وقيودها المحاسبية — مفيش رجوع غير من نقاط الاستعادة.`)) { await api(`/api/suppliers/${s.id}`, 'DELETE'); autoRestore('حذف مورد'); loadData('suppliers'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>
+                      <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm(`حذف «${s.name}»؟ هتتحذف معه كل دفعاته (${sPays.length}) ومستحقاته (${sInvs.length}) وقيودها المحاسبية — مفيش رجوع غير من نقاط الاستعادة.`)) { await api(`/api/suppliers/${s.id}`, 'DELETE'); autoRestore('حذف مورد'); loadData('suppliers'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>
                     </div>}
                   </CardContent></Card>
                   );
                 })}
                 {filteredSuppliers.length === 0 && <div className="md:col-span-2 lg:col-span-3"><EmptyState icon={<Truck size={48} />} text="لا يوجد موردين أو مقاولين — أضف أول واحد من الزر البرتقالي" /></div>}
               </div>
+              {/* سجل مستحقات الموردين — الرقم التسلسلي م-0001 + حالة السداد */}
+              {supplierInvoices.length > 0 && (
+                <Card className="border-0 shadow-lg overflow-hidden">
+                  <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between gap-2 flex-wrap">
+                    <p className="font-bold text-gray-800 text-sm">سجل مستحقات الموردين والمقاولين</p>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {[
+                        { k: 'all', l: `الكل (${supplierInvoices.length})` },
+                        { k: 'unpaid', l: `غير مسدد (${supplierInvoices.filter(i => i.status === 'unpaid').length})` },
+                        { k: 'partial', l: `جزئي (${supplierInvoices.filter(i => i.status === 'partial').length})` },
+                        { k: 'paid', l: `مسدد (${supplierInvoices.filter(i => i.status === 'paid').length})` },
+                      ].map(f => (
+                        <button key={f.k} onClick={() => setSupplierInvFilter(f.k)} className={`px-2.5 py-1 rounded-lg text-xs font-medium transition ${supplierInvFilter === f.k ? 'bg-rose-600 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-200 hover:bg-rose-50'}`}>{f.l}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <Table><TableHeader><TableRow className="bg-rose-50"><TableHead>الرقم</TableHead><TableHead>المورد</TableHead><TableHead>التاريخ</TableHead><TableHead>البيان</TableHead><TableHead>العمارة</TableHead><TableHead>المبلغ</TableHead><TableHead>المسدد</TableHead><TableHead>المتبقي</TableHead><TableHead>الحالة</TableHead>{canWriteCheck('suppliers') && <TableHead>إجراءات</TableHead>}</TableRow></TableHeader>
+                    <TableBody>{filteredInvoices.map(inv => {
+                      const invPaid = invPaidOf(inv);
+                      const invRem = r3s(Math.max(0, (Number(inv.amount) || 0) - invPaid));
+                      const st = INV_STATUS[inv.status] || INV_STATUS.unpaid;
+                      return (<TableRow key={inv.id}>
+                        <TableCell className="text-xs font-bold text-rose-700 tabular-nums">{inv.invoiceNo || '-'}</TableCell>
+                        <TableCell className="font-semibold text-xs">{inv.supplier?.name || '-'}</TableCell>
+                        <TableCell className="text-xs">{inv.date ? new Date(inv.date).toLocaleDateString('ar') : '-'}</TableCell>
+                        <TableCell className="text-xs text-gray-500 max-w-44 truncate">{inv.description || '-'}</TableCell>
+                        <TableCell className="text-xs text-gray-500">{inv.building?.name || buildings.find(b => b.id === inv.buildingId)?.name || '-'}</TableCell>
+                        <TableCell className="font-bold text-gray-900 tabular-nums">{fmtKWD(inv.amount)} {CURRENCY}</TableCell>
+                        <TableCell className="text-emerald-700 tabular-nums text-xs">{fmtKWD(invPaid)}</TableCell>
+                        <TableCell className={`tabular-nums text-xs font-bold ${invRem > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(invRem)}</TableCell>
+                        <TableCell><Badge className={`${st.color} text-[10px]`}>{st.label}</Badge></TableCell>
+                        {canWriteCheck('suppliers') && <TableCell><div className="flex gap-1">
+                          <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-rose-600 hover:bg-rose-50" title={`إشعار المستحق ${inv.invoiceNo || ''}`}><Printer size={14} /></Button>} title={`مستحق ${inv.invoiceNo || ''} — مورد`} docHtml={supplierInvoiceVoucherHtml(inv, CURRENCY)} />
+                          <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title={`تعديل المستحق ${inv.invoiceNo || ''}`}>{(close) => <SupplierInvoiceForm suppliers={suppliers} buildings={buildings} units={units} accounts={accounts as any} initial={inv} onSave={async (data) => { const r: any = await api(`/api/supplier-invoices/${inv.id}`, 'PUT', data); if (r?.entryWarning) toast.warning(r.entryWarning); autoRestore('تعديل مستحق مورد'); loadData('suppliers'); }} onClose={close} />}</FormDialog>
+                          <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm(`حذف المستحق ${inv.invoiceNo || ''}؟ هيتحذف قيده المحاسبي ولو عليه دفعات هتفضل موجودة كدفعات عامة.`)) { await api(`/api/supplier-invoices/${inv.id}`, 'DELETE'); autoRestore('حذف مستحق مورد'); loadData('suppliers'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>
+                        </div></TableCell>}
+                      </TableRow>);
+                    })}</TableBody></Table>
+                  </div>
+                </Card>
+              )}
               {/* سجل دفعات الموردين */}
               {supplierPayments.length > 0 && (
                 <Card className="border-0 shadow-lg overflow-hidden">
@@ -1449,18 +1531,19 @@ export default function PropertyManagerApp() {
                     <Select value={supplierPayFilter} onValueChange={setSupplierPayFilter}><SelectTrigger className="w-52 h-8 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">كل الموردين</SelectItem>{suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select>
                   </div>
                   <div className="overflow-x-auto">
-                    <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>رقم السند</TableHead><TableHead>المورد</TableHead><TableHead>التاريخ</TableHead><TableHead>المبلغ</TableHead><TableHead>البيان</TableHead><TableHead>العمارة</TableHead><TableHead>الطريقة</TableHead>{canWriteCheck('suppliers') && <TableHead>إجراءات</TableHead>}</TableRow></TableHeader>
+                    <Table><TableHeader><TableRow className="bg-orange-50"><TableHead>رقم السند</TableHead><TableHead>المورد</TableHead><TableHead>التاريخ</TableHead><TableHead>المبلغ</TableHead><TableHead>على مستحق</TableHead><TableHead>البيان</TableHead><TableHead>العمارة</TableHead><TableHead>الطريقة</TableHead>{canWriteCheck('suppliers') && <TableHead>إجراءات</TableHead>}</TableRow></TableHeader>
                     <TableBody>{filteredPayments.map(p => (<TableRow key={p.id}>
                       <TableCell className="text-xs font-bold text-red-700 tabular-nums">{p.paymentNo || '-'}</TableCell>
                       <TableCell className="font-semibold text-xs">{p.supplier?.name || '-'}</TableCell>
                       <TableCell className="text-xs">{p.date ? new Date(p.date).toLocaleDateString('ar') : '-'}</TableCell>
                       <TableCell className="font-bold text-amber-700">{p.amount.toLocaleString('ar')} {CURRENCY}</TableCell>
-                      <TableCell className="text-xs text-gray-500 max-w-48 truncate">{p.description || '-'}</TableCell>
+                      <TableCell className="text-xs">{p.invoice?.invoiceNo ? <Badge className="bg-rose-100 text-rose-800 text-[10px]">{p.invoice.invoiceNo}</Badge> : <span className="text-gray-400">دفعة عامة</span>}</TableCell>
+                      <TableCell className="text-xs text-gray-500 max-w-44 truncate">{p.description || '-'}</TableCell>
                       <TableCell className="text-xs text-gray-500">{buildings.find(b => b.id === p.buildingId)?.name || '-'}</TableCell>
                       <TableCell className="text-xs">{({ cash: 'نقدي', transfer: 'تحويل', check: 'شيك', card: 'بطاقة' } as any)[p.method] || p.method}</TableCell>
                       {canWriteCheck('suppliers') && <TableCell><div className="flex gap-1">
                         <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title={`سند الصرف ${p.paymentNo || ''}`}><Printer size={14} /></Button>} title={`سند صرف ${p.paymentNo || ''} — مورد`} docHtml={supplierPaymentVoucherHtml(p, CURRENCY)} />
-                        <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('حذف الدفعة؟ هيتحذف قيدها المحاسبي كمان.')) { await api(`/api/supplier-payments/${p.id}`, 'DELETE'); autoRestore('حذف دفعة مورد'); loadData('suppliers'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>
+                        <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('حذف الدفعة؟ هيتحذف قيدها المحاسبي كمان ولو كانت تسدد مستحق هيتحدث رصيده.')) { await api(`/api/supplier-payments/${p.id}`, 'DELETE'); autoRestore('حذف دفعة مورد'); loadData('suppliers'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>
                       </div></TableCell>}
                     </TableRow>))}</TableBody></Table>
                   </div>
@@ -2514,34 +2597,108 @@ function SupplierForm({ onSave, initial, onClose }: { onSave: (data: any) => Pro
   </form>);
 }
 
-function SupplierPaymentForm({ suppliers, buildings, accounts, initialSupplierId, onSave, onClose }: {
-  suppliers: any[]; buildings: Building[]; accounts: any[]; initialSupplierId?: string;
+// ============ مستحق مورد / مقاول (م-0001) — فاتورة شغلانة على عمارة تولّد رصيدًا وقيد مصروف ============
+// الدورة الكاملة: مستحق (مدين المصروف / دائن 2101 الموردون) ← دفعات تسدّده (مدين 2101 / دائن الصندوق) ← المتبقي يظهر في كل مكان
+function SupplierInvoiceForm({ suppliers, buildings, units, accounts, initialSupplierId, initialBuildingId, initial, onSave, onClose }: {
+  suppliers: any[]; buildings: Building[]; units?: Unit[]; accounts: any[];
+  initialSupplierId?: string; initialBuildingId?: string; initial?: any;
+  onSave: (data: any) => Promise<void>; onClose?: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [supplierId, setSupplierId] = useState(initial?.supplierId || initialSupplierId || '');
+  const [buildingId, setBuildingId] = useState(initial?.buildingId || initialBuildingId || '');
+  const [unitId, setUnitId] = useState(initial?.unitId || '');
+  const [amount, setAmount] = useState(initial ? String(initial.amount) : '');
+  const [date, setDate] = useState((initial?.date || new Date().toISOString()).slice(0, 10));
+  const [dueDate, setDueDate] = useState(initial?.dueDate ? String(initial.dueDate).slice(0, 10) : '');
+  const [description, setDescription] = useState(initial?.description || '');
+  const [accountCode, setAccountCode] = useState(initial?.accountCode || '5101');
+  const [notes, setNotes] = useState(initial?.notes || '');
+  const expenseAccounts = (accounts || []).filter((a: any) => a.kind === 'post' && String(a.code).startsWith('5'));
+  const selectedSupplier = suppliers.find(s => s.id === supplierId);
+  const bUnits = (units || []).filter(u => u.buildingId === buildingId);
+  const r3s = (n: number) => Math.round(n * 1000) / 1000;
+  const sDues = r3s((selectedSupplier?.invoices || []).reduce((s: number, i: any) => s + (Number(i.amount) || 0), 0));
+  const sPaid = r3s((selectedSupplier?.payments || []).reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0));
+  const sBal = r3s(sDues - sPaid);
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ supplierId, buildingId: buildingId || null, unitId: unitId || null, amount: +amount, date, dueDate: dueDate || null, description, accountCode, notes }); toast.success(initial ? 'تم تعديل المستحق وتحديث القيد المحاسبي' : 'تم تسجيل المستحق — تولّد قيد مصروف ورصيد على المورد'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div className="bg-rose-50 border border-rose-100 rounded-xl p-3 text-xs text-rose-900">
+      <p className="font-bold flex items-center gap-2"><ReceiptText size={14} />{initial ? 'تعديل مستحق' : 'مستحق مورد / مقاول جديد'} — يُرقم تسلسليًا (م-0001)</p>
+      <p className="mt-1">سجّل فاتورة الشغلانة أو التوريد المستحق للمورد على عمارتها — يضاف لرصيد المورد فورًا ويولّد قيدًا محاسبيًا (مدين المصروف / دائن الذمم الدائنة للموردين 2101). بعدها سدّده كله أو على دفعات من زر «تسجيل دفعة».</p>
+    </div>
+    <div><Label>المورد / المقاول *</Label><Select value={supplierId} onValueChange={setSupplierId} required><SelectTrigger><SelectValue placeholder="اختر المورد" /></SelectTrigger><SelectContent>{suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name} — {SUPPLIER_TYPE_LABEL[s.type]?.label || s.type}</SelectItem>)}</SelectContent></Select></div>
+    {selectedSupplier && (
+      <div className="grid grid-cols-3 rounded-xl border border-amber-100 bg-amber-50/60 overflow-hidden text-center text-xs">
+        <div className="p-2 border-l border-amber-100"><p className="text-gray-500 text-[11px]">المستحق له</p><p className="font-bold text-rose-700">{fmtKWD(sDues)} {CURRENCY}</p></div>
+        <div className="p-2 border-l border-amber-100"><p className="text-gray-500 text-[11px]">المدفوع له</p><p className="font-bold text-amber-700">{fmtKWD(sPaid)} {CURRENCY}</p></div>
+        <div className="p-2"><p className="text-gray-500 text-[11px]">المتبقي</p><p className={`font-bold ${sBal > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(sBal)} {CURRENCY}</p></div>
+      </div>
+    )}
+    <div className="grid grid-cols-2 gap-3">
+      <div><Label>المبلغ المستحق ({CURRENCY}) *</Label><Input type="number" step="0.001" min="0" value={amount} onChange={e => setAmount(e.target.value)} required /></div>
+      <div><Label>تاريخ المستحق</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
+    </div>
+    <div className="grid grid-cols-2 gap-3">
+      <div><Label>تاريخ الاستحقاق المتفق عليه</Label><Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} /></div>
+      <div><Label>العمارة (لتحميل المصروف عليها)</Label><Select value={buildingId || 'no-building'} onValueChange={v => { setBuildingId(v === 'no-building' ? '' : v); setUnitId(''); }}><SelectTrigger><SelectValue placeholder="بدون ربط بعمارة" /></SelectTrigger><SelectContent><SelectItem value="no-building">بدون ربط بعمارة</SelectItem>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
+    </div>
+    {buildingId && <div><Label>الوحدة (اختياري — لو الشغلانة على وحدة محددة)</Label><Select value={unitId || 'no-unit'} onValueChange={v => setUnitId(v === 'no-unit' ? '' : v)}><SelectTrigger><SelectValue placeholder="بدون وحدة" /></SelectTrigger><SelectContent><SelectItem value="no-unit">بدون وحدة</SelectItem>{bUnits.map(u => <SelectItem key={u.id} value={u.id}>وحدة {u.number}{u.floor !== undefined && u.floor !== null ? ` — دور ${u.floor}` : ''}</SelectItem>)}</SelectContent></Select></div>}
+    <div><Label>البيان — الشغلانة / التوريد</Label><Input value={description} onChange={e => setDescription(e.target.value)} placeholder="مثال: تمديد سباكة الطابق الثاني — فاتورة رقم ١٢" /></div>
+    <div className="grid grid-cols-2 gap-3">
+      <div><Label>حساب المصروف (من شجرة الحسابات)</Label><Select value={accountCode} onValueChange={setAccountCode}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{expenseAccounts.map((a: any) => <SelectItem key={a.code} value={a.code}>{a.code} — {a.name}</SelectItem>)}</SelectContent></Select></div>
+      <div><Label>ملاحظات</Label><Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="اختياري" /></div>
+    </div>
+    <p className="text-[11px] text-gray-500 bg-blue-50 border border-blue-100 rounded-lg p-2">القيد المولّد تلقائيًا: مدين {accountCode} (حساب المصروف) / دائن 2101 الذمم الدائنة — الموردون{buildingId && buildings.find(b => b.id === buildingId) ? ` — يُحمَّل على عمارة «${buildings.find(b => b.id === buildingId)!.name}» ويظهر في تقريرها المالي وميزان المراجعة` : ''}</p>
+    <Button type="submit" disabled={saving || !supplierId} className="w-full bg-gradient-to-l from-rose-500 to-red-500 text-white font-bold">{saving ? 'جاري الحفظ...' : initial ? 'حفظ التعديل' : 'حفظ المستحق'}</Button>
+  </form>);
+}
+
+function SupplierPaymentForm({ suppliers, buildings, supplierInvoices, accounts, initialSupplierId, initialBuildingId, onSave, onClose }: {
+  suppliers: any[]; buildings: Building[]; supplierInvoices?: any[]; accounts: any[]; initialSupplierId?: string; initialBuildingId?: string;
   onSave: (data: any) => Promise<void>; onClose?: () => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [supplierId, setSupplierId] = useState(initialSupplierId || '');
+  const [invoiceId, setInvoiceId] = useState('');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [description, setDescription] = useState('');
-  const [buildingId, setBuildingId] = useState('');
+  const [buildingId, setBuildingId] = useState(initialBuildingId || '');
   const [method, setMethod] = useState('cash');
   const [accountCode, setAccountCode] = useState('5206');
   const expenseAccounts = (accounts || []).filter((a: any) => a.kind === 'post' && String(a.code).startsWith('5'));
   const selectedSupplier = suppliers.find(s => s.id === supplierId);
-  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ supplierId, amount: +amount, date, description, buildingId: buildingId || null, method, accountCode }); toast.success('تم تسجيل دفعة المورد وتوليد القيد المحاسبي'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
-    <div><Label>المورد / المقاول *</Label><Select value={supplierId} onValueChange={setSupplierId} required><SelectTrigger><SelectValue placeholder="اختر المورد" /></SelectTrigger><SelectContent>{suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name} — {SUPPLIER_TYPE_LABEL[s.type]?.label || s.type}</SelectItem>)}</SelectContent></Select></div>
-    {selectedSupplier && <p className="text-xs text-gray-500">إجمالي المدفوع له حتى الآن: <b className="text-amber-700">{fmtKWD((selectedSupplier.payments || []).reduce((s: number, p: any) => s + (p.amount || 0), 0))} {CURRENCY}</b> على {(selectedSupplier.payments || []).length} دفعة</p>}
+  const r3s = (n: number) => Math.round(n * 1000) / 1000;
+  const paidOf = (inv: any) => r3s((inv.payments || []).reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0));
+  const openInvoices = (supplierInvoices || []).filter(i => i.supplierId === supplierId && i.status !== 'paid');
+  const selectedInvoice = (supplierInvoices || []).find(i => i.id === invoiceId);
+  const sDues = r3s((selectedSupplier?.invoices || []).reduce((s: number, i: any) => s + (Number(i.amount) || 0), 0));
+  const sPaid = r3s((selectedSupplier?.payments || []).reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0));
+  const sBal = r3s(sDues - sPaid);
+  return (<form onSubmit={async (e) => { e.preventDefault(); setSaving(true); try { await onSave({ supplierId, amount: +amount, date, description, buildingId: buildingId || null, method, accountCode, invoiceId: invoiceId || null }); toast.success('تم تسجيل دفعة المورد وتوليد القيد المحاسبي'); onClose?.(); } catch (err: any) { toast.error(err.message || 'خطأ في الحفظ'); } finally { setSaving(false); } }} className="space-y-3">
+    <div><Label>المورد / المقاول *</Label><Select value={supplierId} onValueChange={v => { setSupplierId(v); setInvoiceId(''); }} required><SelectTrigger><SelectValue placeholder="اختر المورد" /></SelectTrigger><SelectContent>{suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name} — {SUPPLIER_TYPE_LABEL[s.type]?.label || s.type}</SelectItem>)}</SelectContent></Select></div>
+    {selectedSupplier && (
+      <div className="grid grid-cols-3 rounded-xl border border-amber-100 bg-amber-50/60 overflow-hidden text-center text-xs">
+        <div className="p-2 border-l border-amber-100"><p className="text-gray-500 text-[11px]">المستحق له</p><p className="font-bold text-rose-700">{fmtKWD(sDues)} {CURRENCY}</p></div>
+        <div className="p-2 border-l border-amber-100"><p className="text-gray-500 text-[11px]">المدفوع له</p><p className="font-bold text-amber-700">{fmtKWD(sPaid)} {CURRENCY}</p></div>
+        <div className="p-2"><p className="text-gray-500 text-[11px]">المتبقي عليك</p><p className={`font-bold ${sBal > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(sBal)} {CURRENCY}</p></div>
+      </div>
+    )}
+    {/* الدفع على مستحق قائم — يحدّث رصيد المستحق تلقائيًا ويقيد على حساب المورد */}
+    {openInvoices.length > 0 && <div><Label>سداد مستحق قائم (اختياري — الفرق يسجل دفعة عامة)</Label><Select value={invoiceId || 'none'} onValueChange={v => { setInvoiceId(v === 'none' ? '' : v); if (v !== 'none') { const inv = openInvoices.find(i => i.id === v); if (inv) setAmount(String(r3s(Number(inv.amount) - paidOf(inv)))); } }}><SelectTrigger><SelectValue placeholder="دفعة عامة — بدون ربط بمستحق" /></SelectTrigger><SelectContent><SelectItem value="none">دفعة عامة — بدون ربط بمستحق</SelectItem>{openInvoices.map(i => <SelectItem key={i.id} value={i.id}>{i.invoiceNo} — {fmtKWD(Number(i.amount) - paidOf(i))} {CURRENCY} متبقي{i.building?.name ? ` — ${i.building.name}` : ''}</SelectItem>)}</SelectContent></Select>{selectedInvoice && <p className="text-[11px] text-gray-500 mt-1">سند صرف على المستحق {selectedInvoice.invoiceNo} (إجماليه {fmtKWD(selectedInvoice.amount)} {CURRENCY} — مسدد منه {fmtKWD(paidOf(selectedInvoice))} {CURRENCY})</p>}</div>}
     <div className="grid grid-cols-2 gap-3">
       <div><Label>المبلغ ({CURRENCY}) *</Label><Input type="number" step="0.001" min="0" value={amount} onChange={e => setAmount(e.target.value)} required /></div>
       <div><Label>تاريخ الدفع</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} required /></div>
     </div>
     <div><Label>البيان — على أي شغلانة / توريد</Label><Input value={description} onChange={e => setDescription(e.target.value)} placeholder="مثال: دفعة ثانية — أعمال سباكة الطابق الثاني" /></div>
     <div className="grid grid-cols-2 gap-3">
-      <div><Label>العمارة (لتحميل المصروف عليها)</Label><Select value={buildingId} onValueChange={setBuildingId}><SelectTrigger><SelectValue placeholder="بدون ربط بعمارة" /></SelectTrigger><SelectContent><SelectItem value="no-building">بدون ربط بعمارة</SelectItem>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
+      <div><Label>العمارة (لتحميل المصروف عليها){selectedInvoice ? ' — تُحمَّل من المستحق تلقائيًا إن تركتها' : ''}</Label><Select value={buildingId || 'no-building'} onValueChange={v => setBuildingId(v === 'no-building' ? '' : v)}><SelectTrigger><SelectValue placeholder="بدون ربط بعمارة" /></SelectTrigger><SelectContent><SelectItem value="no-building">بدون ربط بعمارة</SelectItem>{buildings.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent></Select></div>
       <div><Label>طريقة الدفع</Label><Select value={method} onValueChange={setMethod}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cash">نقدي — من الصندوق</SelectItem><SelectItem value="transfer">تحويل — من البنك</SelectItem><SelectItem value="check">شيك</SelectItem><SelectItem value="card">بطاقة</SelectItem></SelectContent></Select></div>
     </div>
-    <div><Label>حساب المصروف (من شجرة الحسابات)</Label><Select value={accountCode} onValueChange={setAccountCode}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{expenseAccounts.map((a: any) => <SelectItem key={a.code} value={a.code}>{a.code} — {a.name}</SelectItem>)}</SelectContent></Select></div>
-    <p className="text-[11px] text-gray-500 bg-blue-50 border border-blue-100 rounded-lg p-2">القيد المولّد تلقائيًا: مدين {accountCode} (حساب المصروف) / دائن {method === 'transfer' ? '1102 البنك' : method === 'check' ? '1105 شيكات' : '1101 الصندوق'} — يظهر في ميزان المراجعة وتقرير العمارة{buildingId && buildings.find(b => b.id === buildingId) ? ` «${buildings.find(b => b.id === buildingId)!.name}»` : ''}</p>
+    {!invoiceId && <div><Label>حساب المصروف (من شجرة الحسابات)</Label><Select value={accountCode} onValueChange={setAccountCode}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{expenseAccounts.map((a: any) => <SelectItem key={a.code} value={a.code}>{a.code} — {a.name}</SelectItem>)}</SelectContent></Select></div>}
+    <p className="text-[11px] text-gray-500 bg-blue-50 border border-blue-100 rounded-lg p-2">{invoiceId
+      ? <>القيد المولّد تلقائيًا: مدين 2101 الذمم الدائنة — الموردون (سداد المستحق {selectedInvoice?.invoiceNo}) / دائن {method === 'transfer' ? '1102 البنك' : method === 'check' ? '1105 شيكات' : '1101 الصندوق'} — المصروف نفسه قُيد عند تسجيل المستحق فلا يتكرر</>
+      : <>القيد المولّد تلقائيًا: مدين {accountCode} (حساب المصروف) / دائن {method === 'transfer' ? '1102 البنك' : method === 'check' ? '1105 شيكات' : '1101 الصندوق'} — يظهر في ميزان المراجعة وتقرير العمارة{buildingId && buildings.find(b => b.id === buildingId) ? ` «${buildings.find(b => b.id === buildingId)!.name}»` : ''}</>}</p>
     <Button type="submit" disabled={saving || !supplierId} className="w-full bg-gradient-to-l from-orange-500 to-amber-500 text-white font-bold">{saving ? 'جاري الحفظ...' : 'حفظ الدفعة'}</Button>
   </form>);
 }
@@ -3166,11 +3323,12 @@ function BuildingUnitsTab({ building, buildings, bUnits, activeContracts, canWri
 // صفحة العمارة الكاملة — تفتح بالضغط على كارت العمارة
 // تبويبات: نظرة عامة | الوحدات والمستأجرين | العقود | المستندات القانونية | المالية | القضايا
 // =============================================================
-function BuildingDetailSection({ user, building, buildings, units, tenants, contracts, payments, maintenance, transactions, journalEntries, accounts, allFiles, legalCases, tab, setTab, onBack, canWrite, uploadFile, refresh, openCase }: {
+function BuildingDetailSection({ user, building, buildings, units, tenants, contracts, payments, maintenance, transactions, journalEntries, accounts, allFiles, legalCases, suppliers, supplierInvoices, supplierPayments, tab, setTab, onBack, canWrite, uploadFile, refresh, openCase }: {
   user: User; building: Building | null; buildings: Building[];
   units: Unit[]; tenants: Tenant[]; contracts: Contract[]; payments: Payment[];
   maintenance: MaintenanceItem[]; transactions: any[]; journalEntries: any[]; accounts: any[];
   allFiles: FileUpload[]; legalCases: LegalCase[];
+  suppliers: any[]; supplierInvoices: any[]; supplierPayments: any[];
   tab: string; setTab: (t: string) => void;
   onBack: () => void; canWrite: (e: string) => boolean;
   uploadFile: (file: File, category: string, meta?: any) => Promise<any>;
@@ -3190,6 +3348,15 @@ function BuildingDetailSection({ user, building, buildings, units, tenants, cont
   const bEntries = journalEntries.filter((e: any) => e.buildingId === building.id);
   const bCases = legalCases.filter(c => c.buildingId === building.id);
   const bFiles = allFiles.filter(f => f.buildingId === building.id);
+
+  // موردون ومقاولون هذه العمارة — مستحقات ودفعات مرتبطة بالعمارة (الدورة الكاملة على مستوى العمارة)
+  const r3b = (n: number) => Math.round(n * 1000) / 1000;
+  const bSupplierInvoices = supplierInvoices.filter((i: any) => i.buildingId === building.id);
+  const bSupplierPayments = supplierPayments.filter((p: any) => p.buildingId === building.id);
+  const bSupDues = r3b(bSupplierInvoices.reduce((s: number, i: any) => s + (Number(i.amount) || 0), 0));
+  const bSupPaid = r3b(bSupplierPayments.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0));
+  const bSupRem = r3b(bSupDues - bSupPaid);
+  const bSupUnpaidCount = bSupplierInvoices.filter((i: any) => i.status !== 'paid').length;
 
   // أرصدة العمارة المحاسبية من القيود (كل القيود مرتبطة بbuildingId)
   const accTypeMap = new Map(accounts.map((a: any) => [a.code, a.type]));
@@ -3211,9 +3378,12 @@ function BuildingDetailSection({ user, building, buildings, units, tenants, cont
   ];
   const maintExpense = bMaintenance.filter(m => m.status === 'completed').reduce((s, m) => s + (m.cost || 0), 0);
   const otherExpense = bTransactions.filter((t: any) => t.type === 'expense' && t.account && String(t.account) !== '5101').reduce((s: number, t: any) => s + (t.amount || 0), 0);
+  // موردون ومقاولون: فواتير المستحقات + الدفعات العامة بدون مستحق (المرتبطة بمستحق مصروفها قُيد بالمستحق نفسه)
+  const supplierExpense = bSupDues + r3b(bSupplierPayments.filter((p: any) => !p.invoiceId).reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0));
   const reportExpenses: { label: string; amount: number; detail?: string }[] = [
     { label: 'صيانة الوحدات والعمارة', amount: maintExpense, detail: `${bMaintenance.filter(m => m.status === 'completed').length} طلب مكتمل` },
     { label: 'غرامات وقضايا مسددة', amount: bCases.filter(c => c.status === 'paid').reduce((s, c) => s + (c.amount || 0), 0) },
+    { label: 'موردون ومقاولون (مستحقات ودفعات)', amount: supplierExpense, detail: `${bSupplierInvoices.length} مستحق — مدفوع ${fmtKWD(bSupPaid)} ${'د.ك'}` },
     { label: 'مصروفات وحصص إدارية موزعة', amount: otherExpense },
   ];
 
@@ -3402,6 +3572,50 @@ function BuildingDetailSection({ user, building, buildings, units, tenants, cont
             {canWrite('transactions') && <FormDialog trigger={<Button variant="outline" className="border-orange-200 text-orange-700"><Plus size={14} className="ml-1" />إضافة حركة على هذه العمارة</Button>} title="إضافة حركة مالية">{(close) => <TransactionForm buildings={buildings} initial={{ buildingId: building.id } as any} accounts={accounts as any} onSave={async (data) => { const r: any = await api('/api/transactions', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); else if (r?.distributed) toast.success(`تم التوزيع على ${r.count} عمارة مع توليد القيود`); else toast.success('تم الحفظ وتوليد القيد المزدوج'); refresh(); }} onClose={close} />}</FormDialog>}
             {canWrite('journal') && <FormDialog trigger={<Button variant="outline" className="border-orange-200 text-orange-700"><Plus size={14} className="ml-1" />قيد يومي للعمارة</Button>} title="إضافة قيد يومي" maxWidth="max-w-lg">{(close) => <JournalForm accounts={accounts as any} buildings={buildings} initial={{ buildingId: building.id } as any} onSave={async (data) => { await api('/api/journal', 'POST', data); toast.success('تم حفظ القيد'); refresh(); }} onClose={close} />}</FormDialog>}
           </div>
+
+          {/* موردون ومقاولون هذه العمارة — المستحقات والدفعات المرتبطة بها مباشرة */}
+          <Card className="border-0 shadow-lg"><CardContent className="p-5">
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <Truck size={20} className="text-rose-600" />
+              <h3 className="font-bold text-gray-900">الموردون والمقاولون على هذه العمارة</h3>
+              {bSupplierInvoices.length > 0 && <Badge className="bg-rose-100 text-rose-800 text-[10px]">{bSupplierInvoices.length} مستحق</Badge>}
+              {bSupplierPayments.length > 0 && <Badge className="bg-amber-100 text-amber-800 text-[10px]">{bSupplierPayments.length} دفعة</Badge>}
+              <div className="mr-auto flex gap-2">
+                {canWrite('suppliers') && suppliers.length > 0 && <FormDialog trigger={<Button size="sm" variant="outline" className="border-rose-200 text-rose-700"><ReceiptText size={14} className="ml-1" />مستحق على هذه العمارة</Button>} title={`تسجيل مستحق مورد — ${building.name}`} maxWidth="max-w-lg">{(close) => <SupplierInvoiceForm suppliers={suppliers} buildings={buildings} units={units as any} accounts={accounts as any} initialBuildingId={building.id} onSave={async (data) => { const r: any = await api('/api/supplier-invoices', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); refresh(); }} onClose={close} />}</FormDialog>}
+                {canWrite('suppliers') && suppliers.length > 0 && <FormDialog trigger={<Button size="sm" variant="outline" className="border-amber-200 text-amber-700"><DollarSign size={14} className="ml-1" />دفعة مورد</Button>} title={`تسجيل دفعة مورد — ${building.name}`} maxWidth="max-w-lg">{(close) => <SupplierPaymentForm suppliers={suppliers} buildings={buildings} supplierInvoices={supplierInvoices as any} accounts={accounts as any} initialBuildingId={building.id} onSave={async (data) => { const r: any = await api('/api/supplier-payments', 'POST', { ...data, buildingId: data.buildingId || building.id }); if (r?.entryWarning) toast.warning(r.entryWarning); refresh(); }} onClose={close} />}</FormDialog>}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <div className="p-3 bg-rose-50 rounded-xl text-center border border-rose-100"><p className="text-[11px] text-gray-600">مستحقات الموردين (فواتير)</p><p className="text-lg font-bold text-rose-700">{fmtKWD(bSupDues)} {CURRENCY}</p><p className="text-[10px] text-gray-400">{bSupplierInvoices.length} مستحق — منها {bSupUnpaidCount} غير مسدد</p></div>
+              <div className="p-3 bg-amber-50 rounded-xl text-center border border-amber-100"><p className="text-[11px] text-gray-600">المدفوع للموردين</p><p className="text-lg font-bold text-amber-700">{fmtKWD(bSupPaid)} {CURRENCY}</p><p className="text-[10px] text-gray-400">{bSupplierPayments.length} سند صرف</p></div>
+              <div className="p-3 rounded-xl text-center border border-gray-100 bg-gray-50"><p className="text-[11px] text-gray-600">الموردون المتعاملون</p><p className="text-lg font-bold text-gray-900">{new Set([...bSupplierInvoices.map((i: any) => i.supplierId), ...bSupplierPayments.map((p: any) => p.supplierId)]).size}</p><p className="text-[10px] text-gray-400">من {suppliers.length} مورد مسجل</p></div>
+              <div className={`p-3 rounded-xl text-center border ${bSupRem > 0 ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}><p className="text-[11px] text-gray-600">الرصيد المتبقي للموردين</p><p className={`text-lg font-bold ${bSupRem > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmtKWD(bSupRem)} {CURRENCY}</p><p className="text-[10px] text-gray-400">مستحق − مدفوع</p></div>
+            </div>
+            {/* فواتير المستحقات على هذه العمارة */}
+            {bSupplierInvoices.length > 0 && (
+              <div className="overflow-x-auto rounded-xl border border-gray-100 mb-3">
+                <Table><TableHeader><TableRow className="bg-rose-50"><TableHead>الرقم</TableHead><TableHead>المورد</TableHead><TableHead>التاريخ</TableHead><TableHead>البيان</TableHead><TableHead>المبلغ</TableHead><TableHead>المسدد</TableHead><TableHead>الحالة</TableHead><TableHead>سند الصرف</TableHead></TableRow></TableHeader>
+                <TableBody>{bSupplierInvoices.map((inv: any) => {
+                  const r3s = (n: number) => Math.round(n * 1000) / 1000;
+                  const invPaid = r3s((inv.payments || []).reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0));
+                  const st = inv.status === 'paid' ? { l: 'مسدد', c: 'bg-emerald-100 text-emerald-800' } : inv.status === 'partial' ? { l: 'جزئي', c: 'bg-amber-100 text-amber-800' } : { l: 'غير مسدد', c: 'bg-red-100 text-red-800' };
+                  const invPays = bSupplierPayments.filter((p: any) => p.invoiceId === inv.id);
+                  return (<TableRow key={inv.id}>
+                    <TableCell className="text-xs font-bold text-rose-700 tabular-nums">{inv.invoiceNo || '-'}</TableCell>
+                    <TableCell className="font-semibold text-xs">{inv.supplier?.name || suppliers.find((s: any) => s.id === inv.supplierId)?.name || '-'}</TableCell>
+                    <TableCell className="text-xs whitespace-nowrap">{inv.date ? new Date(inv.date).toLocaleDateString('ar') : '-'}</TableCell>
+                    <TableCell className="text-xs text-gray-500 max-w-40 truncate">{inv.description || '-'}</TableCell>
+                    <TableCell className="text-sm tabular-nums font-bold">{fmtKWD(inv.amount)} {CURRENCY}</TableCell>
+                    <TableCell className="text-xs text-emerald-700 tabular-nums">{fmtKWD(invPaid)}</TableCell>
+                    <TableCell><Badge className={`${st.c} text-[10px]`}>{st.l}</Badge></TableCell>
+                    <TableCell className="text-xs tabular-nums text-gray-600">{invPays.map((p: any) => p.paymentNo).join('، ') || '-'}</TableCell>
+                  </TableRow>);
+                })}</TableBody></Table>
+              </div>
+            )}
+            <p className="text-[11px] text-gray-400">فواتير المستحقات تولّد قيد مصروف على هذه العمارة (مدين حساب المصروف / دائن 2101 الذمم الدائنة — الموردون)، وسندات الصرف تحدّث رصيد المورد — الكل يظهر في جدول القيود وتقرير العمارة المالي وميزان المراجعة. الدفعات العامة بدون مستحق تُقيد مباشرة على حساب المصروف المختار.</p>
+          </CardContent></Card>
+
           {/* جدول القيود */}
           <Card className="border-0 shadow-lg overflow-hidden"><div className="max-h-[420px] overflow-auto"><div className="min-w-[560px]">
             <Table><TableHeader><TableRow className="bg-orange-50 sticky top-0"><TableHead>التاريخ</TableHead><TableHead>البيان</TableHead><TableHead>المصدر</TableHead><TableHead>السطور</TableHead></TableRow></TableHeader>

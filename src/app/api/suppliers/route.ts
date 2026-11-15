@@ -3,13 +3,19 @@ import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 
-/** الموردين والمقاولين — قائمة بكل مورد مع ملخص دفعاته */
+/** الموردين والمقاولين — قائمة بكل مورد مع ملخص دفعاته ومستحقاته ورصيده */
 export async function GET(request: NextRequest) {
   try {
     await authMiddleware(request);
     const suppliers = await db.supplier.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { payments: { orderBy: { date: 'desc' } } },
+      include: {
+        payments: { orderBy: { date: 'desc' } },
+        invoices: {
+          orderBy: { createdAt: 'desc' },
+          include: { payments: { select: { amount: true } } },
+        },
+      },
     });
     return NextResponse.json(suppliers);
   } catch (error: any) {

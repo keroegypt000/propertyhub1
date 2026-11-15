@@ -34,14 +34,17 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const user = await authMiddleware(request);
     if (!canWrite(user.role, 'suppliers')) return NextResponse.json({ error: 'ليست لديك صلاحية' }, { status: 403 });
     const { id } = await params;
-    const old = await db.supplier.findUnique({ where: { id }, include: { payments: true } });
+    const old = await db.supplier.findUnique({ where: { id }, include: { payments: true, invoices: true } });
     if (!old) return NextResponse.json({ error: 'غير موجود' }, { status: 404 });
-    // حذف القيود المحاسبية المرتبطة بدفعات المورد ثم حذف المورد (الدفعات تُحذف تلقائيًا Cascade)
+    // حذف القيود المحاسبية المرتبطة بدفعات ومستحقات المورد ثم حذف المورد (تُحذف تلقائيًا Cascade)
     for (const p of old.payments) {
       try { await removeAutoEntry(db, 'supplierPayment', p.id); } catch (e: any) { console.error('[supplier DELETE entry]', e?.message); }
     }
+    for (const inv of old.invoices) {
+      try { await removeAutoEntry(db, 'supplierInvoice', inv.id); } catch (e: any) { console.error('[supplier DELETE invoice entry]', e?.message); }
+    }
     await db.supplier.delete({ where: { id } });
-    await logAudit(user.id, 'delete', 'supplier', id, old as any, `حذف مورد: ${old.name} مع ${old.payments.length} دفعة`);
+    await logAudit(user.id, 'delete', 'supplier', id, old as any, `حذف مورد: ${old.name} مع ${old.payments.length} دفعة و${old.invoices.length} مستحق`);
     return NextResponse.json({ ok: true });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'خطأ' }, { status: 400 });

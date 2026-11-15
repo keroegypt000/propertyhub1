@@ -7,19 +7,21 @@ import type { PrismaClient, Prisma } from '@prisma/client';
  * داخل معاملة الإنشاء نفسها — لا يتكرر رقم أبدًا ولا يمرّ رقم من المستخدم.
  *
  * التسلسلات:
- *   receipt  → سندات القبض  (ق-0001): تحصيل إيجار، إيراد، استلام قرض
- *   payment  → سندات الصرف  (ص-0001): مصروف، صيانة، دفعة مورد، قسط قرض
- *   contract → العقود       (ع-0001)
- *   invoice  → فواتير الإيجار (ف-0001)
+ *   receipt        → سندات القبض      (ق-0001): تحصيل إيجار، إيراد، استلام قرض
+ *   payment        → سندات الصرف      (ص-0001): مصروف، صيانة، دفعة مورد، قسط قرض
+ *   contract       → العقود           (ع-0001)
+ *   invoice        → فواتير الإيجار   (ف-0001)
+ *   supplierInvoice → مستحقات الموردين والمقاولين (م-0001)
  */
 
-export type DocCounterKey = 'receipt' | 'payment' | 'contract' | 'invoice';
+export type DocCounterKey = 'receipt' | 'payment' | 'contract' | 'invoice' | 'supplierInvoice';
 
 export const DOC_PREFIX: Record<DocCounterKey, string> = {
   receipt: 'ق',
   payment: 'ص',
   contract: 'ع',
   invoice: 'ف',
+  supplierInvoice: 'م',
 };
 
 // اسم كل تسلسل للعرض في الواجهة والتقارير
@@ -28,6 +30,7 @@ export const DOC_LABEL: Record<DocCounterKey, string> = {
   payment: 'سندات الصرف',
   contract: 'العقود',
   invoice: 'فواتير الإيجار',
+  supplierInvoice: 'مستحقات الموردين والمقاولين',
 };
 
 type TxClient = Prisma.TransactionClient;

@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     const description = body.description || '';
 
     // Serialize all data
-    const [buildings, units, tenants, contracts, payments, maintenance, files, transactions, loans, loanPayments, accounts, journalEntries] = await Promise.all([
+    const [buildings, units, tenants, contracts, payments, maintenance, files, transactions, loans, loanPayments, accounts, journalEntries, suppliers, supplierPayments, supplierInvoices] = await Promise.all([
       db.building.findMany(),
       db.unit.findMany(),
       db.tenant.findMany(),
@@ -50,9 +50,12 @@ export async function POST(request: NextRequest) {
       db.loanPayment.findMany(),
       db.account.findMany(),
       db.journalEntry.findMany(),
+      db.supplier.findMany(),
+      db.supplierPayment.findMany(),
+      db.supplierInvoice.findMany(),
     ]);
 
-    const snapshot = JSON.stringify({ buildings, units, tenants, contracts, payments, maintenance, files, transactions, loans, loanPayments, accounts, journalEntries });
+    const snapshot = JSON.stringify({ buildings, units, tenants, contracts, payments, maintenance, files, transactions, loans, loanPayments, accounts, journalEntries, suppliers, supplierPayments, supplierInvoices });
 
     const point = await db.restorePoint.create({
       data: { name, description, snapshot, createdBy: user.id },

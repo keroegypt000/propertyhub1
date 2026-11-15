@@ -17,6 +17,7 @@ export const ACC = {
   INTEREST: '5207',    // فوائد ومصاريف قروض
   MISC_EXPENSE: '5206', // مصروفات متنوعة — الافتراضي للحركات بلا حساب محدد
   PENALTIES: '5208',   // غرامات ومخالفات بلدية وقضايا
+  SUPPLIERS: '2101',   // الذمم الدائنة — الموردون والمقاولون (رصيد المستحقات)
 };
 
 export interface RawLine {
@@ -145,6 +146,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   transaction: 'حركة مالية',
   legalCase: 'مخالفة/قضية',
   supplierPayment: 'دفعة مورد/مقاول',
+  supplierInvoice: 'مستحق مورد/مقاول',
 };
 
 /**
@@ -341,4 +343,54 @@ export async function removeLoanEntries(db: DB, loanId: string): Promise<void> {
   const lps = await db.loanPayment.findMany({ where: { loanId }, select: { id: true } });
   await removeAutoEntry(db, 'loan', loanId);
   for (const lp of lps) await removeAutoEntry(db, 'loanPayment', lp.id);
+}
+
+/**
+ * مزامنة قيد مستحق المورد (فاتورة الشغلانة):
+ * مستحق بمبلغ > 0 → مدين حساب المصروف من شجرة الحسابات / دائن 2101 الذمم الدائنة — الموردون
+ * بلا مبلغ → لا قيد
+ * invoice يجب أن يحتوي supplier (include) لتكوين البيان — العمارة من buildingId
+ */
+export async function syncSupplierInvoiceEntry(db: DB, invoice: any): Promise<void> {
+  const amount = Number(invoice.amount) || 0;
+  if (amount <= 0) {
+    await removeAutoEntry(db, 'supplierInvoice', invoice.id);
+    return;
+  }
+  const supplier = invoice.supplier || (invoice.supplierId ? await db.supplier.findUnique({ where: { id: invoice.supplierId } }) : null);
+  const kindLabel = supplier?.type === 'contractor' ? 'مقاول' : 'مورد';
+  const parts = [
+    `مستحق ${kindLabel}: ${supplier?.name || '-'}`,
+    invoice.description ? ` — ${invoice.description}` : '',
+    invoice.invoiceNo ? ` — ${invoice.invoiceNo}` : '',
+  ].filter(Boolean);
+  await upsertAutoEntry(db, {
+    source: 'supplierInvoice',
+    sourceId: invoice.id,
+    date: invoice.date || new Date().toISOString().slice(0, 10),
+    description: parts.join(''),
+    buildingId: invoice.buildingId || null,
+    lines: [
+      { accountCode: invoice.accountCode || ACC.MISC_EXPENSE, debit: amount },
+      { accountCode: ACC.SUPPLIERS, credit: amount },
+    ],
+  });
+}
+
+/**
+ * إعادة حساب حالة سداد مستحق المورد من دفعاته المرتبطة:
+ * مدفوع ≥ المستحق → paid | مدفوع > 0 → partial | غير ذلك → unpaid
+ * تُستدعى بعد إنشاء/حذف دفعة مرتبطة بمستحق أو تعديل المستحق نفسه
+ */
+export async function recomputeSupplierInvoiceStatus(db: DB, invoiceId: string): Promise<string | null> {
+  const invoice = await db.supplierInvoice.findUnique({
+    where: { id: invoiceId },
+    include: { payments: { select: { amount: true } } },
+  });
+  if (!invoice) return null;
+  const r3 = (n: number) => Math.round(n * 1000) / 1000;
+  const paid = r3((invoice.payments || []).reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0));
+  const status = paid >= r3(Number(invoice.amount)) - 0.0005 && paid > 0 ? 'paid' : paid > 0 ? 'partial' : 'unpaid';
+  await db.supplierInvoice.update({ where: { id: invoiceId }, data: { status } });
+  return status;
 }

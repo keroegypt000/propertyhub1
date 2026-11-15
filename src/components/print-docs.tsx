@@ -330,6 +330,48 @@ export function supplierPaymentVoucherHtml(sp: any, currency = 'د.ك'): string 
   }, currency);
 }
 
+/** إشعار مستحق مورد / مقاول (م-0001) — فاتورة الشغلانة مع حالة السداد والمتبقي */
+export function supplierInvoiceVoucherHtml(inv: any, currency = 'د.ك'): string {
+  const supplier = inv.supplier || {};
+  const kindLabel = supplier.type === 'contractor' ? 'مقاول' : 'مورد';
+  const amount = Number(inv.amount) || 0;
+  const r3 = (n: number) => Math.round(n * 1000) / 1000;
+  const paid = r3((inv.payments || []).reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0));
+  const remaining = Math.max(0, r3(amount - paid));
+  const statusLabel = inv.status === 'paid' ? 'مسدد بالكامل' : inv.status === 'partial' ? 'مسدد جزئياً' : 'غير مسدد';
+  const row = (k: string, v: string) => `<div class="v-row"><span class="v-label">${esc(k)}</span><span class="v-value">${esc(v)}</span></div>`;
+  return `<style>${DOC_CSS}</style>
+<div class="vdoc"><div class="v-sheet">
+  <div class="v-head">
+    <div class="v-brand">${LOGO_SVG}<div><div class="v-brand-name">PropertyHub</div><div class="v-brand-sub">نظام إدارة الأملاك والعقارات</div></div></div>
+    <div class="v-titlebox">
+      <div class="v-kind spend">مستحق ${esc(kindLabel)}</div>
+      <div class="v-meta"><span>رقم: <b>${esc(inv.invoiceNo || fallbackNo(inv.id, 'م'))}</b></span><span>التاريخ: <b>${esc(dateStr(inv.date || new Date()))}</b></span></div>
+    </div>
+  </div>
+  <div class="v-body">
+    ${row('لصالح', supplier.name || '-')}
+    ${row('مبلغ المستحق', `${fmt3(amount)} ${esc(currency)}`)}
+    ${row('فقط لا غير', esc(tafqitKWD(amount)))}
+    ${row('وذلك عن', inv.description || `مستحق ${kindLabel}`)}
+    ${inv.building?.name ? row('العمارة', inv.building.name) : ''}
+    ${inv.unit?.number ? row('الوحدة', `وحدة ${inv.unit.number}`) : ''}
+    ${inv.accountCode ? row('حساب المصروف', `${inv.accountCode}`) : ''}
+    ${row('حالة السداد', statusLabel)}
+    ${row('المسدد منه', `${fmt3(paid)} ${esc(currency)}`)}
+    ${row('المتبقي', `${fmt3(remaining)} ${esc(currency)}`)}
+    ${inv.dueDate ? row('تاريخ الاستحقاق', dateStr(inv.dueDate)) : ''}
+    ${inv.notes ? row('ملاحظات', inv.notes) : ''}
+  </div>
+  <div class="v-sigs">
+    <div class="v-sig"><div class="line"></div>${esc(kindLabel)}</div>
+    <div class="v-sig"><div class="line"></div>أمين الصندوق</div>
+    <div class="v-sig"><div class="line"></div>المدير</div>
+  </div>
+  <div class="v-foot"><span>نسخة المكتب</span><span>أُنشئ آليًا بواسطة نظام PropertyHub — طُبع في ${esc(nowStr())}</span></div>
+</div></div>`;
+}
+
 // ---------- سجل السندات الموحّد (كشف تسلسلي قابل للطباعة) ----------
 export interface RegisterRow {
   docNo: string;      // رقم السند التسلسلي (ق-0001 / ص-0001)

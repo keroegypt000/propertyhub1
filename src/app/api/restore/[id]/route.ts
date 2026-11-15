@@ -35,6 +35,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       await tx.fileUpload.deleteMany();
       await tx.contract.deleteMany();
       await tx.maintenanceRequest.deleteMany();
+      await tx.supplierPayment.deleteMany();
+      await tx.supplierInvoice.deleteMany();
+      await tx.supplier.deleteMany();
       await tx.unit.deleteMany();
       await tx.tenant.deleteMany();
       await tx.building.deleteMany();
@@ -57,6 +60,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (data.loanPayments?.length) await tx.loanPayment.createMany({ data: data.loanPayments });
       if (data.accounts?.length) await tx.account.createMany({ data: data.accounts });
       if (data.journalEntries?.length) await tx.journalEntry.createMany({ data: data.journalEntries });
+      if (data.suppliers?.length) await tx.supplier.createMany({ data: data.suppliers });
+      if (data.supplierInvoices?.length) await tx.supplierInvoice.createMany({ data: data.supplierInvoices });
+      if (data.supplierPayments?.length) await tx.supplierPayment.createMany({ data: data.supplierPayments });
     });
 
     await logAudit(user.id, 'restore', 'restore', id, undefined, `استعادة من نقطة: ${point.name}`);

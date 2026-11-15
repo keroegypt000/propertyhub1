@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 1) نقطة استعادة تلقائية قبل المسح — شبكة أمان كاملة
-    const [buildings, units, tenants, contracts, payments, maintenance, files, transactions, loans, loanPayments, accounts, journalEntries] = await Promise.all([
+    const [buildings, units, tenants, contracts, payments, maintenance, files, transactions, loans, loanPayments, accounts, journalEntries, suppliers, supplierPayments, supplierInvoices] = await Promise.all([
       db.building.findMany(),
       db.unit.findMany(),
       db.tenant.findMany(),
@@ -49,9 +49,12 @@ export async function POST(request: NextRequest) {
       db.loanPayment.findMany(),
       db.account.findMany(),
       db.journalEntry.findMany(),
+      db.supplier.findMany(),
+      db.supplierPayment.findMany(),
+      db.supplierInvoice.findMany(),
     ]);
 
-    const snapshot = JSON.stringify({ buildings, units, tenants, contracts, payments, maintenance, files, transactions, loans, loanPayments, accounts, journalEntries });
+    const snapshot = JSON.stringify({ buildings, units, tenants, contracts, payments, maintenance, files, transactions, loans, loanPayments, accounts, journalEntries, suppliers, supplierPayments, supplierInvoices });
     const point = await db.restorePoint.create({
       data: {
         name: `نسخة أمان قبل مسح البيانات التجريبية — ${new Date().toLocaleString('ar')}`,
@@ -62,7 +65,7 @@ export async function POST(request: NextRequest) {
     });
 
     // 2) المسح بترتيب يحترم العلاقات (الأبناء قبل الآباء)
-    const [delJournal, delLoanPayments, delLoans, delPayments, delFiles, delContracts, delMaintenance, delTransactions, delUnits, delTenants, delBuildings, delAccounts] = await db.$transaction([
+    const [delJournal, delLoanPayments, delLoans, delPayments, delFiles, delContracts, delMaintenance, delTransactions, delSupPayments, delSupInvoices, delSuppliers, delUnits, delTenants, delBuildings, delAccounts] = await db.$transaction([
       db.journalEntry.deleteMany({}),
       db.loanPayment.deleteMany({}),
       db.loan.deleteMany({}),
@@ -71,6 +74,9 @@ export async function POST(request: NextRequest) {
       db.contract.deleteMany({}),
       db.maintenanceRequest.deleteMany({}),
       db.transaction.deleteMany({}),
+      db.supplierPayment.deleteMany({}),
+      db.supplierInvoice.deleteMany({}),
+      db.supplier.deleteMany({}),
       db.unit.deleteMany({}),
       db.tenant.deleteMany({}),
       db.building.deleteMany({}),
@@ -86,6 +92,9 @@ export async function POST(request: NextRequest) {
       contracts: delContracts.count,
       maintenance: delMaintenance.count,
       transactions: delTransactions.count,
+      supplierPayments: delSupPayments.count,
+      supplierInvoices: delSupInvoices.count,
+      suppliers: delSuppliers.count,
       units: delUnits.count,
       tenants: delTenants.count,
       buildings: delBuildings.count,

@@ -56,6 +56,7 @@ model Building {
   maintenanceRequests MaintenanceRequest[]
   uploads     FileUpload[]
   legalCases  LegalCase[]
+  supplierInvoices SupplierInvoice[]
 }
 
 model Unit {
@@ -75,6 +76,7 @@ model Unit {
   contracts   Contract[]
   maintenanceRequests MaintenanceRequest[]
   legalCases  LegalCase[]
+  supplierInvoices SupplierInvoice[]
 }
 
 model Tenant {
@@ -338,6 +340,7 @@ model Supplier {
   updatedAt   DateTime @updatedAt
 
   payments    SupplierPayment[]
+  invoices    SupplierInvoice[]
 }
 
 model SupplierPayment {
@@ -348,12 +351,39 @@ model SupplierPayment {
   description String?  // بيان الدفعة — على أي شغلانة
   buildingId  String?  // العمارة المرتبطة (اختياري)
   method      String   @default("cash") // cash, transfer, check, card
-  accountCode String   @default("5206") // حساب المصروف من شجرة الحسابات
+  accountCode String   @default("5206") // حساب المصروف من شجرة الحسابات (للدفعات غير المرتبطة بمستحق)
+  invoiceId   String?  // المستحق المسدَّد — عند اختياره يقيد المبلغ على حساب المورد 2101 بدل حساب المصروف
   paymentNo   String?  @unique // رقم سند الصرف التسلسلي (ص-0001) — يُسند آليًا
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  supplier    Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplier    Supplier        @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  invoice     SupplierInvoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+}
+
+// مستحق مورد / مقاول — فاتورة شغلانة أو توريد مستحقة له مع إمكانية سدادها على دفعات
+// المستحق يولّد قيدًا محاسبيًا (مدين المصروف / دائن 2101 الذمم الدائنة — الموردون)
+// الدفعة المرتبطة بمستحق تولّد قيدًا (مدين 2101 / دائن الصندوق أو البنك) فلا يتكرر المصروف
+model SupplierInvoice {
+  id          String   @id @default(cuid())
+  supplierId  String
+  buildingId  String?  // العمارة المرتبطة بالمستحق — يحمّل المصروف على حسابها
+  unitId      String?  // الوحدة (اختياري)
+  date        String   // تاريخ المستحق YYYY-MM-DD
+  dueDate     String?  // تاريخ الاستحقاق المتفق عليه (اختياري)
+  amount      Float
+  description String?  // بيان الشغلانة / التوريد
+  accountCode String   @default("5101") // حساب المصروف من شجرة الحسابات
+  status      String   @default("unpaid") // unpaid غير مسدد / partial مسدد جزئياً / paid مسدد
+  notes       String?
+  invoiceNo   String?  @unique // رقم المستحق التسلسلي (م-0001) — يُسند آلياً ولا يُقبل من المستخدم
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  supplier    Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  building    Building? @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  unit        Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  payments    SupplierPayment[]
 }
 
 // === عدّاد الترقيم التسلسلي للمستندات ===

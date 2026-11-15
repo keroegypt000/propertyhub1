@@ -80,6 +80,13 @@ export async function POST(request: NextRequest) {
       }
       stats.supplierPayments = supplierPayments.length;
 
+      // مستحقات الموردين والمقاولين — مستند مستحق (م)
+      const supplierInvoices = await tx.supplierInvoice.findMany({ where: { invoiceNo: null }, orderBy: { createdAt: 'asc' }, select: { id: true } });
+      for (const si of supplierInvoices) {
+        await tx.supplierInvoice.update({ where: { id: si.id }, data: { invoiceNo: await nextDocNumber(tx, 'supplierInvoice') } });
+      }
+      stats.supplierInvoices = supplierInvoices.length;
+
       return stats;
     });
 
