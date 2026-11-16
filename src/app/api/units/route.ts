@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { authMiddleware, canWrite, canRead } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
+import { normalizeName, duplicateUnitNumberError } from '@/lib/unique';
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,9 +32,15 @@ export async function POST(request: NextRequest) {
     if (body.notes !== undefined) data.notes = body.notes || null;
 
     // Upsert: وحدة موجودة بنفس رقم العمارة → تُحدَّث بدل إنشاء مكرر (مهم لإعادة الاستيراد وتصحيح الحالات)
+    // المطابقة معيارية — «7» و « 7 » نفس الوحدة حتى لا يُنشأ تكرار صامت عند الاستيراد
     let existing: any = null;
     if (data.buildingId && data.number) {
       existing = await db.unit.findFirst({ where: { buildingId: data.buildingId, number: data.number } });
+      if (!existing) {
+        const siblings = await db.unit.findMany({ where: { buildingId: data.buildingId }, select: { id: true, number: true } });
+        const key = normalizeName(data.number);
+        existing = siblings.find(u => normalizeName(u.number) === key) || null;
+      }
     }
 
     let unit: any;

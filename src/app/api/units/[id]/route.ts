@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
+import { duplicateUnitNumberError } from '@/lib/unique';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -22,7 +23,18 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const { id } = await params;
     const body = await request.json();
     const old = await db.unit.findUnique({ where: { id } });
-    const unit = await db.unit.update({ where: { id }, data: body });
+    const data: any = { ...body };
+    // منع تكرار رقم الوحدة داخل نفس العمارة — مع استثناء الوحدة نفسها
+    if (body.number !== undefined && body.number !== null) {
+      const number = String(body.number).trim();
+      if (!number) return NextResponse.json({ error: 'رقم الوحدة مطلوب' }, { status: 400 });
+      const buildingId = body.buildingId || old?.buildingId;
+      const siblings = await db.unit.findMany({ where: { buildingId }, select: { id: true, number: true } });
+      const dup = duplicateUnitNumberError(siblings, number, id);
+      if (dup) return NextResponse.json({ error: dup }, { status: 400 });
+      data.number = number;
+    }
+    const unit = await db.unit.update({ where: { id }, data });
     await logAudit(user.id, 'update', 'unit', id, { before: old, after: body }, `تعديل وحدة: ${body.number || old?.number}`);
     return NextResponse.json(unit);
   } catch (error: any) {

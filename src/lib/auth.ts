@@ -3,6 +3,24 @@ import { db } from './db';
 
 const SESSION_HOURS = 12;
 
+// كاش جلسات قصير العمر في الذاكرة — كل طلب API كان يفتح استعلام
+// session.findUnique على قاعدة البيانات، وعلى Vercel (25 مسار API)
+// هذا يرهق حد اتصالات Supabase فيظهر «too many connections».
+// الكاش يقلل الاستعلامات كثيرًا — وتعطيل مستخدم أو حذف جلسة يسري
+// خلال أقصى دقيقة (مقبول لجلسات 12 ساعة).
+const SESSION_CACHE_MS = 60_000;
+const sessionCache = new Map<string, { user: any; expires: number }>();
+
+function sweepSessionCache(): void {
+  if (sessionCache.size < 500) return;
+  const now = Date.now();
+  for (const [k, v] of sessionCache) if (v.expires <= now) sessionCache.delete(k);
+}
+
+function invalidateSessionCache(token: string): void {
+  sessionCache.delete(token);
+}
+
 export const ROLES: Record<string, string> = {
   admin: 'مدير',
   manager: 'مدير فرعي',
@@ -52,12 +70,22 @@ export async function createSession(userId: string): Promise<string> {
 
 export async function getSession(token: string) {
   if (!token) return null;
+  // قراءة من الكاش أولًا — توفّر استعلام قاعدة البيانات لمعظم الطلبات المتتالية
+  const cached = sessionCache.get(token);
+  if (cached && cached.expires > Date.now()) return cached.user;
   const session = await db.session.findUnique({ where: { token }, include: { user: true } });
   if (!session || session.expiresAt < new Date()) {
+    invalidateSessionCache(token);
     if (session) await db.session.delete({ where: { id: session.id } });
     return null;
   }
-  if (!session.user.active) return null;
+  if (!session.user.active) {
+    invalidateSessionCache(token);
+    return null;
+  }
+  const user = session.user;
+  sessionCache.set(token, { user, expires: Date.now() + SESSION_CACHE_MS });
+  sweepSessionCache();
   // Refresh session if halfway expired
   const halfExpiry = new Date(session.expiresAt.getTime() - SESSION_HOURS * 1800 * 1000);
   if (new Date() > halfExpiry) {
@@ -66,10 +94,11 @@ export async function getSession(token: string) {
       data: { expiresAt: new Date(Date.now() + SESSION_HOURS * 3600 * 1000) },
     });
   }
-  return session.user;
+  return user;
 }
 
 export async function deleteSession(token: string): Promise<void> {
+  invalidateSessionCache(token);
   try { await db.session.deleteMany({ where: { token } }); } catch {}
 }
 

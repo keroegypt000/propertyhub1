@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
+import { duplicateNameError } from '@/lib/unique';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -24,8 +25,17 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const old = await db.tenant.findUnique({ where: { id } });
     // الحقول المسموح بها — منها نوع المستأجر (فرد/شركة) والسجل التجاري
     const data: any = {};
-    for (const k of ['name', 'tenantType', 'commercialReg', 'phone', 'email', 'idNumber', 'idType', 'address', 'emergencyContact', 'guarantor', 'guarantorPhone', 'notes']) {
+    for (const k of ['tenantType', 'commercialReg', 'phone', 'email', 'idNumber', 'idType', 'address', 'emergencyContact', 'guarantor', 'guarantorPhone', 'notes']) {
       if (body[k] !== undefined) data[k] = body[k];
+    }
+    // منع تكرار الاسم عند التعديل — مع استثناء المستأجر نفسه من المقارنة
+    if (body.name !== undefined) {
+      const name = String(body.name || '').trim();
+      if (!name) return NextResponse.json({ error: 'اسم المستأجر مطلوب' }, { status: 400 });
+      const all = await db.tenant.findMany({ select: { id: true, name: true } });
+      const dup = duplicateNameError(all, name, { excludeId: id, field: 'اسم المستأجر' });
+      if (dup) return NextResponse.json({ error: dup }, { status: 400 });
+      data.name = name;
     }
     const tenant = await db.tenant.update({ where: { id }, data });
     await logAudit(user.id, 'update', 'tenant', id, { before: old, after: body }, `تعديل مستأجر: ${body.name || old?.name}`);

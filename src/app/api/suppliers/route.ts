@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
+import { duplicateNameError } from '@/lib/unique';
 
 /** خطأ المصادقة فقط يرجع 401 — أخطاء قاعدة البيانات ترجع 500 بالرسالة الحقيقية
  *  حتى لا تظهر القائمة فارغة بصمت في الواجهة عند فشل الاتصال */
@@ -38,6 +39,10 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const name = String(body.name || '').trim();
     if (!name) return NextResponse.json({ error: 'اسم المورد / المقاول مطلوب' }, { status: 400 });
+    // منع تكرار الاسم — لا يُقبَل موردان/مقاولان بنفس الاسم حتى لو اختلف الرجل والمسافات
+    const all = await db.supplier.findMany({ select: { id: true, name: true } });
+    const dup = duplicateNameError(all, name, { field: 'اسم المورد / المقاول' });
+    if (dup) return NextResponse.json({ error: dup }, { status: 400 });
     const supplier = await db.supplier.create({
       data: {
         name,

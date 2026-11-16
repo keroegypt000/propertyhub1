@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { removeAutoEntry } from '@/lib/accounting';
+import { duplicateNameError } from '@/lib/unique';
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -12,6 +13,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const body = await request.json();
     const name = String(body.name || '').trim();
     if (!name) return NextResponse.json({ error: 'اسم المورد / المقاول مطلوب' }, { status: 400 });
+    // منع تكرار الاسم عند التعديل — مع استثناء المورد نفسه من المقارنة
+    const all = await db.supplier.findMany({ select: { id: true, name: true } });
+    const dup = duplicateNameError(all, name, { excludeId: id, field: 'اسم المورد / المقاول' });
+    if (dup) return NextResponse.json({ error: dup }, { status: 400 });
     const supplier = await db.supplier.update({
       where: { id },
       data: {
