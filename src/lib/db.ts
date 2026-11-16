@@ -30,3 +30,39 @@ export const db =
 // نخزّن النسخة دائمًا (حتى في الإنتاج) — كل دالة serverless على Vercel
 // تعيد استخدام نفس عميل Prisma بدل فتح اتصالات جديدة كل مرة
 globalForPrisma.prisma = db
+
+/**
+ * أخطاء الاتصالات المؤقتة — ضغط اتصالات قاعدة البيانات في الإنتاج
+ * (Supabase «too many connections» / انقطاع لحظي / تعارض معاملة)
+ * هذه الأخطاء لا تعني فشل العملية نفسها — إعادة المحاولة بعد لحظات تنجح غالبًا.
+ */
+const TRANSIENT_DB_ERROR = /too many connections|timed out fetching|can't reach database|connection pool|connection terminated|connection closed|could not connect|P1001|P1002|P2024|P2034/i
+
+export function isTransientDbError(error: any): boolean {
+  const text = `${error?.message || ''} ${error?.code || ''}`;
+  return TRANSIENT_DB_ERROR.test(text);
+}
+
+/** خطأ تحقق من البيانات — للتمييز بين رفض الطلب (400) وفشل قاعدة البيانات (500) */
+export class ValidationError extends Error {}
+
+/**
+ * إعادة محاولة عملية قاعدة البيانات عند الأخطاء المؤقتة فقط.
+ * الآمن على العمليات الذرية ($transaction) — فشل المعاملة يرجع كل شيء
+ * فإعادة تشغيلها من الصفر لا تكرر شيئًا. أخطاء التحقق والأخطاء المنطقية
+ * لا تُعاد — تُرمى فورًا.
+ */
+export async function withDbRetry<T>(fn: () => Promise<T>, attempts: number = 3): Promise<T> {
+  let lastError: any;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      if (error instanceof ValidationError || !isTransientDbError(error) || i === attempts - 1) throw error;
+      console.warn(`[db-retry] محاولة ${i + 1} فشلت بخطأ اتصال مؤقت — إعادة المحاولة: ${error?.message || error}`);
+      await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
+    }
+  }
+  throw lastError;
+}

@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { db } from './db';
+import { db, withDbRetry } from './db';
 
 const SESSION_HOURS = 12;
 
@@ -73,7 +73,11 @@ export async function getSession(token: string) {
   // قراءة من الكاش أولًا — توفّر استعلام قاعدة البيانات لمعظم الطلبات المتتالية
   const cached = sessionCache.get(token);
   if (cached && cached.expires > Date.now()) return cached.user;
-  const session = await db.session.findUnique({ where: { token }, include: { user: true } });
+  // عند الوفاة من الكاش: استعلام مع إعادة محاولة تلقائية عند أخطاء الاتصالات المؤقتة —
+  // وفشل نهائي يمرّر الخطأ الحقيقي (500) لا 401 حتى لا تظهر الجلسة الصحيحة كغير مصرح بها
+  const session = await withDbRetry(() =>
+    db.session.findUnique({ where: { token }, include: { user: true } })
+  );
   if (!session || session.expiresAt < new Date()) {
     invalidateSessionCache(token);
     if (session) await db.session.delete({ where: { id: session.id } });

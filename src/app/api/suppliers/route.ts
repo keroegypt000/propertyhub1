@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, withDbRetry } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { duplicateNameError } from '@/lib/unique';
@@ -16,7 +16,7 @@ function routeError(error: any) {
 export async function GET(request: NextRequest) {
   try {
     await authMiddleware(request);
-    const suppliers = await db.supplier.findMany({
+    const suppliers = await withDbRetry(() => db.supplier.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
         payments: { orderBy: { date: 'desc' } },
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
           include: { payments: { select: { amount: true } } },
         },
       },
-    });
+    }));
     return NextResponse.json(suppliers);
   } catch (error: any) {
     return routeError(error);

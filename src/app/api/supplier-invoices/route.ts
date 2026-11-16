@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, withDbRetry, ValidationError } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
-import { upsertAutoEntry, syncSupplierInvoiceEntry, ACC } from '@/lib/accounting';
+import { syncSupplierInvoiceEntry, ACC } from '@/lib/accounting';
 import { nextDocNumber } from '@/lib/numbering';
 
 /**
@@ -20,7 +20,7 @@ function routeError(error: any) {
 export async function GET(request: NextRequest) {
   try {
     await authMiddleware(request);
-    const invoices = await db.supplierInvoice.findMany({
+    const invoices = await withDbRetry(() => db.supplierInvoice.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
         supplier: true,
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
         unit: true,
         payments: { orderBy: { date: 'desc' } },
       },
-    });
+    }));
     return NextResponse.json(invoices);
   } catch (error: any) {
     return routeError(error);
@@ -43,42 +43,42 @@ export async function POST(request: NextRequest) {
 
     const supplierId = String(body.supplierId || '');
     if (!supplierId) return NextResponse.json({ error: 'المورد مطلوب' }, { status: 400 });
-    const supplier = await db.supplier.findUnique({ where: { id: supplierId } });
-    if (!supplier) return NextResponse.json({ error: 'المورد غير موجود' }, { status: 400 });
     const amount = Number(body.amount);
     if (!amount || amount <= 0) return NextResponse.json({ error: 'المبلغ يجب أن يكون أكبر من صفر' }, { status: 400 });
     const date = String(body.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
     if (isNaN(new Date(date).getTime())) return NextResponse.json({ error: 'التاريخ غير صالح' }, { status: 400 });
     const accountCode = String(body.accountCode || ACC.MAINTENANCE);
 
-    // مستحق المورد = مستند تسلسلي (م) من العدّاد المركزي — داخل معاملة الإنشاء
-    const invoice = await db.$transaction(async (tdb) => tdb.supplierInvoice.create({
-      data: {
-        supplierId,
-        buildingId: body.buildingId || null,
-        unitId: body.unitId || null,
-        amount: Math.round(amount * 1000) / 1000,
-        date,
-        dueDate: body.dueDate ? String(body.dueDate).slice(0, 10) : null,
-        description: body.description ? String(body.description).trim() : null,
-        accountCode,
-        notes: body.notes ? String(body.notes).trim() : null,
-        invoiceNo: await nextDocNumber(tdb, 'supplierInvoice'),
-      },
+    // العملية كلها داخل معاملة واحدة (اتصال واحد): التحقق + الإنشاء + الترقيم + القيد المحاسبي + سجل التدقيق
+    // يقلل ضغط اتصالات قاعدة البيانات في الإنتاج ويضمن الذرية — لا مستحق بلا قيد ولا قيد بلا مستحق
+    // مع إعادة المحاولة تلقائيًا عند أخطاء الاتصالات المؤقتة (ضغط الاتصالات في Supabase)
+    const invoice = await withDbRetry(() => db.$transaction(async (tdb) => {
+      const supplier = await tdb.supplier.findUnique({ where: { id: supplierId } });
+      if (!supplier) throw new ValidationError('المورد غير موجود');
+      const inv = await tdb.supplierInvoice.create({
+        data: {
+          supplierId,
+          buildingId: body.buildingId || null,
+          unitId: body.unitId || null,
+          amount: Math.round(amount * 1000) / 1000,
+          date,
+          dueDate: body.dueDate ? String(body.dueDate).slice(0, 10) : null,
+          description: body.description ? String(body.description).trim() : null,
+          accountCode,
+          notes: body.notes ? String(body.notes).trim() : null,
+          invoiceNo: await nextDocNumber(tdb, 'supplierInvoice'),
+        },
+      });
+      // القيد المحاسبي: مدين حساب المصروف / دائن 2101 الذمم الدائنة — الموردون — داخل نفس المعاملة
+      await syncSupplierInvoiceEntry(tdb, { ...inv, supplier });
+      await logAudit(user.id, 'create', 'supplierInvoice', inv.id, body, `مستحق ${inv.amount} د.ك على ${supplier.name}${inv.invoiceNo ? ` (${inv.invoiceNo})` : ''}`, tdb);
+      return inv;
     }));
 
-    // القيد المحاسبي: مدين حساب المصروف / دائن 2101 الذمم الدائنة — الموردون
-    let entryWarning: string | null = null;
-    try {
-      await syncSupplierInvoiceEntry(db, invoice);
-    } catch (e: any) {
-      entryWarning = e?.message || 'تعذر توليد القيد المحاسبي';
-      console.error('[supplier-invoice POST entry]', entryWarning);
-    }
-
-    await logAudit(user.id, 'create', 'supplierInvoice', invoice.id, body, `مستحق ${invoice.amount} د.ك على ${supplier.name}${invoice.invoiceNo ? ` (${invoice.invoiceNo})` : ''}`);
-    return NextResponse.json({ ...invoice, entryWarning }, { status: 201 });
+    return NextResponse.json({ ...invoice, entryWarning: null }, { status: 201 });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'خطأ' }, { status: 400 });
+    if (error instanceof ValidationError) return NextResponse.json({ error: error.message }, { status: 400 });
+    console.error('[supplier-invoices POST]', error?.message || error);
+    return NextResponse.json({ error: error.message || 'خطأ' }, { status: 500 });
   }
 }

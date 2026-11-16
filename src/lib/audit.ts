@@ -6,10 +6,11 @@ export async function logAudit(
   entity: string,
   entityId?: string,
   changes?: Record<string, any>,
-  details?: string
+  details?: string,
+  txClient?: any // عميل معاملة اختياري — لتسجيل التدقيق داخل نفس معاملة العملية (اتصال واحد)
 ): Promise<void> {
   try {
-    await db.auditLog.create({
+    await (txClient || db).auditLog.create({
       data: {
         userId,
         action,
