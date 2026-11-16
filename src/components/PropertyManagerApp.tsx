@@ -170,6 +170,8 @@ export default function PropertyManagerApp() {
   const [supplierPayments, setSupplierPayments] = useState<any[]>([]);
   // مستحقات الموردين والمقاولين (م-0001) — رصيد كل مورد = المستحق − المدفوع
   const [supplierInvoices, setSupplierInvoices] = useState<any[]>([]);
+  // رسالة فشل تحميل الموردين — تظهر كبانر بزر إعادة محاولة بدل قائمة فارغة صامتة
+  const [suppliersError, setSuppliersError] = useState<string | null>(null);
   const [supplierInvFilter, setSupplierInvFilter] = useState('all'); // all | unpaid | partial | paid
   const [tenantStatusFilter, setTenantStatusFilter] = useState<'all' | 'current' | 'former'>('all');
   // فلتر سجل السندات: الكل / قبض / صرف — بحث بالرقم التسلسلي أو الطرف أو البيان
@@ -262,18 +264,49 @@ export default function PropertyManagerApp() {
       if (s === 'contracts') setContracts(await api<Contract[]>('/api/contracts'));
       if (s === 'payments') { setPayments(await api<Payment[]>('/api/payments')); setContracts(await api<Contract[]>('/api/contracts')); }
       if (s === 'suppliers') {
-        const [sp, sPay, sInv, b, ac, u] = await Promise.all([
-          api('/api/suppliers'), api('/api/supplier-payments').catch(() => []), api('/api/supplier-invoices').catch(() => []),
+        // تحميل مرن: كل طلب مستقل بنتيجة خاصة — فشل واحد لا يمسح القائمة كلها
+        // والمورد نفسه يعاد المحاولة مرة واحدة تلقائيًا (حماية من انقطاع لحظي في الاتصال)
+        setSuppliersError(null);
+        const fetchSuppliers = async (): Promise<any> => {
+          try { return await api('/api/suppliers'); }
+          catch (e: any) {
+            if (e?.message === 'unauthorized') throw e;
+            await new Promise(r => setTimeout(r, 1200));
+            return await api('/api/suppliers');
+          }
+        };
+        const [spR, sPayR, sInvR, bR, acR, uR] = await Promise.allSettled([
+          fetchSuppliers(), api('/api/supplier-payments').catch(() => []), api('/api/supplier-invoices').catch(() => []),
           api('/api/buildings').catch(() => []), api('/api/accounts').catch(() => []), api('/api/units').catch(() => []),
         ]);
-        setSuppliers(sp as any); setSupplierPayments(sPay as any); setSupplierInvoices(sInv as any); setBuildings(b as Building[]); setAccounts(ac as any); setUnits(u as any);
+        if (spR.status === 'fulfilled') {
+          setSuppliers(spR.value as any);
+        } else {
+          setSuppliersError(spR.reason?.message === 'unauthorized' ? 'انتهت الجلسة — أعد تسجيل الدخول' : (spR.reason?.message || 'تعذر تحميل الموردين'));
+        }
+        if (sPayR.status === 'fulfilled') setSupplierPayments(sPayR.value as any);
+        if (sInvR.status === 'fulfilled') setSupplierInvoices(sInvR.value as any);
+        if (bR.status === 'fulfilled') setBuildings(bR.value as Building[]);
+        if (acR.status === 'fulfilled') setAccounts(acR.value as any);
+        if (uR.status === 'fulfilled') setUnits(uR.value as any);
       }
       if (s === 'maintenance') setMaintenance(await api<MaintenanceItem[]>('/api/maintenance'));
       if (s === 'files') { setAllFiles(await api<FileUpload[]>('/api/files/all')); setContracts(await api<Contract[]>('/api/contracts')); setTenants(await api<Tenant[]>('/api/tenants')); }
       if (s === 'audit') { const data = await api<{ logs: AuditEntry[] }>('/api/audit?limit=100'); setAuditLogs(data.logs || []); }
       if (s === 'restore') setRestorePoints(await api<RestorePoint[]>('/api/restore'));
       if (s === 'users') setAllUsers(await api('/api/users'));
-      if (s === 'transactions') { setTransactions(await api('/api/transactions')); setBuildings(await api('/api/buildings')); setAccounts(await api('/api/accounts')); }
+      if (s === 'transactions') {
+        // بيانات الموردين تُحمّل أيضًا — مصروفات المستحقات والدفعات تظهر في ملخص هذه الصفحة
+        const [tr, b, ac, sInv, sPay] = await Promise.allSettled([
+          api('/api/transactions'), api('/api/buildings'), api('/api/accounts'),
+          api('/api/supplier-invoices').catch(() => []), api('/api/supplier-payments').catch(() => []),
+        ]);
+        if (tr.status === 'fulfilled') setTransactions(tr.value as any);
+        if (b.status === 'fulfilled') setBuildings(b.value as Building[]);
+        if (ac.status === 'fulfilled') setAccounts(ac.value as any);
+        if (sInv.status === 'fulfilled') setSupplierInvoices(sInv.value as any);
+        if (sPay.status === 'fulfilled') setSupplierPayments(sPay.value as any);
+      }
       if (s === 'legalCases') setLegalCases(await api('/api/legal-cases'));
       if (s === 'buildingDetail') {
         const [b, u, c, t, m, tr, jr, ac, fl, p, sup, sInv, sPay] = await Promise.all([
@@ -1422,14 +1455,21 @@ export default function PropertyManagerApp() {
             const filteredInvoices = supplierInvoices.filter(i =>
               (supplierInvFilter === 'all' || i.status === supplierInvFilter)
               && (!searchQuery || i.invoiceNo?.includes(searchQuery) || i.supplier?.name?.includes(searchQuery) || (i.description || '').includes(searchQuery)));
-            const saveInvoice = async (data: any) => { const r: any = await api('/api/supplier-invoices', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); autoRestore('مستحق مورد'); loadData('suppliers'); };
-            const savePayment = async (data: any) => { const r: any = await api('/api/supplier-payments', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); autoRestore('دفعة مورد'); loadData('suppliers'); };
+            const saveInvoice = async (data: any) => { const r: any = await api('/api/supplier-invoices', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); await loadData('suppliers'); autoRestore('مستحق مورد'); };
+            const savePayment = async (data: any) => { const r: any = await api('/api/supplier-payments', 'POST', data); if (r?.entryWarning) toast.warning(r.entryWarning); await loadData('suppliers'); autoRestore('دفعة مورد'); };
             return (
             <div className="space-y-4">
+              {/* بانر فشل التحميل — يظهر بدل القائمة الفارغة الصامتة مع زر إعادة محاولة */}
+              {suppliersError && (
+                <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200 shadow-sm">
+                  <div className="flex items-center gap-2 text-sm text-amber-800 min-w-0"><AlertTriangle size={16} className="shrink-0" /><span className="truncate">تعذر تحميل بيانات الموردين: {suppliersError}</span></div>
+                  <Button size="sm" variant="outline" className="border-amber-300 text-amber-800 bg-white shrink-0" onClick={() => loadData('suppliers')}><RefreshCw size={14} className="ml-1" />إعادة المحاولة</Button>
+                </div>
+              )}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl sm:text-2xl font-bold text-gray-900">الموردين والمقاولين</h2><PageCount n={suppliers.length} label="مورد / مقاول" />
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative flex-1 sm:flex-none"><Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" /><Input placeholder="بحث..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pr-9 w-full sm:w-48 border-orange-200 focus:border-orange-500" /></div>
-                  {canWriteCheck('suppliers') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة مورد / مقاول</Button>} title="إضافة مورد أو مقاول جديد">{(close) => <SupplierForm onSave={async (data) => { await api('/api/suppliers', 'POST', data); autoRestore('إضافة مورد'); loadData('suppliers'); }} onClose={close} />}</FormDialog>)}
+                  {canWriteCheck('suppliers') && (<FormDialog trigger={<Button className="bg-gradient-to-l from-orange-500 to-amber-500 text-white shadow-md"><Plus size={18} className="ml-2" />إضافة مورد / مقاول</Button>} title="إضافة مورد أو مقاول جديد">{(close) => <SupplierForm onSave={async (data) => { await api('/api/suppliers', 'POST', data); await loadData('suppliers'); autoRestore('إضافة مورد'); }} onClose={close} />}</FormDialog>)}
                   {canWriteCheck('suppliers') && suppliers.length > 0 && (<FormDialog trigger={<Button variant="outline" className="border-rose-300 text-rose-700 bg-rose-50" title="سجل فاتورة شغلانة مستحقة لمقاول أو مورد على عمارة — تولّد قيد مصروف ورصيد على المورد"><ReceiptText size={16} className="ml-1" />تسجيل مستحق مورد</Button>} title="تسجيل مستحق لمورد / مقاول">{(close) => <SupplierInvoiceForm suppliers={suppliers} buildings={buildings} units={units} accounts={accounts as any} onSave={saveInvoice} onClose={close} />}</FormDialog>)}
                   {canWriteCheck('suppliers') && suppliers.length > 0 && (<FormDialog trigger={<Button variant="outline" className="border-amber-300 text-amber-700 bg-amber-50" title="سجل دفعة لمقاول أو مورد على مستحق قائم"><Truck size={16} className="ml-1" />تسجيل دفعة مورد</Button>} title="تسجيل دفعة لمورد / مقاول">{(close) => <SupplierPaymentForm suppliers={suppliers} buildings={buildings} supplierInvoices={supplierInvoices} accounts={accounts as any} onSave={savePayment} onClose={close} />}</FormDialog>)}
                 </div>
@@ -1473,13 +1513,13 @@ export default function PropertyManagerApp() {
                     {canWriteCheck('suppliers') && <div className="flex gap-1 mt-3">
                       <FormDialog trigger={<Button variant="outline" size="sm" className="flex-1 border-amber-200 text-amber-700 hover:bg-amber-50" title="تسجيل دفعة لهذا المورد على مستحق قائم"><DollarSign size={14} className="ml-1" />دفعة</Button>} title={`تسجيل دفعة — ${s.name}`}>{(close) => <SupplierPaymentForm suppliers={suppliers} buildings={buildings} supplierInvoices={supplierInvoices} accounts={accounts as any} initialSupplierId={s.id} onSave={savePayment} onClose={close} />}</FormDialog>
                       <FormDialog trigger={<Button variant="outline" size="sm" className="flex-1 border-rose-200 text-rose-700 hover:bg-rose-50" title="سجل فاتورة شغلانة مستحقة لهذا المورد"><ReceiptText size={14} className="ml-1" />مستحق</Button>} title={`تسجيل مستحق — ${s.name}`}>{(close) => <SupplierInvoiceForm suppliers={suppliers} buildings={buildings} units={units} accounts={accounts as any} initialSupplierId={s.id} onSave={saveInvoice} onClose={close} />}</FormDialog>
-                      <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل المورد">{(close) => <SupplierForm initial={s} onSave={async (data) => { await api(`/api/suppliers/${s.id}`, 'PUT', data); autoRestore('تعديل مورد'); loadData('suppliers'); }} onClose={close} />}</FormDialog>
-                      <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm(`حذف «${s.name}»؟ هتتحذف معه كل دفعاته (${sPays.length}) ومستحقاته (${sInvs.length}) وقيودها المحاسبية — مفيش رجوع غير من نقاط الاستعادة.`)) { await api(`/api/suppliers/${s.id}`, 'DELETE'); autoRestore('حذف مورد'); loadData('suppliers'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>
+                      <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title="تعديل المورد">{(close) => <SupplierForm initial={s} onSave={async (data) => { await api(`/api/suppliers/${s.id}`, 'PUT', data); await loadData('suppliers'); autoRestore('تعديل مورد'); }} onClose={close} />}</FormDialog>
+                      <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm(`حذف «${s.name}»؟ هتتحذف معه كل دفعاته (${sPays.length}) ومستحقاته (${sInvs.length}) وقيودها المحاسبية — مفيش رجوع غير من نقاط الاستعادة.`)) { await api(`/api/suppliers/${s.id}`, 'DELETE'); await loadData('suppliers'); autoRestore('حذف مورد'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>
                     </div>}
                   </CardContent></Card>
                   );
                 })}
-                {filteredSuppliers.length === 0 && <div className="md:col-span-2 lg:col-span-3"><EmptyState icon={<Truck size={48} />} text="لا يوجد موردين أو مقاولين — أضف أول واحد من الزر البرتقالي" /></div>}
+                {filteredSuppliers.length === 0 && !suppliersError && <div className="md:col-span-2 lg:col-span-3"><EmptyState icon={<Truck size={48} />} text="لا يوجد موردين أو مقاولين — أضف أول واحد من الزر البرتقالي" /></div>}
               </div>
               {/* سجل مستحقات الموردين — الرقم التسلسلي م-0001 + حالة السداد */}
               {supplierInvoices.length > 0 && (
@@ -1515,8 +1555,8 @@ export default function PropertyManagerApp() {
                         <TableCell><Badge className={`${st.color} text-[10px]`}>{st.label}</Badge></TableCell>
                         {canWriteCheck('suppliers') && <TableCell><div className="flex gap-1">
                           <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-rose-600 hover:bg-rose-50" title={`إشعار المستحق ${inv.invoiceNo || ''}`}><Printer size={14} /></Button>} title={`مستحق ${inv.invoiceNo || ''} — مورد`} docHtml={supplierInvoiceVoucherHtml(inv, CURRENCY)} />
-                          <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title={`تعديل المستحق ${inv.invoiceNo || ''}`}>{(close) => <SupplierInvoiceForm suppliers={suppliers} buildings={buildings} units={units} accounts={accounts as any} initial={inv} onSave={async (data) => { const r: any = await api(`/api/supplier-invoices/${inv.id}`, 'PUT', data); if (r?.entryWarning) toast.warning(r.entryWarning); autoRestore('تعديل مستحق مورد'); loadData('suppliers'); }} onClose={close} />}</FormDialog>
-                          <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm(`حذف المستحق ${inv.invoiceNo || ''}؟ هيتحذف قيده المحاسبي ولو عليه دفعات هتفضل موجودة كدفعات عامة.`)) { await api(`/api/supplier-invoices/${inv.id}`, 'DELETE'); autoRestore('حذف مستحق مورد'); loadData('suppliers'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>
+                          <FormDialog trigger={<Button variant="ghost" size="sm" className="text-blue-500 hover:bg-blue-50" title="تعديل"><Edit3 size={14} /></Button>} title={`تعديل المستحق ${inv.invoiceNo || ''}`}>{(close) => <SupplierInvoiceForm suppliers={suppliers} buildings={buildings} units={units} accounts={accounts as any} initial={inv} onSave={async (data) => { const r: any = await api(`/api/supplier-invoices/${inv.id}`, 'PUT', data); if (r?.entryWarning) toast.warning(r.entryWarning); await loadData('suppliers'); autoRestore('تعديل مستحق مورد'); }} onClose={close} />}</FormDialog>
+                          <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm(`حذف المستحق ${inv.invoiceNo || ''}؟ هيتحذف قيده المحاسبي ولو عليه دفعات هتفضل موجودة كدفعات عامة.`)) { await api(`/api/supplier-invoices/${inv.id}`, 'DELETE'); await loadData('suppliers'); autoRestore('حذف مستحق مورد'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>
                         </div></TableCell>}
                       </TableRow>);
                     })}</TableBody></Table>
@@ -1543,7 +1583,7 @@ export default function PropertyManagerApp() {
                       <TableCell className="text-xs">{({ cash: 'نقدي', transfer: 'تحويل', check: 'شيك', card: 'بطاقة' } as any)[p.method] || p.method}</TableCell>
                       {canWriteCheck('suppliers') && <TableCell><div className="flex gap-1">
                         <VoucherDialog trigger={<Button variant="ghost" size="sm" className="text-orange-600 hover:bg-orange-50" title={`سند الصرف ${p.paymentNo || ''}`}><Printer size={14} /></Button>} title={`سند صرف ${p.paymentNo || ''} — مورد`} docHtml={supplierPaymentVoucherHtml(p, CURRENCY)} />
-                        <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('حذف الدفعة؟ هيتحذف قيدها المحاسبي كمان ولو كانت تسدد مستحق هيتحدث رصيده.')) { await api(`/api/supplier-payments/${p.id}`, 'DELETE'); autoRestore('حذف دفعة مورد'); loadData('suppliers'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>
+                        <Button variant="ghost" size="sm" className="text-red-500 hover:bg-red-50" onClick={async () => { if (confirm('حذف الدفعة؟ هيتحذف قيدها المحاسبي كمان ولو كانت تسدد مستحق هيتحدث رصيده.')) { await api(`/api/supplier-payments/${p.id}`, 'DELETE'); await loadData('suppliers'); autoRestore('حذف دفعة مورد'); toast.success('تم الحذف'); } }}><Trash2 size={14} /></Button>
                       </div></TableCell>}
                     </TableRow>))}</TableBody></Table>
                   </div>
@@ -1724,6 +1764,27 @@ export default function PropertyManagerApp() {
                 <div className="p-3.5 rounded-2xl bg-blue-50 border border-blue-100 flex items-center gap-3 shadow-sm"><div className="w-9 h-9 rounded-xl bg-white/70 flex items-center justify-center shrink-0 text-blue-600"><Hash size={18} /></div><div className="min-w-0"><p className="text-[11px] text-gray-600">عدد الحركات</p><p className="font-bold text-sm sm:text-lg text-blue-700">{transactions.length}</p></div></div>
               </div>
               <p className="text-[11px] text-gray-400 -mt-2">هذه الصفحة للحركات المالية المسجلة (مصروفات تشغيل، إيرادات أخرى، حصص إدارية) — أما إيجارات التحصيل من المستأجرين فتجدها في صفحة «المدفوعات» وفي لوحة الإيرادات</p>
+              {/* مصروفات الموردين والمقاولين — مربوطة بالحسابات: المستحق قيد مصروف والدفعات تسدد الذمم */}
+              {(supplierInvoices.length > 0 || supplierPayments.length > 0) && (() => {
+                const sDues = supplierInvoices.reduce((s: number, i: any) => s + (Number(i.amount) || 0), 0);
+                const sPaid = supplierPayments.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
+                const sRem = Math.max(0, Math.round((sDues - sPaid) * 1000) / 1000);
+                const sUnpaidCount = supplierInvoices.filter((i: any) => i.status !== 'paid').length;
+                return (
+                <div className="rounded-2xl border border-amber-200 bg-gradient-to-l from-amber-50 to-orange-50 p-3.5 shadow-sm space-y-2.5">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <p className="font-bold text-sm text-amber-900 flex items-center gap-1.5"><Truck size={15} />مصروفات الموردين والمقاولين — مربوطة بالحسابات تلقائيًا{sUnpaidCount > 0 && <Badge className="bg-red-100 text-red-800 text-[10px]">{sUnpaidCount} مستحق غير مسدد</Badge>}</p>
+                    <Button size="sm" variant="outline" className="border-amber-300 bg-white text-amber-800 text-xs shrink-0" onClick={() => go('suppliers')}>فتح صفحة الموردين ←</Button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2.5">
+                    <div className="p-2.5 rounded-xl bg-white/80 border border-rose-100 text-center"><p className="text-[10px] text-gray-500">مستحقات لهم (مصروف مقيد)</p><p className="font-bold text-rose-700 text-sm sm:text-base">{fmtKWD(sDues)} {CURRENCY}</p><p className="text-[10px] text-gray-400">{supplierInvoices.length} مستحق</p></div>
+                    <div className="p-2.5 rounded-xl bg-white/80 border border-emerald-100 text-center"><p className="text-[10px] text-gray-500">المدفوع لهم (سندات صرف)</p><p className="font-bold text-emerald-700 text-sm sm:text-base">{fmtKWD(sPaid)} {CURRENCY}</p><p className="text-[10px] text-gray-400">{supplierPayments.length} دفعة</p></div>
+                    <div className="p-2.5 rounded-xl bg-white/80 border border-amber-100 text-center"><p className="text-[10px] text-gray-500">المتبقي (ذمم دائنة 2101)</p><p className={`font-bold text-sm sm:text-base ${sRem > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>{fmtKWD(sRem)} {CURRENCY}</p><p className="text-[10px] text-gray-400">مستحق − مدفوع</p></div>
+                  </div>
+                  <p className="text-[11px] text-gray-500">كل مستحق مورد يولّد قيد مصروف تلقائيًا (مدين حساب المصروف / دائن الذمم الدائنة — الموردون 2101) يظهر في القيود اليومية وميزان المراجعة والتقرير المالي للعمارة — فلا حاجة لتسجيله مرتين كحركة هنا</p>
+                </div>
+                );
+              })()}
               {/* فلتر النوع */}
               <div className="flex gap-1.5 flex-wrap">
                 {([

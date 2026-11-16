@@ -3,6 +3,14 @@ import { db } from '@/lib/db';
 import { authMiddleware, canWrite } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 
+/** خطأ المصادقة فقط يرجع 401 — أخطاء قاعدة البيانات ترجع 500 بالرسالة الحقيقية
+ *  حتى لا تظهر القائمة فارغة بصمت في الواجهة عند فشل الاتصال */
+function routeError(error: any) {
+  if (error?.message === 'غير مصرح') return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
+  console.error('[suppliers GET]', error?.message || error);
+  return NextResponse.json({ error: `تعذر تحميل الموردين: ${error?.message || 'خطأ في قاعدة البيانات'}` }, { status: 500 });
+}
+
 /** الموردين والمقاولين — قائمة بكل مورد مع ملخص دفعاته ومستحقاته ورصيده */
 export async function GET(request: NextRequest) {
   try {
@@ -19,7 +27,7 @@ export async function GET(request: NextRequest) {
     });
     return NextResponse.json(suppliers);
   } catch (error: any) {
-    return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
+    return routeError(error);
   }
 }
 

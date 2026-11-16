@@ -10,6 +10,13 @@ import { nextDocNumber } from '@/lib/numbering';
  * كل مستحق يولّد قيدًا محاسبيًا: مدين حساب المصروف / دائن 2101 الذمم الدائنة — الموردون
  * الدفعات المرتبطة به تسدّده على دفعات وتقيد على حساب المورد 2101 — فلا يتكرر المصروف
  */
+/** خطأ المصادقة فقط يرجع 401 — أخطاء قاعدة البيانات ترجع 500 بالرسالة الحقيقية */
+function routeError(error: any) {
+  if (error?.message === 'غير مصرح') return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
+  console.error('[supplier-invoices GET]', error?.message || error);
+  return NextResponse.json({ error: `تعذر تحميل مستحقات الموردين: ${error?.message || 'خطأ في قاعدة البيانات'}` }, { status: 500 });
+}
+
 export async function GET(request: NextRequest) {
   try {
     await authMiddleware(request);
@@ -24,7 +31,7 @@ export async function GET(request: NextRequest) {
     });
     return NextResponse.json(invoices);
   } catch (error: any) {
-    return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
+    return routeError(error);
   }
 }
 

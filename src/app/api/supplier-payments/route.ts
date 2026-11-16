@@ -6,6 +6,13 @@ import { upsertAutoEntry, resolveCashAccountCode, recomputeSupplierInvoiceStatus
 import { nextDocNumber } from '@/lib/numbering';
 
 /** دفعات الموردين والمقاولين — مربوطة بالمستحقات: الدفعة على مستحق تقيد على حساب المورد 2101 */
+/** خطأ المصادقة فقط يرجع 401 — أخطاء قاعدة البيانات ترجع 500 بالرسالة الحقيقية */
+function routeError(error: any) {
+  if (error?.message === 'غير مصرح') return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
+  console.error('[supplier-payments GET]', error?.message || error);
+  return NextResponse.json({ error: `تعذر تحميل دفعات الموردين: ${error?.message || 'خطأ في قاعدة البيانات'}` }, { status: 500 });
+}
+
 export async function GET(request: NextRequest) {
   try {
     await authMiddleware(request);
@@ -15,7 +22,7 @@ export async function GET(request: NextRequest) {
     });
     return NextResponse.json(payments);
   } catch (error: any) {
-    return NextResponse.json({ error: 'غير مصرح' }, { status: 401 });
+    return routeError(error);
   }
 }
 
